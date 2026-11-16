@@ -66,12 +66,7 @@ object Protect {
      * [protectedHomes] are home screens that must stay; [self] is this app; [extra] comes from
      * the downloaded protected list and the chosen TV list's "keep" entries.
      */
-    fun reason(
-        pkg: String,
-        self: String,
-        protectedHomes: Set<String> = emptySet(),
-        extra: Map<String, String> = emptyMap(),
-    ): String? {
+    fun reason(pkg: String, self: String, protectedHomes: Set<String> = emptySet(), extra: Map<String, String> = emptyMap()): String? {
         if (pkg == self) return "This app"
         if (pkg in protectedHomes) return "Home screen"
         EXACT[pkg]?.let { return it }

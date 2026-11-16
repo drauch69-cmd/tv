@@ -21,9 +21,9 @@ import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import rikka.shizuku.Shizuku
 import java.util.Date
 import java.util.concurrent.Executors
+import rikka.shizuku.Shizuku
 
 class MainActivity : Activity() {
     private enum class Page { SETUP, SUGGESTED, HOME, ALL, HISTORY }

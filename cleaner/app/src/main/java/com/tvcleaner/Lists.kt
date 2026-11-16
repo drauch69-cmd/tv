@@ -1,8 +1,8 @@
 package com.tvcleaner
 
+import java.security.MessageDigest
 import org.json.JSONArray
 import org.json.JSONObject
-import java.security.MessageDigest
 
 /** One TV in the index of debloat lists. */
 data class ListEntry(

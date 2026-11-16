@@ -10,13 +10,7 @@ import java.io.File
 data class Home(val activity: String, val system: Boolean)
 
 /** One app on the TV. [installed] is false when it was uninstalled for this user but can come back. */
-data class TvApp(
-    val pkg: String,
-    val label: String,
-    val system: Boolean,
-    val installed: Boolean,
-    val enabled: Boolean,
-)
+data class TvApp(val pkg: String, val label: String, val system: Boolean, val installed: Boolean, val enabled: Boolean)
 
 object Apps {
     @Suppress("DEPRECATION")

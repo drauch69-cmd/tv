@@ -1,10 +1,10 @@
 package com.tvcleaner
 
 import android.content.pm.PackageManager
-import rikka.shizuku.Shizuku
 import java.io.File
 import java.lang.reflect.Method
 import kotlin.concurrent.thread
+import rikka.shizuku.Shizuku
 
 /** Runs `pm`, `cmd` and `settings` with ADB-level rights, through Shizuku. */
 object Shell {

@@ -4,11 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import org.json.JSONObject
 
 /**
  * A home screen app TV Cleaner can install. [signer] is the SHA-256 of the developer's signing
@@ -32,17 +32,31 @@ object Launchers {
     // Signing certificates as published in Tellyscope's launcher list (github.com/man15h/tellyscope, data/launchers.json).
     val ALL = listOf(
         Launcher(
-            "com.spocky.projengmenu", "Projectivy Launcher", "The most popular. Rows, wallpapers and icons you can change.",
-            "spocky/miproja1", null, "f6697bf4082ee97511e4de07863193884a015b7ab5860430321bda1042b0aadd", true,
+            pkg = "com.spocky.projengmenu",
+            name = "Projectivy Launcher",
+            about = "The most popular. Rows, wallpapers and icons you can change.",
+            repo = "spocky/miproja1",
+            apk = null,
+            signer = "f6697bf4082ee97511e4de07863193884a015b7ab5860430321bda1042b0aadd",
+            canOverride = true,
         ),
         Launcher(
-            "com.overdevs.at4k", "AT4K Launcher", "Light and fast, with widgets and folders.",
-            "avadhesh18/at4k", null, "bfc84ab1296c72653ebca20a2f4cd293bc342a67dd4c61df931edfbad5271685", true,
+            pkg = "com.overdevs.at4k",
+            name = "AT4K Launcher",
+            about = "Light and fast, with widgets and folders.",
+            repo = "avadhesh18/at4k",
+            apk = null,
+            signer = "bfc84ab1296c72653ebca20a2f4cd293bc342a67dd4c61df931edfbad5271685",
+            canOverride = true,
         ),
         Launcher(
-            "me.efesser.flauncher", "FLauncher", "Simple: your apps in rows, nothing else.",
-            "osrosal/flauncher", "flauncher-universal-release.apk",
-            "3ef9f30df1f52f48b4b0c524a6e1861faedd2cccfa96d03e90076a1e30dec101", false,
+            pkg = "me.efesser.flauncher",
+            name = "FLauncher",
+            about = "Simple: your apps in rows, nothing else.",
+            repo = "osrosal/flauncher",
+            apk = "flauncher-universal-release.apk",
+            signer = "3ef9f30df1f52f48b4b0c524a6e1861faedd2cccfa96d03e90076a1e30dec101",
+            canOverride = false,
         ),
     )
 

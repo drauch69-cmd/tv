@@ -4,4 +4,6 @@
     <issue id="SetTextI18n" severity="ignore" />
     <!-- The TV banner only ships at the density Android TV uses (xhdpi). -->
     <issue id="IconMissingDensityFolder" severity="ignore" />
+    <!-- Android Gradle Plugin 8.7 (shared with StreamLink) supports up to SDK 35. -->
+    <issue id="OldTargetApi" severity="ignore" />
 </lint>
