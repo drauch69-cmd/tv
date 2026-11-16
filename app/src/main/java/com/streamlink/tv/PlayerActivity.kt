@@ -89,7 +89,7 @@ class PlayerActivity : Activity() {
         userAgent?.let { http.setUserAgent(it) }
 
         val p = ExoPlayer.Builder(this)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(http))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(DisguiseStripDataSource.Factory(http)))
             .build()
         player = p
         playerView.player = p
