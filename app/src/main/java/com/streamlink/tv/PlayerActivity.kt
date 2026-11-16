@@ -162,7 +162,7 @@ class PlayerActivity : Activity() {
         for ((k, v) in src.headers) {
             when {
                 k.equals("User-Agent", true) -> userAgent = v
-                k.equals("Referer", true) || k.equals("Origin", true) -> {}
+                k.equals("Referer", true) || k.equals("Origin", true) || k.equals("X-Requested-With", true) -> {}
                 else -> headers[k] = v
             }
         }

@@ -177,7 +177,7 @@ object Verifier {
             conn.readTimeout = 4000
             conn.instanceFollowRedirects = true
             for ((k, v) in headers) {
-                if (k.equals("Referer", true) || k.equals("Origin", true)) continue
+                if (k.equals("Referer", true) || k.equals("Origin", true) || k.equals("X-Requested-With", true)) continue
                 conn.setRequestProperty(k, v)
             }
             if (referer.isNotEmpty()) {

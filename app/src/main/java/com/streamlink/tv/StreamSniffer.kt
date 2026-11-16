@@ -129,7 +129,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         for ((k, v) in requestHeaders) {
             when {
                 k.equals("Referer", true) -> requestReferer = v
-                k.equals("Range", true) || k.equals("Accept-Encoding", true) || k.equals("Origin", true) -> {}
+                // X-Requested-With names this app; some sites answer it with 403.
+                k.equals("Range", true) || k.equals("Accept-Encoding", true) || k.equals("Origin", true) ||
+                    k.equals("X-Requested-With", true) -> {}
                 else -> headers[k] = v
             }
         }

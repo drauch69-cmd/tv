@@ -11,6 +11,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
 
@@ -34,6 +36,11 @@ object SafeWeb {
         }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
+        // Android web views tell every site which app they're in (an "X-Requested-With" header).
+        // Some streaming sites refuse those requests with 403, so don't send it.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+            WebSettingsCompat.setRequestedWithHeaderOriginAllowList(wv.settings, emptySet())
+        }
     }
 }
 
@@ -65,7 +72,15 @@ open class SafeChromeClient : WebChromeClient() {
  * Keeps a page on its own site: blocks app links (intent://, market://), ad/redirect networks,
  * and any main-frame navigation to a different site. Embedded frames may load freely.
  */
-open class SafeWebViewClient(var siteUrl: String, private val allowVideoAds: Boolean = false) : WebViewClient() {
+/**
+ * [blockAds]: false in the site's own player, where ads may load (some sites refuse to play when
+ * their ads are blocked); popups, off-site redirects and other apps are still blocked there.
+ */
+open class SafeWebViewClient(
+    var siteUrl: String,
+    private val allowVideoAds: Boolean = false,
+    private val blockAds: Boolean = true,
+) : WebViewClient() {
     var firstPageLoaded = false
 
     open fun onFrame(url: String) {}
@@ -116,7 +131,7 @@ open class SafeWebViewClient(var siteUrl: String, private val allowVideoAds: Boo
             Report.logOnce("local-$host", "Blocked the page from reaching the TV itself ($host)")
             return WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         }
-        if (AdBlock.isBlockedHost(host, allowVideoAds)) {
+        if (blockAds && AdBlock.isBlockedHost(host, allowVideoAds)) {
             Report.countBlocked(host)
             return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
         }
