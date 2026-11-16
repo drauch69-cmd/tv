@@ -222,6 +222,20 @@ class PlayerActivity : Activity() {
         override fun onPlayerError(error: PlaybackException) = handleError(error)
 
         override fun onTracksChanged(tracks: Tracks) {
+            // For the report: what audio the stream has, and whether this device can play it.
+            val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.flatMap { g ->
+                (0 until g.length).map { i ->
+                    val f = g.getTrackFormat(i)
+                    val codec = f.sampleMimeType ?: f.codecs ?: "unknown"
+                    val ok = if (g.isTrackSupported(i)) "plays here" else "NOT supported on this device"
+                    val sel = if (g.isTrackSelected(i)) ", selected" else ""
+                    "$codec ${if (f.channelCount > 0) "${f.channelCount}ch " else ""}" +
+                        "${if (f.sampleRate > 0) "${f.sampleRate}Hz " else ""}($ok$sel)"
+                }
+            }
+            Report.logOnce("audio-${audio.hashCode()}",
+                if (audio.isEmpty()) "Audio: the stream has no audio track" else "Audio: " + audio.joinToString("; "))
+
             val opts = ArrayList<Pair<Tracks.Group, Int>>()
             for (g in tracks.groups) {
                 if (g.type != C.TRACK_TYPE_VIDEO) continue
