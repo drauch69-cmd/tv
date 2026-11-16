@@ -50,6 +50,12 @@ class LinkServer(
             try {
                 c.soTimeout = 10_000
                 val input = BufferedInputStream(c.getInputStream())
+                // If the phone tries a secure (https) connection first, refuse it right away so
+                // the browser falls back to plain http instead of waiting and timing out.
+                input.mark(1)
+                val first = input.read()
+                if (first < 0 || first == 0x16) return
+                input.reset()
                 val requestLine = readLine(input) ?: return
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) return
