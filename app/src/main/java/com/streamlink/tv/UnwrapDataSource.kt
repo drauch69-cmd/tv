@@ -47,6 +47,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 bufEnd = bytes.size
                 cachedUri = Uri.parse(cached.second)
                 Report.logOnce("prefetch", "Player reused the checked playlist")
+                logPlaylist(bytes, bytes.size)
                 val len = bytes.size.toLong()
                 return if (dataSpec.length == C.LENGTH_UNSET.toLong()) len else minOf(len, dataSpec.length)
             }
@@ -55,7 +56,29 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         val length = upstream.open(dataSpec)
         upstreamOpen = true
         val path = dataSpec.uri.path?.lowercase() ?: ""
+        if (dataSpec.position == 0L && (path.endsWith(".m3u8") || dataSpec.uri.toString().contains("m3u8"))) {
+            // Playlists are small: read the whole thing so its structure can go in the report.
+            head = ByteArray(16 * 1024)
+            n = 0
+            eof = false
+            fill(512 * 1024)
+            if (looksLikePlaylist(head, n)) {
+                logPlaylist(head, n)
+                buf = head
+                bufPos = 0
+                bufEnd = n
+                bufOnly = eof
+                return if (eof) n.toLong() else length
+            }
+            // Not a playlist after all (e.g. a video chunk with "m3u8" in its address): treat as video.
+            buf = null
+        }
         if (dataSpec.position != 0L || path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".key")) {
+            if (buf == null && n > 0) {
+                buf = head
+                bufPos = 0
+                bufEnd = n
+            }
             return length
         }
 
@@ -221,6 +244,31 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             upstreamOpen = false
             upstream.close()
         }
+    }
+
+    private fun looksLikePlaylist(b: ByteArray, n: Int): Boolean =
+        String(b, 0, minOf(n, 64), Charsets.ISO_8859_1).trimStart('\uFEFF', ' ', '\r', '\n', '\t').startsWith("#EXTM3U")
+
+    /**
+     * For the report: the playlist's structure, with addresses and tokens replaced, once for the
+     * main playlist and once for a video (segment) playlist.
+     */
+    private fun logPlaylist(b: ByteArray, n: Int) {
+        val text = String(b, 0, minOf(n, 64 * 1024), Charsets.UTF_8)
+        val isMedia = text.contains("#EXTINF")
+        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val shown = lines.take(40).map { line ->
+            if (line.startsWith("#")) {
+                line.replace(Regex("URI=\"[^\"]*\""), "URI=\"…\"").take(140)
+            } else {
+                if (isMedia) "(segment)" else "(variant playlist)"
+            }
+        }
+        val more = if (lines.size > 40) "\n      … ${lines.size - 40} more lines" else ""
+        Report.logOnce(
+            if (isMedia) "playlist-media" else "playlist-main",
+            (if (isMedia) "Video playlist" else "Main playlist") + ":\n      " + shown.joinToString("\n      ") + more,
+        )
     }
 
     /** One line for the report: what the first video chunk really looks like. */

@@ -105,6 +105,8 @@ class PlayerActivity : Activity() {
     /** Experiment for stuck streams: play with the audio switched off to see if it's the blocker. */
     private var audioOff = false
     private var audioOffTried = false
+    /** Experiment for stuck streams: jump to where the downloaded video actually is. */
+    private var jumpTried = false
     private var loadsLogged = 0
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
@@ -167,6 +169,7 @@ class PlayerActivity : Activity() {
         preferSoftware = false
         audioOff = false
         audioOffTried = false
+        jumpTried = false
         hidePicker()
         Session.mode = "player"
         Session.title = Report.host(s.pageUrl)
@@ -486,6 +489,21 @@ class PlayerActivity : Activity() {
 
     private fun decodeProblem() {
         Report.log(decoderStats())
+        val p = player
+        if (!jumpTried && p != null && p.bufferedPosition - p.currentPosition > 4_000) {
+            // The player may be waiting at a moment the downloaded video doesn't cover (the
+            // playlist's timing disagrees with the video's own). Browsers jump to the video.
+            jumpTried = true
+            val target = p.bufferedPosition - 3_000
+            Report.log(String.format(java.util.Locale.US,
+                "Experiment: jumping from %.1fs to %.1fs, where the downloaded video is",
+                p.currentPosition / 1000.0, target / 1000.0))
+            p.seekTo(target)
+            main.removeCallbacks(startCheck)
+            main.postDelayed(startCheck, 10_000)
+            return
+        }
+        if (jumpTried && playingSince == 0L) Report.log("Experiment result: jumping ahead didn't help")
         if (!audioOffTried) {
             audioOffTried = true
             audioOff = true
