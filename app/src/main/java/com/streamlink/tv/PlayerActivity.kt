@@ -260,6 +260,7 @@ class PlayerActivity : Activity() {
         p.addAnalyticsListener(downloads)
         showCover(if (reconnects == 0) "Loading…" else "Reconnecting…")
         p.setMediaItem(item)
+        main.postDelayed(startCheck, 12_000)
         p.prepare()
         p.playWhenReady = true
     }
@@ -388,16 +389,35 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** 12s in: lots of video waiting but nothing started -> the format is the problem; don't wait 20s. */
+    private val startCheck = Runnable {
+        val p = player ?: return@Runnable
+        val buffered = (p.bufferedPosition - p.currentPosition) / 1000.0
+        if (playingSince == 0L && !tunneling && buffered >= 8.0) {
+            logStall()
+            Report.log(String.format(java.util.Locale.US,
+                "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
+            openSitePlayer("video arrived but couldn't be played")
+        }
+    }
+
     private val stallCheck = Runnable {
         Report.log("Stalled for ${STALL_MS / 1000}s")
         logStall()
-        if (playingSince == 0L && useChromeNet && ChromeNet.engine != null) {
+        val buffered = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
+        if (tunneling && !firstFrame) {
+            retryWithoutTunneling("stalled before the first picture")
+        } else if (playingSince == 0L && buffered >= 8.0) {
+            // Plenty of video arrived but it never started: the stream's format (or a quirk in it)
+            // is something this decoder can't handle. Reconnecting won't help; a browser often can.
+            Report.log(String.format(java.util.Locale.US,
+                "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
+            openSitePlayer("video arrived but couldn't be played")
+        } else if (playingSince == 0L && useChromeNet && ChromeNet.engine != null) {
             // Never started with Chrome's engine: some servers work badly with it. Try once without.
             useChromeNet = false
             Report.log("No progress with Chrome's network engine; retrying with standard networking")
             play()
-        } else if (tunneling && !firstFrame) {
-            retryWithoutTunneling("stalled before the first picture")
         } else {
             recover("stalled")
         }
@@ -574,6 +594,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun release() {
+        main.removeCallbacks(startCheck)
         main.removeCallbacks(stallCheck)
         main.removeCallbacks(firstFrameCheck)
         playerView.player = null
