@@ -18,6 +18,8 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 
 /**
  * Fallback: the site's own player, fullscreen, with the same popup/redirect blocking as the
@@ -30,6 +32,33 @@ class SitePlayerActivity : Activity() {
 
     companion object {
         private const val EXTRA_URL = "url"
+
+        /**
+         * Sites start videos muted (browsers only allow muted autoplay) and wait for a click on the
+         * speaker icon that never comes on a TV. This web view allows sound without a click, so
+         * for 60 seconds keep any playing video unmuted at full volume, and nudge paused ones.
+         */
+        private const val UNMUTE_JS = """
+            (function(){
+              if (window.__slSound) return; window.__slSound = true;
+              var start = Date.now();
+              function fix(){
+                document.querySelectorAll('video,audio').forEach(function(v){
+                  try {
+                    if (v.muted || v.volume < 0.05) { v.muted = false; v.volume = 1; }
+                    if (v.paused && v.readyState >= 2 && !v.__slTried) {
+                      v.__slTried = true; var p = v.play(); if (p && p.catch) p.catch(function(){});
+                    }
+                  } catch (e) {}
+                });
+                if (Date.now() - start < 60000) setTimeout(fix, 1000);
+              }
+              if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fix); else fix();
+              document.addEventListener('play', function(e){
+                var v = e.target; try { if (v.muted) { v.muted = false; v.volume = 1; } } catch (x) {}
+              }, true);
+            })();
+        """
 
         fun intent(ctx: Context, url: String): Intent =
             Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url)
@@ -127,6 +156,14 @@ class SitePlayerActivity : Activity() {
 
         web = WebView(this)
         SafeWeb.configure(web)
+        // Run the unmute helper inside every frame, including the player's own frame from another
+        // site, which the app can't otherwise reach.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(web, UNMUTE_JS, setOf("*"))
+            Report.log("Site player: sound helper added to every frame")
+        } else {
+            Report.log("Site player: this TV's WebView can't add the sound helper inside frames; update Android System WebView")
+        }
         web.isFocusable = false
         web.isFocusableInTouchMode = false
         web.setBackgroundColor(Color.BLACK)
