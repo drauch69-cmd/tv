@@ -54,6 +54,7 @@ class MainActivity : Activity() {
     private val selected = mutableSetOf<String>()
     private var selectionFor: String? = null
     private var busy = false
+    private var lastPage: Page? = null
     private var applyButton: Button? = null
 
     private lateinit var status: TextView
@@ -106,8 +107,20 @@ class MainActivity : Activity() {
     private fun <T> background(work: () -> T, then: (T) -> Unit) {
         if (io.isShutdown) return
         io.execute {
-            val result = work()
-            main.post { if (!gone) then(result) }
+            val result = try {
+                Result.success(work())
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            main.post {
+                if (gone) return@post
+                result.fold(then) { e ->
+                    // Never leave the screen stuck on "Loading…" or behind a progress box.
+                    busy = false
+                    if (!loaded) status.text = "Couldn't read this TV's apps."
+                    message("Something went wrong", e.message ?: e.javaClass.simpleName)
+                }
+            }
         }
     }
 
@@ -244,6 +257,9 @@ class MainActivity : Activity() {
             if (state == Shell.State.READY) "Shizuku connected" else "Shizuku not connected"
         navButtons.forEach { (p, b) -> b.isSelected = p == page }
         val hadFocus = content.findFocus() != null
+        // Same page redrawn (after a change, say): stay where you were in the list.
+        val keepScroll = if (page == lastPage) scroll.scrollY else 0
+        lastPage = page
         content.removeAllViews()
         applyButton = null
         when (page) {
@@ -253,9 +269,14 @@ class MainActivity : Activity() {
             Page.ALL -> renderAll()
             Page.HISTORY -> renderHistory()
         }
-        scroll.scrollTo(0, 0)
-        // Rebuilt under the remote's focus: put it back on the page instead of losing it.
-        if (hadFocus) content.requestFocus()
+        scroll.post {
+            scroll.scrollTo(0, keepScroll)
+            // Rebuilt under the remote's focus: put it back on the row now on screen instead of losing it.
+            if (hadFocus) {
+                val rows = (0 until content.childCount).map { content.getChildAt(it) }
+                (rows.firstOrNull { it.isFocusable && it.top >= keepScroll } ?: content).requestFocus()
+            }
+        }
     }
 
     // ---------- Pages ----------
