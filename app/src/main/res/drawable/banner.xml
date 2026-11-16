@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The tile shown on the TV home screen (320x180). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#FF1E2A44" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#FF4F8CFF" android:pathData="M130,50L200,90L130,130Z" />
+    <path android:fillColor="#FFFF4F5E" android:pathData="M232,40m-10,0a10,10 0,1 1,20 0a10,10 0,1 1,-20 0" />
+</vector>
