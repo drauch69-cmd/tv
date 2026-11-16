@@ -26,6 +26,11 @@ object SafeWeb {
             setSupportMultipleWindows(true) // so window.open() reaches onCreateWindow, where it's refused
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             userAgentString = userAgentString.replace("; wv", "")
+            // Pages get nothing from the TV itself: no files, no app content, no location.
+            allowFileAccess = false
+            allowContentAccess = false
+            setGeolocationEnabled(false)
+            saveFormData = false
         }
         CookieManager.getInstance().setAcceptCookie(true)
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
@@ -103,6 +108,10 @@ open class SafeWebViewClient(var siteUrl: String, private val allowVideoAds: Boo
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         request ?: return null
         val host = request.url.host
+        val scheme = request.url.scheme?.lowercase()
+        if (scheme == "file" || scheme == "content") {
+            return WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        }
         if (AdBlock.isLocalHost(host)) {
             Report.logOnce("local-$host", "Blocked the page from reaching the TV itself ($host)")
             return WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))

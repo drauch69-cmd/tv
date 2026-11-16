@@ -122,6 +122,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     /** Called on the main thread for each stream the page asks for. */
     private fun found(url: String, requestHeaders: Map<String, String>) {
         if (done || verifying || candidates.containsKey(url)) return
+        if (AdBlock.isLocalHost(Report.host(url))) return
         val ua = webView?.settings?.userAgentString
         val headers = LinkedHashMap<String, String>()
         var requestReferer: String? = null

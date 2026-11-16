@@ -53,7 +53,7 @@ object PngPixels {
         }
         val stride = width * channels
         val rawSize = height.toLong() * (stride + 1)
-        if (rawSize > 64L * 1024 * 1024) return emptyList()
+        if (rawSize > 24L * 1024 * 1024) return emptyList()
 
         val raw = ByteArray(rawSize.toInt())
         val inflater = Inflater()
