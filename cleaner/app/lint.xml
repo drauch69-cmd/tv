@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- English-only app: text is written in code on purpose. -->
+    <issue id="SetTextI18n" severity="ignore" />
+    <!-- The TV banner only ships at the density Android TV uses (xhdpi). -->
+    <issue id="IconMissingDensityFolder" severity="ignore" />
+</lint>

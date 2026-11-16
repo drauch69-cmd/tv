@@ -138,6 +138,7 @@ object Lists {
     /** Package to why it must stay on (from "groups"), and package to a warning (from "warn"). */
     fun parseProtected(text: String): Pair<Map<String, String>, Map<String, String>> = try {
         val o = JSONObject(text)
+
         fun read(key: String, value: (String) -> String): Map<String, String> {
             val out = mutableMapOf<String, String>()
             val arr = o.optJSONArray(key) ?: JSONArray()

@@ -83,8 +83,11 @@ object Shell {
     }
 
     /** Makes "package/class" the default home screen. */
-    fun setHome(activity: String): Result =
-        if (ACTIVITY.matches(activity)) run(CMD, "package", "set-home-activity", "--user", "0", activity) else Result(-1, "Refused: unusual name")
+    fun setHome(activity: String): Result = if (ACTIVITY.matches(activity)) {
+        run(CMD, "package", "set-home-activity", "--user", "0", activity)
+    } else {
+        Result(-1, "Refused: unusual name")
+    }
 
     private fun checked(pkg: String, block: () -> Result): Result =
         if (Protect.PACKAGE.matches(pkg)) block() else Result(-1, "Refused: unusual package name")

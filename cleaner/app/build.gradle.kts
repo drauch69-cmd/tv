@@ -10,7 +10,7 @@ android {
     defaultConfig {
         applicationId = "com.tvcleaner"
         minSdk = 28
-        targetSdk = 34
+        targetSdk = 35
         // Each GitHub build gets a higher version number so it installs over the last one.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
@@ -45,6 +45,7 @@ android {
         abortOnError = false
         textReport = true
         textOutput = file("build/reports/lint.txt")
+        lintConfig = file("lint.xml")
     }
 }
 

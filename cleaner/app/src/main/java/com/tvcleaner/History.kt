@@ -1,5 +1,6 @@
 package com.tvcleaner
 
+import android.annotation.SuppressLint
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,6 +21,7 @@ class History(ctx: Context) {
         emptyList()
     }
 
+    @SuppressLint("ApplySharedPref") // Always called off the main thread; see below.
     fun add(change: Change) {
         val list = (listOf(change) + all()).take(500)
         val arr = JSONArray()

@@ -27,6 +27,7 @@ import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
     private enum class Page { SETUP, SUGGESTED, HOME, ALL, HISTORY }
+
     private enum class Filter { BUILT_IN, YOURS, OFF }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -215,9 +216,9 @@ class MainActivity : Activity() {
                 render()
             }
             navButtons[p] = b
-            nav.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(10) })
+            nav.addView(b, params(MATCH, WRAP).apply { bottomMargin = dp(10) })
         }
-        root.addView(nav, LinearLayout.LayoutParams(dp(240), ViewGroup.LayoutParams.MATCH_PARENT))
+        root.addView(nav, params(dp(240), MATCH))
 
         val right = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -230,8 +231,8 @@ class MainActivity : Activity() {
             isFillViewport = true
             addView(content)
         }
-        right.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(right, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        right.addView(scroll, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        root.addView(right, LinearLayout.LayoutParams(0, MATCH, 1f))
         return root
     }
 
@@ -323,7 +324,11 @@ class MainActivity : Activity() {
         val sdkMatches = l.sdk != null && l.sdk == Build.VERSION.SDK_INT
         para("List: ${l.name}" + (l.testedOs?.let { " · tested on $it" } ?: ""))
         if (!sdkMatches) {
-            para("This list was tested on a different Android version than your TV, so nothing is pre-ticked. Tick only what you recognise.", WARN)
+            para(
+                "This list was tested on a different Android version than your TV, so nothing is pre-ticked. " +
+                    "Tick only what you recognise.",
+                WARN,
+            )
         }
         action("Not your TV? Pick another") { showPicker() }
 
@@ -343,7 +348,8 @@ class MainActivity : Activity() {
             rows.forEach { a ->
                 val app = apps.getValue(a.pkg)
                 val why = protectedReason(a.pkg)
-                val detail = listOfNotNull(a.pkg, a.note, warnings[a.pkg]?.let { "⚠ $it" }, if (a.optional) "optional" else null).joinToString(" · ")
+                val warning = warnings[a.pkg]?.let { "⚠ $it" }
+                val detail = listOfNotNull(a.pkg, a.note, warning, if (a.optional) "optional" else null).joinToString(" · ")
                 when {
                     why != null -> infoRow(app.label, "Kept: $why · $detail")
                     !app.installed || !app.enabled -> infoRow(app.label, "Already off · $detail")
@@ -464,7 +470,8 @@ class MainActivity : Activity() {
                 "\nPress Home on the remote to check. If the built-in home screen still opens, open ${l.name}'s settings " +
                     "and turn on its \"override current launcher\" option."
             } else {
-                "\nCouldn't make it the home screen automatically. Open ${l.name}'s settings and turn on its \"override current launcher\" option."
+                "\nCouldn't make it the home screen automatically. " +
+                    "Open ${l.name}'s settings and turn on its \"override current launcher\" option."
             }
             steps.joinToString("\n")
         }
@@ -486,7 +493,11 @@ class MainActivity : Activity() {
             history.add(Change(stock?.key ?: "android", label, "stockhome", System.currentTimeMillis(), r?.ok == true || off.isNotEmpty()))
             buildString {
                 if (off.isNotEmpty()) append("Turned off the override for ${off.joinToString()}.\n")
-                append(if (r?.ok == true) "$label is the home screen again." else "Couldn't set $label as the home screen: ${r?.out ?: "not found"}")
+                if (r?.ok == true) {
+                    append("$label is the home screen again.")
+                } else {
+                    append("Couldn't set $label as the home screen: ${r?.out ?: "not found"}")
+                }
             }
         }
     }
@@ -500,10 +511,10 @@ class MainActivity : Activity() {
                     filter = f
                     render()
                 }.apply { isSelected = filter == f },
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(10) },
+                params(WRAP, WRAP).apply { rightMargin = dp(10) },
             )
         }
-        content.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) })
+        content.addView(bar, params(MATCH, WRAP).apply { bottomMargin = dp(12) })
 
         val shown = apps.values.filter {
             when (filter) {
@@ -550,7 +561,12 @@ class MainActivity : Activity() {
                 AlertDialog.Builder(this)
                     .setTitle("Turn ${off.size} app(s) back on?")
                     .setPositiveButton("Turn on") { _, _ ->
-                        perform(off.map { pkg -> apps.getValue(pkg).let { Triple(it.pkg, it.label, if (it.installed) "enable" else "restore") } })
+                        perform(
+                            off.map { pkg ->
+                                val a = apps.getValue(pkg)
+                                Triple(a.pkg, a.label, if (a.installed) "enable" else "restore")
+                            },
+                        )
                     }
                     .setNegativeButton("Cancel", null)
                     .show()
@@ -571,7 +587,11 @@ class MainActivity : Activity() {
             val whenText = DateFormat.format("MMM d, h:mm a", Date(c.time))
             val detail = "$verb · $whenText · ${c.pkg}" + if (c.ok) "" else " · FAILED"
             val app = apps[c.pkg]
-            if (app == null || c.action in setOf("install", "home", "stockhome")) infoRow(c.label, detail) else actionRow(c.label, detail) { appDialog(app) }
+            if (app == null || c.action in setOf("install", "home", "stockhome")) {
+                infoRow(c.label, detail)
+            } else {
+                actionRow(c.label, detail) { appDialog(app) }
+            }
         }
     }
 
@@ -657,7 +677,11 @@ class MainActivity : Activity() {
 
     private fun openApp(pkg: String) {
         val intent = packageManager.getLeanbackLaunchIntentForPackage(pkg) ?: packageManager.getLaunchIntentForPackage(pkg)
-        if (intent != null) startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) else message("Not found", "That app isn't installed.")
+        if (intent != null) {
+            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } else {
+            message("Not found", "That app isn't installed.")
+        }
     }
 
     private fun message(title: String, msg: String) {
@@ -668,6 +692,8 @@ class MainActivity : Activity() {
     // ---------- View helpers ----------
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    private fun params(width: Int, height: Int) = LinearLayout.LayoutParams(width, height)
 
     private fun text(s: String, size: Float, color: Int = FG, bold: Boolean = false) = TextView(this).apply {
         text = s
@@ -710,7 +736,7 @@ class MainActivity : Activity() {
         val b = button(label, onClick)
         content.addView(
             b,
-            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            params(WRAP, WRAP).apply {
                 topMargin = dp(6)
                 bottomMargin = dp(6)
             },
@@ -734,7 +760,7 @@ class MainActivity : Activity() {
     }
 
     private fun addRow(row: View) {
-        content.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6) })
+        content.addView(row, params(MATCH, WRAP).apply { bottomMargin = dp(6) })
     }
 
     private fun checkRow(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
@@ -745,7 +771,7 @@ class MainActivity : Activity() {
             isClickable = false
         }
         row.addView(box)
-        row.addView(texts(title, detail), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = dp(10) })
+        row.addView(texts(title, detail), LinearLayout.LayoutParams(0, WRAP, 1f).apply { leftMargin = dp(10) })
         row.setOnClickListener {
             box.isChecked = !box.isChecked
             onChange(box.isChecked)
@@ -755,18 +781,20 @@ class MainActivity : Activity() {
 
     private fun actionRow(title: String, detail: String, onClick: () -> Unit) {
         val row = rowShell(true)
-        row.addView(texts(title, detail), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(texts(title, detail), LinearLayout.LayoutParams(0, WRAP, 1f))
         row.setOnClickListener { onClick() }
         addRow(row)
     }
 
     private fun infoRow(title: String, detail: String) {
         val row = rowShell(false)
-        row.addView(texts(title, detail, dim = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(texts(title, detail, dim = true), LinearLayout.LayoutParams(0, WRAP, 1f))
         addRow(row)
     }
 
     private companion object {
+        const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+        const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         val BG = Color.rgb(14, 18, 28)
         val CARD = Color.rgb(28, 36, 54)
         val FOCUS_FILL = Color.rgb(46, 92, 190)
