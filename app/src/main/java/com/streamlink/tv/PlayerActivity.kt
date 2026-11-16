@@ -28,6 +28,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cronet.CronetDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.LoadEventInfo
@@ -95,6 +97,8 @@ class PlayerActivity : Activity() {
     private var stalls = 0
     /** Chrome's network engine for this link; turned off if a stream never starts with it. */
     private var useChromeNet = true
+    /** Use the TV's software video decoder (slower, more forgiving) for this link. */
+    private var preferSoftware = false
     private var loadsLogged = 0
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
@@ -154,6 +158,7 @@ class PlayerActivity : Activity() {
         playingSince = 0
         stalls = 0
         useChromeNet = true
+        preferSoftware = false
         hidePicker()
         Session.mode = "player"
         Session.title = Report.host(s.pageUrl)
@@ -228,7 +233,16 @@ class PlayerActivity : Activity() {
         smoothLive = smoothLiveAllowed()
         Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~20s behind live)" else "low delay"}")
 
-        val p = ExoPlayer.Builder(this)
+        // Decoders: hardware first as usual (fast), falling back to another decoder if one fails to
+        // start. After a stream "arrives but won't play", software decoders are tried first.
+        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+        if (preferSoftware) {
+            renderers.setMediaCodecSelector { mime, secure, tunneled ->
+                MediaCodecUtil.getDecoderInfos(mime, secure, tunneled).sortedBy { it.hardwareAccelerated }
+            }
+        }
+
+        val p = ExoPlayer.Builder(this, renderers)
             .setTrackSelector(selector)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(DefaultMediaSourceFactory(UnwrapDataSourceFactory(http)))
@@ -363,6 +377,14 @@ class PlayerActivity : Activity() {
             else -> "data"
         }
 
+        override fun onVideoDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+            Report.logOnce("vdec-$decoderName", "Video decoder: $decoderName")
+        }
+
+        override fun onAudioDecoderInitialized(eventTime: AnalyticsListener.EventTime, decoderName: String, initializedTimestampMs: Long, initializationDurationMs: Long) {
+            Report.logOnce("adec-$decoderName", "Audio decoder: $decoderName")
+        }
+
         override fun onLoadCompleted(eventTime: AnalyticsListener.EventTime, info: LoadEventInfo, data: MediaLoadData) {
             if (loadsLogged >= 12) return
             loadsLogged++
@@ -397,7 +419,18 @@ class PlayerActivity : Activity() {
             logStall()
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
-            openSitePlayer("video arrived but couldn't be played")
+            decodeProblem()
+        }
+    }
+
+    /** Video arrived but won't play: try the software decoder once, then the site's own player. */
+    private fun decodeProblem() {
+        if (!preferSoftware) {
+            preferSoftware = true
+            Report.log("Retrying with the TV's software video decoder")
+            play()
+        } else {
+            openSitePlayer("video arrived but couldn't be played, even with the software decoder")
         }
     }
 
@@ -412,7 +445,7 @@ class PlayerActivity : Activity() {
             // is something this decoder can't handle. Reconnecting won't help; a browser often can.
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
-            openSitePlayer("video arrived but couldn't be played")
+            decodeProblem()
         } else if (playingSince == 0L && useChromeNet && ChromeNet.engine != null) {
             // Never started with Chrome's engine: some servers work badly with it. Try once without.
             useChromeNet = false
