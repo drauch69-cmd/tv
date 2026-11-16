@@ -58,20 +58,109 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             return length
         }
 
-        val head = ByteArray(PEEK)
-        var n = 0
-        while (n < PEEK) {
-            val r = upstream.read(head, n, PEEK - n)
-            if (r == C.RESULT_END_OF_INPUT) break
-            n += r
+        head = ByteArray(PEEK)
+        n = 0
+        eof = false
+        fill(PEEK)
+
+        var skip = 0
+        val image = imageEnd()
+        if (image != null && image > 0) {
+            skip = image
+            // Usually the video starts right after the picture; if not, look a bit further.
+            if (!looksLikeMedia(head, n, skip)) skip = searchFrom(skip) ?: skip
+        } else if (!looksLikeMedia(head, n, 0)) {
+            skip = searchFrom(1) ?: 0
         }
-        val skip = junkPrefix(head, n)
+
         Report.logOnce("chunk-head", describeChunk(dataSpec, head, n, skip))
-        if (skip > 0) Report.logOnce("unwrap", "Unwrapped disguised video chunks ($skip junk bytes removed)")
+        if (skip > 0) {
+            if (looksLikeMedia(head, n, skip)) {
+                Report.logOnce("unwrap", "Unwrapped disguised video chunks ($skip junk bytes removed)")
+            } else {
+                val hex = (skip until minOf(n, skip + 16)).joinToString(" ") { String.format("%02X", head[it]) }
+                Report.logOnce("unwrap-fail", "A disguised chunk had no recognisable video after the picture " +
+                    "(${n - skip} bytes left, starting [$hex])")
+            }
+        }
         buf = head
         bufPos = skip
         bufEnd = n
         return if (length == C.LENGTH_UNSET.toLong()) C.LENGTH_UNSET.toLong() else length - skip
+    }
+
+    private var head = ByteArray(0)
+    private var n = 0
+    private var eof = false
+
+    /** Read ahead until [target] bytes are buffered (or the chunk ends). */
+    private fun fill(target: Int) {
+        val want = minOf(target, MAX_PEEK)
+        if (want > head.size) head = head.copyOf(maxOf(want, minOf(head.size * 2, MAX_PEEK)))
+        while (n < want && !eof) {
+            val r = upstream.read(head, n, want - n)
+            if (r == C.RESULT_END_OF_INPUT) eof = true else n += r
+        }
+    }
+
+    /**
+     * If the chunk starts with a real picture, where that picture ends. PNG is walked chunk by
+     * chunk to its IEND marker; JPEG to its end-of-image marker; GIF to its trailer.
+     */
+    private fun imageEnd(): Int? {
+        if (n < 8) return null
+        // PNG: 89 50 4E 47 0D 0A 1A 0A, then [length][type][data][crc] ... IEND
+        if ((head[0].toInt() and 0xFF) == 0x89 && head[1] == 'P'.code.toByte() && head[2] == 'N'.code.toByte() && head[3] == 'G'.code.toByte()) {
+            var pos = 8
+            while (true) {
+                fill(pos + 8)
+                if (n < pos + 8) return null
+                val len = ((head[pos].toInt() and 0xFF) shl 24) or ((head[pos + 1].toInt() and 0xFF) shl 16) or
+                    ((head[pos + 2].toInt() and 0xFF) shl 8) or (head[pos + 3].toInt() and 0xFF)
+                if (len < 0 || len > MAX_PEEK) return null
+                val type = String(head, pos + 4, 4, Charsets.ISO_8859_1)
+                val next = pos + 12 + len
+                if (next > MAX_PEEK) return null
+                if (type == "IEND") {
+                    fill(next + 1024)
+                    return minOf(next, n)
+                }
+                fill(next)
+                pos = next
+            }
+        }
+        // JPEG: FF D8 ... FF D9
+        if ((head[0].toInt() and 0xFF) == 0xFF && (head[1].toInt() and 0xFF) == 0xD8) {
+            var i = 2
+            while (true) {
+                if (i + 1 >= n) {
+                    if (eof || n >= MAX_PEEK) return null
+                    fill(n * 2)
+                    continue
+                }
+                if ((head[i].toInt() and 0xFF) == 0xFF && (head[i + 1].toInt() and 0xFF) == 0xD9) {
+                    fill(i + 2 + 1024)
+                    return i + 2
+                }
+                i++
+            }
+        }
+        // GIF: "GIF8" ... trailer 0x3B. Rare; rely on the media search after the header.
+        if (head[0] == 'G'.code.toByte() && head[1] == 'I'.code.toByte() && head[2] == 'F'.code.toByte() && head[3] == '8'.code.toByte()) {
+            return 6
+        }
+        return null
+    }
+
+    /** Search for the start of real video at or after [from], reading up to [MAX_SEARCH] ahead. */
+    private fun searchFrom(from: Int): Int? {
+        var start = from
+        while (true) {
+            findMedia(head, n, start)?.let { return it }
+            if (eof || n >= MAX_SEARCH) return null
+            start = maxOf(from, n - TS * 5)
+            fill(minOf(n * 2, MAX_SEARCH))
+        }
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
@@ -95,6 +184,8 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         if (cachedUri != null) emptyMap() else upstream.responseHeaders
 
     override fun close() {
+        head = ByteArray(0)
+        n = 0
         buf = null
         bufPos = 0
         bufEnd = 0
@@ -113,7 +204,8 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         val text = String(head, 0, minOf(n, 60), Charsets.ISO_8859_1).replace(Regex("[^\\x20-\\x7E]"), ".")
         val guess = when {
             n == 0 -> "empty"
-            skip > 0 -> "disguised video, unwrapped"
+            skip > 0 && looksLikeMedia(head, n, skip) -> "disguised video, real video found at byte $skip"
+            skip > 0 -> "disguised, but no video found after the picture"
             head[0] == SYNC -> "normal MPEG-TS video"
             isBox(head, 4) -> "normal MP4 video"
             text.startsWith("<") || text.contains("<html", true) -> "a web page, not video"
@@ -126,6 +218,8 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
 
     companion object {
         private const val PEEK = 64 * 1024
+        private const val MAX_SEARCH = 1024 * 1024
+        private const val MAX_PEEK = 8 * 1024 * 1024
         private const val SYNC = 0x47.toByte()
         private const val TS = 188
 
@@ -151,6 +245,31 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 i++
             }
             return 0
+        }
+
+        /** Real video starts at [at]: MPEG-TS packets, an MP4 box, or an ID3 tag. */
+        fun looksLikeMedia(b: ByteArray, n: Int, at: Int): Boolean {
+            if (at < 0 || at + 8 > n) return false
+            if (b[at] == SYNC && (n <= at + TS || b[at + TS] == SYNC)) return true
+            if (isBox(b, at + 4)) return true
+            return b[at] == 'I'.code.toByte() && b[at + 1] == 'D'.code.toByte() && b[at + 2] == '3'.code.toByte()
+        }
+
+        /** First offset >= [from] where MPEG-TS (5 packets in a row) or an MP4 box begins. */
+        fun findMedia(b: ByteArray, n: Int, from: Int): Int? {
+            var i = maxOf(from, 0)
+            while (i + TS * 4 < n) {
+                if (b[i] == SYNC && b[i + TS] == SYNC && b[i + TS * 2] == SYNC &&
+                    b[i + TS * 3] == SYNC && b[i + TS * 4] == SYNC
+                ) return i
+                i++
+            }
+            i = maxOf(from + 4, 4)
+            while (i + 4 <= n) {
+                if (isBox(b, i, listOf("ftyp", "styp", "moof"))) return i - 4
+                i++
+            }
+            return null
         }
 
         private fun isBox(b: ByteArray, at: Int, types: List<String> = listOf("ftyp", "styp", "moof", "sidx", "emsg")): Boolean {
