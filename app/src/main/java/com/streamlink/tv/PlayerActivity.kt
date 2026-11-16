@@ -29,6 +29,9 @@ import androidx.media3.datasource.cronet.CronetDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -90,6 +93,9 @@ class PlayerActivity : Activity() {
     private var tunneling = false
     private var smoothLive = true
     private var stalls = 0
+    /** Chrome's network engine for this link; turned off if a stream never starts with it. */
+    private var useChromeNet = true
+    private var loadsLogged = 0
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
     private var linkGen = 0
@@ -147,6 +153,7 @@ class PlayerActivity : Activity() {
         reconnects = 0
         playingSince = 0
         stalls = 0
+        useChromeNet = true
         hidePicker()
         Session.mode = "player"
         Session.title = Report.host(s.pageUrl)
@@ -184,8 +191,12 @@ class PlayerActivity : Activity() {
 
         // Fetch through Chrome's network engine when available, so servers that only serve real
         // browsers don't refuse the player (see ChromeNet).
-        val engine = ChromeNet.engine
-        Report.logOnce("net-${engine != null}", "Network: ${ChromeNet.describe()}")
+        val engine = if (useChromeNet) ChromeNet.engine else null
+        loadsLogged = 0
+        Report.logOnce(
+            "net-${engine != null}",
+            "Network: " + if (engine != null) ChromeNet.describe() else "Android's standard networking",
+        )
         val http: HttpDataSource.Factory = if (engine != null) {
             CronetDataSource.Factory(engine, ChromeNet.executor)
                 .setConnectionTimeoutMs(15_000)
@@ -246,6 +257,7 @@ class PlayerActivity : Activity() {
         }.build()
 
         p.addListener(listener)
+        p.addAnalyticsListener(downloads)
         showCover(if (reconnects == 0) "Loading…" else "Reconnecting…")
         p.setMediaItem(item)
         p.prepare()
@@ -311,6 +323,17 @@ class PlayerActivity : Activity() {
                         "${if (f.sampleRate > 0) "${f.sampleRate}Hz " else ""}($ok$sel)"
                 }
             }
+            val video = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }.flatMap { g ->
+                (0 until g.length).map { i ->
+                    val f = g.getTrackFormat(i)
+                    val codec = f.sampleMimeType ?: f.codecs ?: "unknown"
+                    val size = if (f.width > 0) "${f.width}x${f.height} " else ""
+                    val ok = if (g.isTrackSupported(i)) "plays here" else "NOT supported on this device"
+                    "$codec $size($ok${if (g.isTrackSelected(i)) ", selected" else ""})"
+                }
+            }
+            Report.logOnce("video-${video.hashCode()}",
+                if (video.isEmpty()) "Video: the stream has no video track" else "Video: " + video.take(6).joinToString("; "))
             Report.logOnce("audio-${audio.hashCode()}",
                 if (audio.isEmpty()) "Audio: the stream has no audio track" else "Audio: " + audio.joinToString("; "))
 
@@ -326,9 +349,54 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Logs the first downloads of each attempt (what, how big, how long) and any download errors. */
+    private val downloads = object : AnalyticsListener {
+        private fun kind(d: MediaLoadData) = when (d.dataType) {
+            C.DATA_TYPE_MANIFEST -> "playlist"
+            C.DATA_TYPE_MEDIA -> when (d.trackType) {
+                C.TRACK_TYPE_VIDEO -> "video chunk"
+                C.TRACK_TYPE_AUDIO -> "audio chunk"
+                else -> "chunk"
+            }
+            C.DATA_TYPE_MEDIA_INITIALIZATION -> "init chunk"
+            else -> "data"
+        }
+
+        override fun onLoadCompleted(eventTime: AnalyticsListener.EventTime, info: LoadEventInfo, data: MediaLoadData) {
+            if (loadsLogged >= 12) return
+            loadsLogged++
+            val secs = info.loadDurationMs / 1000.0
+            val rate = if (info.loadDurationMs > 0) info.bytesLoaded * 8.0 / info.loadDurationMs / 1000.0 else 0.0
+            Report.log(
+                String.format(
+                    java.util.Locale.US, "  got %s %s: %,d bytes in %.1fs (%.1f Mbps)",
+                    kind(data), Report.short(info.uri.toString()), info.bytesLoaded, secs, rate,
+                )
+            )
+        }
+
+        override fun onLoadError(
+            eventTime: AnalyticsListener.EventTime,
+            info: LoadEventInfo,
+            data: MediaLoadData,
+            error: java.io.IOException,
+            wasCanceled: Boolean,
+        ) {
+            val why = (error as? HttpDataSource.InvalidResponseCodeException)?.let { "server said ${it.responseCode}" }
+                ?: (error.message ?: error.javaClass.simpleName).take(120)
+            Report.log("  failed ${kind(data)} ${Report.short(info.uri.toString())}: $why")
+        }
+    }
+
     private val stallCheck = Runnable {
         Report.log("Stalled for ${STALL_MS / 1000}s")
-        if (tunneling && !firstFrame) {
+        logStall()
+        if (playingSince == 0L && useChromeNet && ChromeNet.engine != null) {
+            // Never started with Chrome's engine: some servers work badly with it. Try once without.
+            useChromeNet = false
+            Report.log("No progress with Chrome's network engine; retrying with standard networking")
+            play()
+        } else if (tunneling && !firstFrame) {
             retryWithoutTunneling("stalled before the first picture")
         } else {
             recover("stalled")
@@ -510,6 +578,7 @@ class PlayerActivity : Activity() {
         main.removeCallbacks(firstFrameCheck)
         playerView.player = null
         player?.removeListener(listener)
+        player?.removeAnalyticsListener(downloads)
         player?.release()
         player = null
     }
