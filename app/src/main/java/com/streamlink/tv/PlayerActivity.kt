@@ -215,7 +215,7 @@ class PlayerActivity : Activity() {
             .setBufferDurationsMs(30_000, 60_000, 2_500, 8_000)
             .build()
         smoothLive = smoothLiveAllowed()
-        Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~30s behind live)" else "low delay"}")
+        Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~20s behind live)" else "low delay"}")
 
         val p = ExoPlayer.Builder(this)
             .setTrackSelector(selector)
@@ -232,12 +232,12 @@ class PlayerActivity : Activity() {
             if (lower.contains("m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8)
             else if (lower.contains(".mpd")) setMimeType(MimeTypes.APPLICATION_MPD)
             if (smoothLive) {
-                // Play ~30s behind live so there's room to buffer, and never speed up to catch up
+                // Play ~20s behind live (a few seconds more than usual) so there's room to buffer, and never speed up to catch up
                 // (that drains the cushion); only slow down imperceptibly to rebuild it.
                 setLiveConfiguration(
                     MediaItem.LiveConfiguration.Builder()
-                        .setTargetOffsetMs(30_000)
-                        .setMinOffsetMs(15_000)
+                        .setTargetOffsetMs(20_000)
+                        .setMinOffsetMs(12_000)
                         .setMinPlaybackSpeed(0.97f)
                         .setMaxPlaybackSpeed(1.0f)
                         .build()
