@@ -60,7 +60,7 @@ open class SafeChromeClient : WebChromeClient() {
  * Keeps a page on its own site: blocks app links (intent://, market://), ad/redirect networks,
  * and any main-frame navigation to a different site. Embedded frames may load freely.
  */
-open class SafeWebViewClient(var siteUrl: String) : WebViewClient() {
+open class SafeWebViewClient(var siteUrl: String, private val allowVideoAds: Boolean = false) : WebViewClient() {
     var firstPageLoaded = false
 
     open fun onFrame(url: String) {}
@@ -75,7 +75,11 @@ open class SafeWebViewClient(var siteUrl: String) : WebViewClient() {
             Report.log("Blocked a jump to a \"$scheme:\" link")
             return true
         }
-        if (AdBlock.isBlockedHost(target.host)) {
+        if (AdBlock.isLocalHost(target.host)) {
+            Report.log("Blocked the page from reaching the TV itself")
+            return true
+        }
+        if (AdBlock.isBlockedHost(target.host, allowVideoAds)) {
             Report.logOnce("nav-${target.host}", "Blocked redirect to ad network ${target.host}")
             return true
         }
@@ -99,7 +103,11 @@ open class SafeWebViewClient(var siteUrl: String) : WebViewClient() {
     override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
         request ?: return null
         val host = request.url.host
-        if (AdBlock.isBlockedHost(host)) {
+        if (AdBlock.isLocalHost(host)) {
+            Report.logOnce("local-$host", "Blocked the page from reaching the TV itself ($host)")
+            return WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+        }
+        if (AdBlock.isBlockedHost(host, allowVideoAds)) {
             Report.countBlocked(host)
             return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
         }

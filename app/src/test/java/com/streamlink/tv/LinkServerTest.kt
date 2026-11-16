@@ -76,11 +76,26 @@ class LinkServerTest {
     }
 
     @Test
-    fun getPlay() {
-        val r = request("GET /play?url=https%3A%2F%2Fexample.com%2Fwatch%3Fv%3D1 HTTP/1.1\r\nHost: x\r\n\r\n")
-        assertTrue(r.startsWith("HTTP/1.1 200"))
-        assertTrue(r.contains("Sent to TV"))
-        assertEquals("https://example.com/watch?v=1", links.last())
+    fun getPlayIsRefused() {
+        val r = request("GET /play?url=https%3A%2F%2Fexample.com HTTP/1.1\r\nHost: x\r\n\r\n")
+        assertTrue(r.startsWith("HTTP/1.1 405"))
+        assertTrue(links.isEmpty())
+    }
+
+    @Test
+    fun otherWebsitesAreRefused() {
+        val body = "url=https%3A%2F%2Fevil.example"
+        val r = request("POST /play HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: https://evil.example\r\n" +
+            "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\n\r\n$body")
+        assertTrue(r.startsWith("HTTP/1.1 403"))
+        val r2 = request("POST /cmd HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nSec-Fetch-Site: cross-site\r\n" +
+            "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: 8\r\n\r\nc=toggle")
+        assertTrue(r2.startsWith("HTTP/1.1 403"))
+        assertTrue(links.isEmpty())
+        // Our own phone page is fine.
+        val ok = request("POST /play HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: http://192.168.1.50:8080\r\n" +
+            "Sec-Fetch-Site: same-origin\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\n\r\n$body")
+        assertTrue(ok.contains("Sent to TV"))
     }
 
     @Test

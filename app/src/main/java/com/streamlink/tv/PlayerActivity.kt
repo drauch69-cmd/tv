@@ -68,6 +68,8 @@ class PlayerActivity : Activity() {
     private var playingSince = 0L
     private var qualityOptions: List<Pair<Tracks.Group, Int>> = emptyList()
     private var qualityChoice = -1
+    /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
+    private var linkGen = 0
 
     private val handler: (String, String?) -> Unit = { c, v -> onCommand(c, v) }
 
@@ -115,6 +117,7 @@ class PlayerActivity : Activity() {
 
     private fun loadSession() {
         val s = Session.current ?: return finish()
+        linkGen++
         set = s
         sourceIndex = 0
         refererIndex = 0
@@ -195,13 +198,25 @@ class PlayerActivity : Activity() {
                     }
                     AppStatus.text = "Playing ${Session.title}"
                 }
-                Player.STATE_BUFFERING -> main.postDelayed(stallCheck, STALL_MS)
+                Player.STATE_BUFFERING -> if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                 Player.STATE_ENDED -> {
-                    Report.log("Stream ended")
-                    recover("stream ended")
+                    if (player?.isCurrentMediaItemLive == true) {
+                        Report.log("Live stream stopped unexpectedly")
+                        recover("stream ended")
+                    } else {
+                        Report.log("Video finished")
+                        AppStatus.text = "Finished: ${Session.title}"
+                        showCover("Finished\nPress Back for the link screen")
+                    }
                 }
                 else -> {}
             }
+        }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            // A paused player isn't stalled; restart the clock when playback resumes.
+            main.removeCallbacks(stallCheck)
+            if (playWhenReady && player?.playbackState == Player.STATE_BUFFERING) main.postDelayed(stallCheck, STALL_MS)
         }
 
         override fun onPlayerError(error: PlaybackException) = handleError(error)
@@ -276,7 +291,9 @@ class PlayerActivity : Activity() {
         showCover("Reconnecting…\n($why)")
         AppStatus.text = "Reconnecting to ${Session.title}…"
         Report.log("Reconnecting (try $reconnects of $MAX_RECONNECTS): reloading the page for a fresh stream link")
+        val gen = linkGen
         main.postDelayed({
+            if (gen != linkGen) return@postDelayed
             sniffer.sniff(page) { fresh ->
                 if (fresh.sources.isEmpty()) {
                     Report.log("No stream found while reconnecting")
@@ -297,8 +314,28 @@ class PlayerActivity : Activity() {
         }, 1500L * reconnects.coerceAtLeast(1))
     }
 
-    private fun openSitePlayer(why: String) {
-        val page = set?.pageUrl ?: return finish()
+    /**
+     * A new link arrived while this screen is showing. Find its stream with this screen's own
+     * page loader: the link screen is in the background, where pages often won't start a video.
+     */
+    private fun openLink(url: String) {
+        linkGen++
+        release()
+        val site = Report.host(url)
+        showCover("Finding the video on $site…")
+        AppStatus.text = "Finding the video on $site…"
+        sniffer.sniff(url) { found ->
+            if (found.sources.isEmpty()) {
+                openSitePlayer("no direct stream found", found.pageUrl)
+            } else {
+                Session.current = found
+                loadSession()
+            }
+        }
+    }
+
+    private fun openSitePlayer(why: String, pageUrl: String? = null) {
+        val page = pageUrl ?: set?.pageUrl ?: return finish()
         Report.log("Switching to the site's own player ($why)")
         release()
         startActivity(SitePlayerActivity.intent(this, page))
@@ -330,6 +367,7 @@ class PlayerActivity : Activity() {
             "quality" -> setQuality(v?.toIntOrNull() ?: -1)
             "source" -> v?.toIntOrNull()?.let { switchSource(it) }
             "site" -> openSitePlayer("requested from phone")
+            "open" -> v?.let { openLink(it) }
         }
         publishSnapshot()
     }

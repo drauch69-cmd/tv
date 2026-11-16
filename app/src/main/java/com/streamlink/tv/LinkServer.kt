@@ -72,6 +72,8 @@ class LinkServer(
                 var contentLength = 0
                 var contentType = ""
                 var host = ""
+                var origin = ""
+                var fetchSite = ""
                 while (true) {
                     val line = readLine(input) ?: break
                     if (line.isEmpty()) break
@@ -81,6 +83,8 @@ class LinkServer(
                         "content-length" -> contentLength = value.toIntOrNull() ?: 0
                         "content-type" -> contentType = value.lowercase()
                         "host" -> host = value
+                        "origin" -> origin = value
+                        "sec-fetch-site" -> fetchSite = value.lowercase()
                     }
                 }
                 val body = if (contentLength in 1..65_536) {
@@ -94,10 +98,28 @@ class LinkServer(
                     String(buf, 0, read, Charsets.UTF_8)
                 } else ""
 
+                // Links and commands only from our own phone page or a Shortcut, never from another
+                // website (which a browser would label with its own Origin / Sec-Fetch-Site).
+                val changes = path == "/play" || path == "/cmd"
+                if (changes && method != "POST") {
+                    respond(c, 405, "text/plain; charset=utf-8", "Use POST")
+                    return
+                }
+                if (changes && !trustedCaller(origin, fetchSite, host)) {
+                    respond(c, 403, "text/plain; charset=utf-8", "Not allowed from another website")
+                    return
+                }
                 route(c, method, path, query, host, contentType, body)
             } catch (_: Exception) {
             }
         }
+    }
+
+    private fun trustedCaller(origin: String, fetchSite: String, host: String): Boolean {
+        if (fetchSite.isNotEmpty() && fetchSite != "same-origin" && fetchSite != "none") return false
+        if (origin.isEmpty()) return true // iPhone Shortcut, curl: no browser page involved
+        val o = origin.lowercase().substringAfter("://", "")
+        return o.isNotEmpty() && o == host.lowercase()
     }
 
     private fun route(c: Socket, method: String, path: String, query: String, host: String, contentType: String, body: String) {
@@ -112,7 +134,7 @@ class LinkServer(
             method == "GET" && path == "/report" -> respond(c, 200, text, report())
 
             path == "/play" && (method == "GET" || method == "POST") -> {
-                val raw = if (method == "GET") formValue(query, "url") else extractUrl(body, contentType)
+                val raw = extractUrl(body, contentType)
                 val url = normalize(raw)
                 if (url == null) {
                     respond(c, 400, if (method == "GET") html else text,
@@ -215,7 +237,7 @@ class LinkServer(
 
     private fun respond(c: Socket, code: Int, type: String, body: String) {
         val bytes = body.toByteArray(Charsets.UTF_8)
-        val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; else -> "Not Found" }
+        val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 405 -> "Method Not Allowed"; else -> "Not Found" }
         val head = "HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
             "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
         val out = c.getOutputStream()

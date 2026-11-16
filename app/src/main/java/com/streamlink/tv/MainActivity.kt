@@ -110,6 +110,13 @@ class MainActivity : Activity() {
         Report.start(url)
         val site = Uri.parse(url).host ?: url
         Session.title = site
+        val playing = Session.commandHandler
+        if (Session.mode == "player" && playing != null) {
+            // The player is in front; it finds the new stream with its own visible page loader.
+            setStatus("Finding the video on $site…")
+            playing("open", url)
+            return
+        }
         if (Session.mode == "idle") Session.mode = "finding"
         setStatus("Finding the video on $site…")
         sniffer.sniff(url) { set ->

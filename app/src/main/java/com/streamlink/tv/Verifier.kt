@@ -5,21 +5,33 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.util.concurrent.Callable
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Playlists already downloaded while checking streams. The player takes them from here instead
  * of downloading again, which matters for links that only work once.
  */
 object PrefetchCache {
-    private val map = ConcurrentHashMap<String, Pair<ByteArray, String>>()
+    /** A saved live playlist goes stale fast: older than this, download it fresh instead. */
+    private const val MAX_AGE_MS = 15_000L
+
+    private class Entry(val bytes: ByteArray, val finalUrl: String, val at: Long)
+
+    private val map = ConcurrentHashMap<String, Entry>()
 
     fun put(url: String, bytes: ByteArray, finalUrl: String) {
         if (map.size > 20) map.clear()
-        map[url] = Pair(bytes, finalUrl)
+        map[url] = Entry(bytes, finalUrl, System.currentTimeMillis())
     }
 
-    fun take(url: String): Pair<ByteArray, String>? = map.remove(url)
+    fun take(url: String): Pair<ByteArray, String>? {
+        val e = map.remove(url) ?: return null
+        if (System.currentTimeMillis() - e.at > MAX_AGE_MS) return null
+        return Pair(e.bytes, e.finalUrl)
+    }
 
     fun clear() = map.clear()
 }
@@ -43,15 +55,31 @@ object Verifier {
             get() = (if (ok) 10 else 0) + (if (master) 3 else 0) + (if (live) 2 else 0) + (if (adLike) -10 else 0)
     }
 
+    private const val TOTAL_LIMIT_MS = 10_000L
+
     private val adWords = listOf("/ads/", "/ad/", "vast", "preroll", "pre-roll", "advert", "doubleclick", "imasdk")
 
     fun rank(cands: List<StreamCandidate>): List<Source> {
-        val checked = cands.map { c ->
+        // Check all candidates at once, with a hard overall time limit, so a slow site can't keep
+        // the TV on "Finding the video…" for minutes.
+        val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 8))
+        val futures = try {
+            pool.invokeAll(cands.map { c -> Callable { check(c) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
+        } finally {
+            pool.shutdownNow()
+        }
+        val checked = cands.mapIndexed { i, c ->
+            val f = futures[i]
             try {
-                check(c)
+                if (f.isCancelled) {
+                    Report.log("✗ ${Report.short(c.url)}: too slow to answer")
+                    unchecked(c)
+                } else {
+                    f.get()
+                }
             } catch (e: Exception) {
-                Report.log("✗ ${Report.short(c.url)}: ${e.javaClass.simpleName}")
-                Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList())
+                Report.log("✗ ${Report.short(c.url)}: ${(e.cause ?: e).javaClass.simpleName}")
+                unchecked(c)
             }
         }
 
@@ -118,6 +146,9 @@ object Verifier {
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList())
     }
 
+    private fun unchecked(c: StreamCandidate) =
+        Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList())
+
     private fun looksLikeAd(url: String): Boolean {
         val u = url.lowercase()
         return adWords.any { u.contains(it) }
@@ -142,8 +173,8 @@ object Verifier {
         var conn: HttpURLConnection? = null
         return try {
             conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 6000
-            conn.readTimeout = 6000
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
             conn.instanceFollowRedirects = true
             for ((k, v) in headers) {
                 if (k.equals("Referer", true) || k.equals("Origin", true)) continue

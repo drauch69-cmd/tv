@@ -29,10 +29,38 @@ object AdBlock {
         "openx.net", "33across.com", "yieldmo.com",
     )
 
-    fun isBlockedHost(host: String?): Boolean {
+    /**
+     * Video ad servers that play pre-roll ads inside a site's own player. Allowed in the site
+     * player (so pre-rolls still play, as wanted); popup and redirect networks stay blocked.
+     */
+    private val videoAds = listOf(
+        "doubleclick.net", "googlesyndication.com", "adservice.google.com", "2mdn.net",
+        "imasdk.googleapis.com", "amazon-adsystem.com",
+    )
+
+    fun isBlockedHost(host: String?, allowVideoAds: Boolean = false): Boolean {
         if (host == null) return false
         val h = host.lowercase()
+        if (allowVideoAds && videoAds.any { h == it || h.endsWith(".$it") }) return false
         return blocked.any { h == it || h.endsWith(".$it") }
+    }
+
+    @Volatile private var tvIp: String? = null
+    @Volatile private var tvIpAt = 0L
+
+    /**
+     * The TV itself (localhost, or its own network address). Web pages must never reach it:
+     * that's where the phone-page server runs.
+     */
+    fun isLocalHost(host: String?): Boolean {
+        val h = host?.lowercase()?.trim('[', ']') ?: return false
+        if (h == "localhost" || h.endsWith(".localhost") || h.startsWith("127.") || h == "::1" || h == "0.0.0.0") return true
+        val now = System.currentTimeMillis()
+        if (now - tvIpAt > 10_000) {
+            tvIp = NetUtil.localIp()
+            tvIpAt = now
+        }
+        return h == tvIp
     }
 
     /** "www.example.co.uk" -> "example.co.uk", "live.site.com" -> "site.com" (good enough here). */
