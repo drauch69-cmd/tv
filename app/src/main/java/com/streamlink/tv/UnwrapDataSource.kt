@@ -38,6 +38,9 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         bufEnd = 0
         cachedUri = null
         bufOnly = false
+        head = ByteArray(0)
+        n = 0
+        eof = false
 
         if (dataSpec.position == 0L) {
             val cached = PrefetchCache.take(dataSpec.uri.toString())
@@ -82,9 +85,8 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             return length
         }
 
-        head = ByteArray(PEEK)
-        n = 0
-        eof = false
+        // (If the playlist check above already read some bytes, keep them and read on.)
+        if (n == 0) head = ByteArray(PEEK)
         fill(PEEK)
 
         var skip = 0
