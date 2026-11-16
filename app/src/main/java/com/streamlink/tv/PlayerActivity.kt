@@ -31,7 +31,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
+import androidx.media3.exoplayer.hls.LenientHlsExtractorFactory
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -291,7 +291,9 @@ class PlayerActivity : Activity() {
             // Be as forgiving as a browser with how the stream is put together. Many relayed
             // streams never send the "IDR" keyframe Android's player waits for before starting
             // (it would sit buffering forever), or don't mark where each frame begins.
-            val lenient = DefaultHlsExtractorFactory(
+            // LenientHlsExtractorFactory = Media3's own, plus an H.264 reader that can start streams
+            // with no keyframes at all ("intra refresh"), the way browsers do.
+            val lenient = LenientHlsExtractorFactory(
                 DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                     DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
                 true,
