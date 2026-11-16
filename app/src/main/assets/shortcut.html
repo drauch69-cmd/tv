@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Play on TV — iPhone Share menu</title>
+<style>
+  :root{--bg:#0d1220;--card:#111a2e;--line:#2c3a5c;--text:#e8edf8;--dim:#b8c4e0;--muted:#7f8dad;--accent:#4f8cff}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);padding:20px 18px 48px;max-width:560px;margin:0 auto;line-height:1.5;-webkit-text-size-adjust:100%}
+  h1{font-size:23px;margin:4px 0 6px}
+  p.lead{color:var(--dim);margin:0 0 18px}
+  a{color:var(--accent);text-decoration:none}
+  .addr{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:18px}
+  .addr small{color:var(--muted);display:block;margin-bottom:4px}
+  .addr code{font-size:18px;color:#fff;word-break:break-all}
+  button{margin-top:10px;width:100%;font-size:17px;padding:12px;border-radius:12px;border:0;background:var(--accent);color:#fff;font-weight:600}
+  ol{padding-left:0;list-style:none;counter-reset:s;margin:0}
+  li{counter-increment:s;position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px 14px 54px;margin-bottom:10px;color:var(--dim)}
+  li::before{content:counter(s);position:absolute;left:16px;top:13px;width:26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;justify-content:center}
+  li b{color:#fff}
+  code{background:#0b101c;border-radius:6px;padding:1px 6px;font-size:15px;color:#fff}
+  h2{font-size:18px;margin:26px 0 8px}
+  .note{color:var(--dim);background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+</style>
+</head>
+<body>
+<p><a href="/">← Back to the remote</a></p>
+<h1>Add “Play on TV” to your Share menu</h1>
+<p class="lead">After this one-time setup, you can tap <b>Share → Play on TV</b> on any page in Safari and it starts on the TV. No QR code needed.</p>
+
+<div class="addr">
+  <small>Your TV's address</small>
+  <code id="addr">http://{{ADDR}}/play</code>
+  <button type="button" id="copy">Copy address</button>
+</div>
+
+<ol>
+  <li>Open the <b>Shortcuts</b> app and tap <b>+</b> to make a new shortcut. Tap its name at the top and rename it <b>Play on TV</b>.</li>
+  <li>Tap the <b>ⓘ</b> (Details) button and turn on <b>Show in Share Sheet</b>. Tap <b>Done</b>.</li>
+  <li>At the top it now says “Receive <b>Any</b> input from Share Sheet”. Tap <b>Any</b> and keep only <b>URLs</b> and <b>Safari web pages</b>.</li>
+  <li>Tap <b>Search Actions</b>, find <b>Get URLs from Input</b>, and add it.</li>
+  <li>Search again for <b>Get Contents of URL</b> and add it below. Tap its blue <b>URL</b> field and paste the address above: <code>http://{{ADDR}}/play</code></li>
+  <li>Tap the <b>›</b> arrow on that action to show more options. Set <b>Method</b> to <b>POST</b> and <b>Request Body</b> to <b>JSON</b>.</li>
+  <li>Tap <b>Add new field → Text</b>. For the key type <code>url</code>. For the value, tap it and pick the <b>URLs</b> variable (from the step before).</li>
+  <li>Tap <b>Done</b>. Now in Safari, open a stream page, tap <b>Share</b>, and choose <b>Play on TV</b>.</li>
+</ol>
+
+<div class="note">The first time, iPhone may ask to allow <b>Play on TV</b> to connect to the TV or to find devices on your local network. Tap <b>Allow</b>. StreamLink must be open on the TV.</div>
+
+<h2>Keep the TV's address the same</h2>
+<div class="note">
+  The shortcut remembers the address above. Your router can hand the TV a different one after a restart, which would break the shortcut.
+  To prevent that, open your router's settings (usually its app, or a web page like <code>192.168.1.1</code>) and look for
+  <b>DHCP reservation</b>, <b>Address reservation</b> or <b>Static IP</b>. Reserve the TV's current address for it.
+  <br><br>
+  If the shortcut ever stops working, check that the address under the QR code on the TV still matches the one in your shortcut, and update it if not.
+</div>
+
+<script>
+(function(){
+  var btn = document.getElementById('copy');
+  var text = document.getElementById('addr').textContent;
+  function done(){ btn.textContent = 'Copied ✓'; setTimeout(function(){ btn.textContent = 'Copy address'; }, 1500); }
+  btn.onclick = function(){
+    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text).then(done, fallback); return; }
+    fallback();
+    function fallback(){
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try { ta.setSelectionRange(0, text.length); } catch (e) {}
+      var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+      btn.textContent = ok ? 'Copied ✓' : 'Press and hold the address to copy it';
+      if (ok) setTimeout(function(){ btn.textContent = 'Copy address'; }, 1500);
+    }
+  };
+})();
+</script>
+</body>
+</html>

@@ -10,12 +10,16 @@ import java.net.URLDecoder
 import kotlin.concurrent.thread
 
 /**
- * A tiny web server on the TV. Your phone opens its page, pastes a link, and it's sent to [onLink].
- * Only runs while the app is open.
+ * A tiny web server on the TV. Your phone opens its page, sends links, and uses it as a remote.
+ * Only runs while the app is open. Plain JVM code (no Android APIs) so it can be unit tested.
  */
 class LinkServer(
+    private val pages: Map<String, String>,
     private val onLink: (String) -> Unit,
-    private val status: () -> String,
+    private val onCommand: (String, String?) -> Unit = { _, _ -> },
+    private val status: () -> String = { "" },
+    private val state: () -> String = { "{}" },
+    private val report: () -> String = { "" },
 ) {
     private var socket: ServerSocket? = null
     @Volatile private var running = false
@@ -56,18 +60,27 @@ class LinkServer(
                 val first = input.read()
                 if (first < 0 || first == 0x16) return
                 input.reset()
+
                 val requestLine = readLine(input) ?: return
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) return
-                val method = parts[0]
-                val path = parts[1].substringBefore('?')
+                val method = parts[0].uppercase()
+                val target = parts[1]
+                val path = target.substringBefore('?')
+                val query = target.substringAfter('?', "")
 
                 var contentLength = 0
+                var contentType = ""
+                var host = ""
                 while (true) {
                     val line = readLine(input) ?: break
                     if (line.isEmpty()) break
-                    if (line.lowercase().startsWith("content-length:")) {
-                        contentLength = line.substringAfter(':').trim().toIntOrNull() ?: 0
+                    val name = line.substringBefore(':').trim().lowercase()
+                    val value = line.substringAfter(':', "").trim()
+                    when (name) {
+                        "content-length" -> contentLength = value.toIntOrNull() ?: 0
+                        "content-type" -> contentType = value.lowercase()
+                        "host" -> host = value
                     }
                 }
                 val body = if (contentLength in 1..65_536) {
@@ -81,36 +94,111 @@ class LinkServer(
                     String(buf, 0, read, Charsets.UTF_8)
                 } else ""
 
-                when {
-                    method == "GET" && path == "/" -> respond(c, 200, "text/html; charset=utf-8", PAGE)
-                    method == "GET" && path == "/status" -> respond(c, 200, "text/plain; charset=utf-8", status())
-                    method == "POST" && path == "/play" -> {
-                        val url = normalize(formValue(body, "url"))
-                        if (url == null) {
-                            respond(c, 400, "text/plain; charset=utf-8", "That doesn't look like a web link.")
-                        } else {
-                            onLink(url)
-                            respond(c, 200, "text/plain; charset=utf-8", "Sent to TV")
-                        }
-                    }
-                    else -> respond(c, 404, "text/plain", "Not found")
-                }
+                route(c, method, path, query, host, contentType, body)
             } catch (_: Exception) {
             }
         }
     }
 
-    private fun formValue(body: String, key: String): String? =
-        body.split('&').firstNotNullOfOrNull { pair ->
-            val k = URLDecoder.decode(pair.substringBefore('='), "UTF-8")
-            if (k == key) URLDecoder.decode(pair.substringAfter('=', ""), "UTF-8") else null
+    private fun route(c: Socket, method: String, path: String, query: String, host: String, contentType: String, body: String) {
+        val html = "text/html; charset=utf-8"
+        val text = "text/plain; charset=utf-8"
+        when {
+            method == "GET" && pages.containsKey(path) ->
+                respond(c, 200, html, pages.getValue(path).replace("{{ADDR}}", host))
+
+            method == "GET" && path == "/status" -> respond(c, 200, text, status())
+            method == "GET" && path == "/state" -> respond(c, 200, "application/json; charset=utf-8", state())
+            method == "GET" && path == "/report" -> respond(c, 200, text, report())
+
+            path == "/play" && (method == "GET" || method == "POST") -> {
+                val raw = if (method == "GET") formValue(query, "url") else extractUrl(body, contentType)
+                val url = normalize(raw)
+                if (url == null) {
+                    respond(c, 400, if (method == "GET") html else text,
+                        if (method == "GET") page("That doesn't look like a web link.") else "That doesn't look like a web link.")
+                } else {
+                    onLink(url)
+                    if (method == "GET") respond(c, 200, html, page("Sent to TV ✓"))
+                    else respond(c, 200, text, "Sent to TV")
+                }
+            }
+
+            path == "/cmd" && (method == "POST" || method == "GET") -> {
+                val cmd = formValue(body, "c") ?: formValue(query, "c")
+                val v = formValue(body, "v") ?: formValue(query, "v")
+                if (cmd.isNullOrBlank()) {
+                    respond(c, 400, text, "Missing command")
+                } else {
+                    onCommand(cmd, v)
+                    respond(c, 200, text, "ok")
+                }
+            }
+
+            else -> respond(c, 404, text, "Not found")
+        }
+    }
+
+    private fun page(message: String) =
+        "<!DOCTYPE html><html><head><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
+            "<title>StreamLink</title></head><body style=\"margin:0;padding:32px;font-family:system-ui,sans-serif;" +
+            "background:#0d1220;color:#e8edf8;font-size:20px\">" + escapeHtml(message) +
+            "<p><a href=\"/\" style=\"color:#4f8cff\">Open the remote</a></p></body></html>"
+
+    private fun escapeHtml(s: String) =
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+
+    companion object {
+        private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
+        private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
+
+        /** Pulls the link out of a POST body: JSON, multipart form, urlencoded form, or plain text. */
+        fun extractUrl(body: String, contentType: String): String? {
+            val ct = contentType.lowercase()
+            if (ct.contains("json") || body.trimStart().startsWith("{")) {
+                JSON_URL.find(body)?.let { m ->
+                    return m.groupValues[1]
+                        .replace("\\/", "/")
+                        .replace("\\\"", "\"")
+                        .replace("\\\\", "\\")
+                }
+            }
+            if (ct.contains("multipart")) {
+                val idx = body.indexOf("name=\"url\"")
+                if (idx >= 0) {
+                    val rest = body.substring(idx)
+                    val sep = Regex("\\r?\\n\\r?\\n").find(rest)
+                    if (sep != null) {
+                        val value = rest.substring(sep.range.last + 1)
+                        return value.substringBefore("\r\n").substringBefore("\n").trim()
+                    }
+                }
+            }
+            formValue(body, "url")?.let { return it }
+            return body.trim().ifEmpty { null }
         }
 
-    private fun normalize(raw: String?): String? {
-        var u = raw?.trim() ?: return null
-        if (u.isEmpty() || u.contains(' ')) return null
-        if (!u.startsWith("http://", true) && !u.startsWith("https://", true)) u = "https://$u"
-        return if (u.substringAfter("://").contains('.')) u else null
+        fun formValue(body: String, key: String): String? {
+            if (body.isEmpty()) return null
+            return body.split('&').firstNotNullOfOrNull { pair ->
+                try {
+                    val k = URLDecoder.decode(pair.substringBefore('='), "UTF-8")
+                    if (k == key) URLDecoder.decode(pair.substringAfter('=', ""), "UTF-8") else null
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
+
+        /** Turns whatever the phone sent into a web link, or null if it isn't one. */
+        fun normalize(raw: String?): String? {
+            val text = raw?.trim() ?: return null
+            if (text.isEmpty()) return null
+            URL_IN_TEXT.find(text)?.let { return it.value.trimEnd(')', ']', '>', '"', '\'', ',', '.') }
+            if (text.contains(' ')) return null
+            val u = "https://$text"
+            return if (text.contains('.')) u else null
+        }
     }
 
     private fun readLine(input: InputStream): String? {
@@ -144,49 +232,5 @@ class LinkServer(
             while (input.read(sink) >= 0) { }
         } catch (_: Exception) {
         }
-    }
-
-    companion object {
-        private val PAGE = """
-<!DOCTYPE html>
-<html><head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StreamLink</title>
-<style>
-  body{margin:0;font-family:system-ui,sans-serif;background:#0d1220;color:#e8edf8;padding:24px}
-  h1{font-size:24px;margin:0 0 16px}
-  input{width:100%;box-sizing:border-box;font-size:18px;padding:14px;border-radius:10px;border:1px solid #2c3a5c;background:#162038;color:#fff}
-  button{width:100%;margin-top:12px;font-size:20px;padding:14px;border:0;border-radius:10px;background:#4f8cff;color:#fff;font-weight:600}
-  #status{margin-top:20px;font-size:17px;color:#b8c4e0;min-height:24px}
-</style></head>
-<body>
-<h1>Send to TV</h1>
-<form id="f">
-  <input id="u" type="url" placeholder="Paste a link" autocomplete="off" autofocus>
-  <button type="submit">Play on TV</button>
-</form>
-<div id="status"></div>
-<script>
-var st=document.getElementById('status'), timer=null;
-document.getElementById('f').onsubmit=function(e){
-  e.preventDefault();
-  var u=document.getElementById('u').value.trim(); if(!u) return;
-  st.textContent='Sending…';
-  fetch('/play',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'url='+encodeURIComponent(u)})
-    .then(function(r){return r.text().then(function(t){ st.textContent=t; if(r.ok) poll(); });})
-    .catch(function(){ st.textContent='Could not reach the TV. Is the app open?'; });
-};
-function poll(){
-  clearInterval(timer); var n=0;
-  timer=setInterval(function(){
-    fetch('/status').then(function(r){return r.text();}).then(function(t){
-      st.textContent=t;
-      if(++n>30 || /^(Playing|Couldn|Playback)/.test(t)) clearInterval(timer);
-    }).catch(function(){});
-  },1500);
-}
-</script>
-</body></html>
-""".trimIndent()
     }
 }

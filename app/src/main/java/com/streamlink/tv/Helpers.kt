@@ -14,6 +14,16 @@ object AppStatus {
     @Volatile var text: String = "Waiting for a link"
 }
 
+object Net {
+    /** "https://player.example.com/embed/123" -> "https://player.example.com" */
+    fun origin(url: String): String = try {
+        val u = java.net.URI(url)
+        u.scheme + "://" + u.host + (if (u.port > 0) ":" + u.port else "")
+    } catch (_: Exception) {
+        ""
+    }
+}
+
 object NetUtil {
     /** The TV's address on your home network, e.g. 192.168.1.50. */
     fun localIp(): String? = try {

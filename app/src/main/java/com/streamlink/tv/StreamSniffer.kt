@@ -1,80 +1,89 @@
 package com.streamlink.tv
 
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.graphics.Bitmap
-import android.net.Uri
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.os.Message
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.ViewGroup
 import android.webkit.CookieManager
-import android.webkit.JsPromptResult
-import android.webkit.JsResult
-import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import org.json.JSONArray
 import org.json.JSONTokener
-import java.io.ByteArrayInputStream
+import java.util.Collections
+import kotlin.concurrent.thread
 
-/**
- * A video stream found on a page, plus the headers the site's own player used to fetch it.
- * [referers] are the pages that may have asked for it, best guess first; the player tries each,
- * because many stream servers refuse requests that don't claim to come from their own player page.
- */
-data class FoundStream(
+/** One playable stream: its URL, the headers to send, and which pages to claim as referer (best first). */
+data class Source(
     val url: String,
     val headers: Map<String, String>,
-    val pageUrl: String,
-    val referers: List<String> = listOf(""),
+    val referers: List<String>,
+    val label: String,
 )
 
+/** Everything found on a page. Empty [sources] means no stream was found. */
+data class StreamSet(val pageUrl: String, val sources: List<Source>)
+
+/** A stream the page requested, before it has been checked. */
+data class StreamCandidate(val url: String, val headers: Map<String, String>, val referers: List<String>)
+
 /**
- * Loads a page in a hidden WebView, blocks popups/redirects/ad networks, nudges the page's
- * player to start, and reports the first video stream (HLS .m3u8 / DASH .mpd) it requests.
+ * Loads a page in a hidden WebView (with popups, off-site redirects and ad networks blocked),
+ * nudges the page's player to start, collects every video stream it requests, checks them,
+ * and reports the working ones ranked best first.
  */
-class StreamSniffer(private val activity: Activity, private val holder: ViewGroup) {
+class StreamSniffer(private val context: Context, private val holder: ViewGroup) {
 
     private val main = Handler(Looper.getMainLooper())
     private var webView: WebView? = null
+    private var client: SafeWebViewClient? = null
     private var done = true
+    private var verifying = false
+    private var generation = 0
     private var pageUrl = ""
-    private var firstPageLoaded = false
     private var nudgeCount = 0
-    private val frameUrls = java.util.Collections.synchronizedList(mutableListOf<String>())
-    private var onResult: ((FoundStream?) -> Unit)? = null
+    private val frameUrls = Collections.synchronizedList(mutableListOf<String>())
+    private val candidates = LinkedHashMap<String, StreamCandidate>()
+    private var onResult: ((StreamSet) -> Unit)? = null
 
-    private val timeout = Runnable { finish(null) }
+    private val timeout = Runnable {
+        if (done || verifying) return@Runnable
+        if (candidates.isEmpty()) {
+            Report.log("No video stream found within ${TIMEOUT_MS / 1000}s")
+            finish(StreamSet(currentPage(), emptyList()))
+        } else {
+            verifyAndFinish()
+        }
+    }
+    private val collect = Runnable { verifyAndFinish() }
     private val nudger = object : Runnable {
         override fun run() {
-            if (done) return
+            if (done || verifying) return
             nudge()
             main.postDelayed(this, 2500)
         }
     }
 
-    fun sniff(url: String, callback: (FoundStream?) -> Unit) {
+    fun sniff(url: String, callback: (StreamSet) -> Unit) {
         cancel()
         if (isStreamUrl(url) || url.lowercase().substringBefore('?').endsWith(".mp4")) {
-            // The link is already a video file/stream: play it directly.
-            callback(FoundStream(url, emptyMap(), url))
+            Report.log("Link is a video file itself; playing it directly")
+            callback(StreamSet(url, listOf(Source(url, emptyMap(), listOf(""), Report.host(url)))))
             return
         }
         done = false
+        verifying = false
+        generation++
         pageUrl = url
-        firstPageLoaded = false
         nudgeCount = 0
         frameUrls.clear()
+        candidates.clear()
         onResult = callback
-        val wv = createWebView()
+        val wv = createWebView(url)
         webView = wv
         holder.addView(wv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        Report.log("Loading page")
         wv.loadUrl(url)
         main.postDelayed(timeout, TIMEOUT_MS)
         main.postDelayed(nudger, 3000)
@@ -82,13 +91,18 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
 
     fun cancel() {
         done = true
+        verifying = false
+        generation++
         onResult = null
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
+        main.removeCallbacks(collect)
         destroyWebView()
     }
 
-    private fun finish(result: FoundStream?) {
+    private fun currentPage(): String = client?.siteUrl ?: pageUrl
+
+    private fun finish(result: StreamSet) {
         if (done) return
         val cb = onResult
         cancel()
@@ -98,14 +112,16 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
     private fun destroyWebView() {
         val wv = webView ?: return
         webView = null
+        client = null
         wv.stopLoading()
         wv.loadUrl("about:blank")
         holder.removeView(wv)
         wv.destroy()
     }
 
+    /** Called on the main thread for each stream the page asks for. */
     private fun found(url: String, requestHeaders: Map<String, String>) {
-        if (done) return
+        if (done || verifying || candidates.containsKey(url)) return
         val ua = webView?.settings?.userAgentString
         val headers = LinkedHashMap<String, String>()
         var requestReferer: String? = null
@@ -121,91 +137,76 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
         // Candidates for "which page asked for this video": the embedded player frames (newest
         // first), then the page itself, then no referer at all.
         val frames = synchronized(frameUrls) { frameUrls.toList() }.asReversed()
-        val referers = (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, pageUrl))
+        val referers = (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage()))
             .filter { it.startsWith("http") }
             .distinct()
             .take(5) + ""
-        finish(FoundStream(url, headers, pageUrl, referers))
+        candidates[url] = StreamCandidate(url, headers, referers)
+        Report.log("Found stream: ${Report.short(url)}")
+        if (candidates.size == 1) main.postDelayed(collect, COLLECT_MS)
+        if (candidates.size >= MAX_CANDIDATES) verifyAndFinish()
     }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    private fun createWebView(): WebView {
-        val wv = WebView(activity)
+    private fun verifyAndFinish() {
+        if (done || verifying) return
+        verifying = true
+        main.removeCallbacks(timeout)
+        main.removeCallbacks(nudger)
+        main.removeCallbacks(collect)
+        val list = candidates.values.toList()
+        val page = currentPage()
+        val gen = generation
+        Report.log("Checking ${list.size} stream(s)…")
+        thread(isDaemon = true, name = "stream-check") {
+            val sources = try {
+                Verifier.rank(list)
+            } catch (e: Exception) {
+                Report.log("Checking failed: ${e.javaClass.simpleName}")
+                list.map { Source(it.url, it.headers, it.referers, Report.host(it.url) + " · unchecked") }
+            }
+            main.post {
+                if (gen != generation || done) return@post // cancelled meanwhile
+                verifying = false
+                finish(StreamSet(page, sources))
+            }
+        }
+    }
+
+    private fun createWebView(url: String): WebView {
+        val wv = WebView(context)
         wv.isFocusable = false
         wv.isFocusableInTouchMode = false
-        with(wv.settings) {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            mediaPlaybackRequiresUserGesture = false
-            javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(true) // so window.open() reaches onCreateWindow, where it's refused
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-            userAgentString = userAgentString.replace("; wv", "")
-        }
-        CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
-
-        wv.webChromeClient = object : WebChromeClient() {
-            // Popups and new tabs: always refused.
-            override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?) = false
-            // Alert/confirm/prompt boxes: silently dismissed.
-            override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean { result?.cancel(); return true }
-            override fun onJsConfirm(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean { result?.cancel(); return true }
-            override fun onJsPrompt(view: WebView?, url: String?, message: String?, defaultValue: String?, result: JsPromptResult?): Boolean { result?.cancel(); return true }
-            override fun onJsBeforeUnload(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean { result?.confirm(); return true }
-        }
-
-        wv.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                request ?: return true
-                val target = request.url
-                val scheme = target.scheme?.lowercase()
-                if (scheme != "http" && scheme != "https") return true // intent://, market://, etc.
-                if (AdBlock.isBlockedHost(target.host)) return true
-                if (!request.isForMainFrame) {
-                    frameUrls.add(target.toString())
-                    return false
-                }
-                // A server redirect while the first page is still loading (e.g. the site moved) is allowed.
-                if (request.isRedirect && !firstPageLoaded) {
-                    pageUrl = target.toString()
-                    return false
-                }
-                // Otherwise the page may only move around inside the site you sent.
-                return !AdBlock.sameSite(target.toString(), pageUrl)
+        SafeWeb.configure(wv)
+        wv.webChromeClient = SafeChromeClient()
+        val c = object : SafeWebViewClient(url) {
+            override fun onFrame(url: String) {
+                frameUrls.add(url)
             }
 
-            override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
-                request ?: return null
-                if (AdBlock.isBlockedHost(request.url.host)) return emptyResponse()
+            override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
-                // Remember embedded player pages (iframes); the stream server may expect them as referer.
-                val accept = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value ?: ""
-                if (!request.isForMainFrame && accept.contains("text/html") && u.startsWith("http")) frameUrls.add(u)
                 if (isStreamUrl(u)) {
                     val headers = HashMap(request.requestHeaders ?: emptyMap())
                     main.post { found(u, headers) }
                 }
-                return null
             }
 
-            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {}
-
-            override fun onPageFinished(view: WebView?, url: String?) {
-                firstPageLoaded = true
+            override fun onLoaded() {
                 nudge()
             }
         }
+        client = c
+        wv.webViewClient = c
         return wv
     }
 
-    /** Try to get the page's player going: unmute-safe autoplay, click common play buttons, tap the middle. */
+    /** Try to get the page's player going: muted autoplay, click common play buttons, tap the middle. */
     private fun nudge() {
         val wv = webView ?: return
-        if (done) return
+        if (done || verifying) return
         nudgeCount++
         wv.evaluateJavascript(NUDGE_JS) { raw ->
-            if (done || raw == null || raw == "null") return@evaluateJavascript
+            if (done || verifying || raw == null || raw == "null") return@evaluateJavascript
             try {
                 val arr = JSONArray(JSONTokener(raw).nextValue() as String)
                 for (i in 0 until arr.length()) {
@@ -215,14 +216,13 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
                     val long = !o.isNull("dur") && o.optDouble("dur") > 600
                     if (src.startsWith("http") && (isStreamUrl(src) || live || long)) {
                         found(src, emptyMap())
-                        return@evaluateJavascript
                     }
                 }
             } catch (_: Exception) {
             }
         }
         // Players inside iframes can't be scripted from here, so tap the middle of the page on
-        // every other nudge. Any popup or redirect that tap triggers is blocked above.
+        // every other nudge. Any popup or redirect that tap triggers is blocked.
         if (nudgeCount % 2 == 0 && wv.width > 0) tap(wv, wv.width / 2f, wv.height / 2f)
     }
 
@@ -236,15 +236,17 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
         up.recycle()
     }
 
-    private fun emptyResponse() = WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
-
     companion object {
         const val TIMEOUT_MS = 25_000L
+        private const val COLLECT_MS = 2_500L
+        private const val MAX_CANDIDATES = 8
 
         fun isStreamUrl(url: String): Boolean {
             val u = url.lowercase()
-            if (!u.startsWith("http")) return false
-            return u.contains(".m3u8") || u.contains(".mpd")
+            if (!u.startsWith("http://") && !u.startsWith("https://")) return false
+            val path = u.substringBefore('?').substringBefore('#')
+            if (path.endsWith(".js") || path.endsWith(".css")) return false
+            return u.contains("m3u8") || path.endsWith(".mpd") || u.contains(".mpd?")
         }
 
         private const val NUDGE_JS = """

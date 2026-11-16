@@ -1,0 +1,67 @@
+package com.streamlink.tv
+
+import java.net.URI
+
+/**
+ * The "What happened?" log for the current link: what was found, what was blocked, how the
+ * stream servers answered. Shown on the phone page so problems can be diagnosed in one go.
+ */
+object Report {
+    private val lines = ArrayList<String>()
+    private val once = HashSet<String>()
+    private val blockedHosts = LinkedHashMap<String, Int>()
+    private var t0 = System.currentTimeMillis()
+    private var link = ""
+
+    @Synchronized
+    fun start(url: String) {
+        lines.clear()
+        once.clear()
+        blockedHosts.clear()
+        t0 = System.currentTimeMillis()
+        link = url
+    }
+
+    @Synchronized
+    fun log(msg: String) {
+        val s = (System.currentTimeMillis() - t0) / 1000.0
+        lines.add(String.format(java.util.Locale.US, "%6.1fs  %s", s, msg))
+        if (lines.size > 500) lines.removeAt(0)
+    }
+
+    @Synchronized
+    fun logOnce(key: String, msg: String) {
+        if (once.add(key)) log(msg)
+    }
+
+    @Synchronized
+    fun countBlocked(host: String?) {
+        val h = host ?: return
+        val n = (blockedHosts[h] ?: 0) + 1
+        blockedHosts[h] = n
+        if (n == 1) log("Blocked ad/popup network: $h")
+    }
+
+    @Synchronized
+    fun text(): String {
+        val sb = StringBuilder()
+        sb.append("StreamLink report (app build ").append(BuildConfig.VERSION_NAME).append(")\n")
+        sb.append("Link: ").append(link.ifEmpty { "(none yet)" }).append("\n\n")
+        lines.forEach { sb.append(it).append('\n') }
+        if (blockedHosts.isNotEmpty()) {
+            sb.append("\nBlocked ").append(blockedHosts.values.sum()).append(" requests to ")
+                .append(blockedHosts.size).append(" ad/popup networks:\n")
+            blockedHosts.forEach { (h, n) -> sb.append("  ").append(h).append(" ×").append(n).append('\n') }
+        }
+        return sb.toString()
+    }
+
+    fun host(url: String): String = try { URI(url).host ?: url } catch (_: Exception) { url }
+
+    /** "cdn.example.com/…/index.m3u8" — enough to tell streams apart without the long tokens. */
+    fun short(url: String): String {
+        val h = host(url)
+        val last = url.substringBefore('?').trimEnd('/').substringAfterLast('/').take(40)
+        return if (last.isEmpty() || last == h) h else "$h/…/$last"
+    }
+}

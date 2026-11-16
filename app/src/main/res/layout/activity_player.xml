@@ -12,14 +12,55 @@
         app:show_buffering="when_playing"
         app:auto_show="false" />
 
-    <TextView
-        android:id="@+id/message"
-        android:layout_width="wrap_content"
+    <!-- Hidden page loader used when reconnecting. Only exists while the cover below hides it. -->
+    <FrameLayout
+        android:id="@+id/webHolder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Black cover with a message: "Loading…", "Reconnecting…" -->
+    <FrameLayout
+        android:id="@+id/cover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#FF000000"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/coverText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:padding="24dp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="20sp" />
+    </FrameLayout>
+
+    <!-- Source picker, opened with ▲ when a page has more than one stream. -->
+    <LinearLayout
+        android:id="@+id/picker"
+        android:layout_width="520dp"
         android:layout_height="wrap_content"
         android:layout_gravity="center"
-        android:background="#CC000000"
-        android:padding="16dp"
-        android:textColor="#FFFFFFFF"
-        android:textSize="20sp"
-        android:visibility="gone" />
+        android:background="#EE0D1220"
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:text="Choose a source"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:id="@+id/pickerList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </LinearLayout>
 </FrameLayout>

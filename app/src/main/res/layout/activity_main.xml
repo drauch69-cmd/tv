@@ -37,6 +37,15 @@
                 android:layout_marginTop="16dp"
                 android:textColor="#FFB8C4E0"
                 android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="260dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:text="iPhone tip: the phone page can add “Play on TV” to Safari's Share menu."
+                android:textColor="#FF7F8DAD"
+                android:textSize="13sp" />
         </LinearLayout>
 
         <LinearLayout

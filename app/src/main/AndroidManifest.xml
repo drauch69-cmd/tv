@@ -33,5 +33,12 @@
             android:launchMode="singleTop"
             android:screenOrientation="landscape"
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation" />
+
+        <activity
+            android:name=".SitePlayerActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation" />
     </application>
 </manifest>
