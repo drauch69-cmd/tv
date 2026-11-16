@@ -300,9 +300,21 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /**
+     * Off unless you turn it on from the phone remote: on the onn box it plays video fine but
+     * can leave the sound silent, which the app can't detect (nothing errors).
+     */
     private fun tunnelingAllowed(): Boolean {
         if (tunnelOffThisRun) return false
-        return !getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_off", false)
+        return getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_on", false)
+    }
+
+    private fun setTunneling(on: Boolean) {
+        tunnelOffThisRun = false
+        getSharedPreferences("streamlink", MODE_PRIVATE).edit()
+            .putBoolean("tunnel_on", on).putInt("tunnel_strikes", 0).apply()
+        Report.log("Tunneled playback turned ${if (on) "on" else "off"} from the phone")
+        play()
     }
 
     private fun retryWithoutTunneling(why: String) {
@@ -310,7 +322,8 @@ class PlayerActivity : Activity() {
         val prefs = getSharedPreferences("streamlink", MODE_PRIVATE)
         val strikes = prefs.getInt("tunnel_strikes", 0) + 1
         // Twice on separate runs means this box doesn't do it well: keep it off for good.
-        prefs.edit().putInt("tunnel_strikes", strikes).putBoolean("tunnel_off", strikes >= 2).apply()
+        if (strikes >= 2) prefs.edit().putInt("tunnel_strikes", 0).putBoolean("tunnel_on", false).apply()
+        else prefs.edit().putInt("tunnel_strikes", strikes).apply()
         Report.log("Tunneled playback misbehaved ($why); retrying with it off")
         play()
     }
@@ -454,6 +467,7 @@ class PlayerActivity : Activity() {
             "source" -> v?.toIntOrNull()?.let { switchSource(it) }
             "site" -> openSitePlayer("requested from phone")
             "open" -> v?.let { openLink(it) }
+            "tunnel" -> setTunneling(v == "on")
         }
         publishSnapshot()
     }
@@ -506,6 +520,7 @@ class PlayerActivity : Activity() {
             quality = qualityChoice,
             sources = set?.sources?.map { it.label } ?: emptyList(),
             source = sourceIndex,
+            tunneling = tunneling,
         )
     }
 

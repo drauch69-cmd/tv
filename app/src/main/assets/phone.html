@@ -59,6 +59,7 @@
   </label>
   <div class="after">
     <button type="button" class="ghost" id="sitebtn" data-c="site">Use the site's own player</button>
+    <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
   </div>
 </section>
 
@@ -103,6 +104,10 @@
       b.onclick = function(){ post('/cmd', 'c=' + encodeURIComponent(b.getAttribute('data-c'))).then(function(){ setTimeout(tick, 250); }); };
     })(buttons[i]);
   }
+  var tunnelOn = false;
+  $('tunnelbtn').onclick = function(){
+    post('/cmd', 'c=tunnel&v=' + (tunnelOn ? 'off' : 'on')).then(function(){ setTimeout(tick, 500); });
+  };
   $('quality').onchange = function(){ post('/cmd', 'c=quality&v=' + encodeURIComponent(this.value)).then(function(){ setTimeout(tick, 250); }); };
   $('source').onchange = function(){ post('/cmd', 'c=source&v=' + encodeURIComponent(this.value)).then(function(){ setTimeout(tick, 250); }); };
 
@@ -136,6 +141,9 @@
       $('pp').textContent = player ? (s.playing ? 'Pause' : 'Play') : 'Play / Pause';
       $('livebtn').hidden = !player;
       $('sitebtn').hidden = !player;
+      tunnelOn = !!s.tunneling;
+      $('tunnelbtn').hidden = !player;
+      $('tunnelbtn').textContent = 'Tunneled playback: ' + (tunnelOn ? 'On (tap to turn off)' : 'Off (tap to try on)');
       var q = s.qualities || [], src = s.sources || [];
       $('qwrap').hidden = !(player && q.length > 1);
       $('swrap').hidden = !(player && src.length > 1);

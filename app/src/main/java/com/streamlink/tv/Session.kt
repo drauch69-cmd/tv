@@ -12,6 +12,7 @@ data class PlayerSnapshot(
     val quality: Int,
     val sources: List<String>,
     val source: Int,
+    val tunneling: Boolean,
 )
 
 /**
@@ -41,6 +42,7 @@ object Session {
             o.put("quality", s.quality)
             o.put("sources", JSONArray(s.sources))
             o.put("source", s.source)
+            o.put("tunneling", s.tunneling)
         }
         return o.toString()
     }
