@@ -183,6 +183,20 @@ class SitePlayerActivity : Activity() {
         }
     }
 
+    private fun tapCenter() {
+        val target: View = customView ?: web
+        if (target.width == 0) return
+        val x = target.width / 2f
+        val y = target.height / 2f
+        val t = SystemClock.uptimeMillis()
+        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0)
+        val up = MotionEvent.obtain(t, t + 60, MotionEvent.ACTION_UP, x, y, 0)
+        target.dispatchTouchEvent(down)
+        target.dispatchTouchEvent(up)
+        down.recycle()
+        up.recycle()
+    }
+
     /** ◀ ▶: cycle which part of the page fills the screen. */
     private fun cycle(step: Int) {
         web.evaluateJavascript("window.__slNext ? __slNext($step) : '0/0'") { r ->
