@@ -28,6 +28,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 
 /**
@@ -48,6 +49,21 @@ class PlayerActivity : Activity() {
     companion object {
         private const val STALL_MS = 20_000L
         private const val MAX_RECONNECTS = 3
+        private const val FIRST_FRAME_MS = 8_000L
+
+        /** Set when tunneled playback misbehaved; stays off until the app restarts. */
+        @Volatile private var tunnelOffThisRun = false
+
+        /** Decoder/audio errors that point at tunneled playback rather than the stream. */
+        private val tunnelSuspects = setOf(
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+            PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FAILED,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED,
+            PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
+        )
 
         fun intent(ctx: Context): Intent = Intent(ctx, PlayerActivity::class.java)
     }
@@ -68,6 +84,8 @@ class PlayerActivity : Activity() {
     private var playingSince = 0L
     private var qualityOptions: List<Pair<Tracks.Group, Int>> = emptyList()
     private var qualityChoice = -1
+    private var tunneling = false
+    private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
     private var linkGen = 0
 
@@ -165,7 +183,16 @@ class PlayerActivity : Activity() {
             .setDefaultRequestProperties(headers)
         userAgent?.let { http.setUserAgent(it) }
 
+        // Tunneled playback: the video chip syncs audio/video and draws frames itself, bypassing
+        // Android's normal video path. Smoother and less work for the processor on TV boxes.
+        tunneling = tunnelingAllowed()
+        firstFrame = false
+        val selector = DefaultTrackSelector(this)
+        selector.setParameters(selector.buildUponParameters().setTunnelingEnabled(tunneling))
+        Report.logOnce("tunnel-$tunneling", "Tunneled playback: ${if (tunneling) "on" else "off"}")
+
         val p = ExoPlayer.Builder(this)
+            .setTrackSelector(selector)
             .setMediaSourceFactory(DefaultMediaSourceFactory(UnwrapDataSourceFactory(http)))
             .build()
         player = p
@@ -191,6 +218,10 @@ class PlayerActivity : Activity() {
             main.removeCallbacks(stallCheck)
             when (playbackState) {
                 Player.STATE_READY -> {
+                    if (tunneling && !firstFrame) {
+                        main.removeCallbacks(firstFrameCheck)
+                        main.postDelayed(firstFrameCheck, FIRST_FRAME_MS)
+                    }
                     hideCover()
                     if (playingSince == 0L) {
                         playingSince = System.currentTimeMillis()
@@ -211,6 +242,11 @@ class PlayerActivity : Activity() {
                 }
                 else -> {}
             }
+        }
+
+        override fun onRenderedFirstFrame() {
+            firstFrame = true
+            main.removeCallbacks(firstFrameCheck)
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -250,7 +286,33 @@ class PlayerActivity : Activity() {
 
     private val stallCheck = Runnable {
         Report.log("Stalled for ${STALL_MS / 1000}s")
-        recover("stalled")
+        if (tunneling && !firstFrame) {
+            retryWithoutTunneling("stalled before the first picture")
+        } else {
+            recover("stalled")
+        }
+    }
+
+    /** Playing, but no picture ever appeared: a known tunneling bug on some boxes. */
+    private val firstFrameCheck = Runnable {
+        if (tunneling && !firstFrame && player?.isPlaying == true) {
+            retryWithoutTunneling("no picture after ${FIRST_FRAME_MS / 1000}s")
+        }
+    }
+
+    private fun tunnelingAllowed(): Boolean {
+        if (tunnelOffThisRun) return false
+        return !getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_off", false)
+    }
+
+    private fun retryWithoutTunneling(why: String) {
+        tunnelOffThisRun = true
+        val prefs = getSharedPreferences("streamlink", MODE_PRIVATE)
+        val strikes = prefs.getInt("tunnel_strikes", 0) + 1
+        // Twice on separate runs means this box doesn't do it well: keep it off for good.
+        prefs.edit().putInt("tunnel_strikes", strikes).putBoolean("tunnel_off", strikes >= 2).apply()
+        Report.log("Tunneled playback misbehaved ($why); retrying with it off")
+        play()
     }
 
     private fun handleError(error: PlaybackException) {
@@ -259,6 +321,11 @@ class PlayerActivity : Activity() {
             Report.log("Fell behind the live point; jumping back to live")
             p.seekToDefaultPosition()
             p.prepare()
+            return
+        }
+        if (tunneling && !firstFrame && error.errorCode in tunnelSuspects) {
+            Report.log("Playback error: ${error.errorCodeName}")
+            retryWithoutTunneling(error.errorCodeName)
             return
         }
         val httpError = error.cause as? HttpDataSource.InvalidResponseCodeException
@@ -362,6 +429,7 @@ class PlayerActivity : Activity() {
 
     private fun release() {
         main.removeCallbacks(stallCheck)
+        main.removeCallbacks(firstFrameCheck)
         playerView.player = null
         player?.removeListener(listener)
         player?.release()

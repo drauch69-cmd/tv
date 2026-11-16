@@ -77,9 +77,13 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         // Nothing after the picture: the video may be hidden in the picture's pixels.
         if (image != null && !looksLikeMedia(head, n, skip)) {
             fill(MAX_PEEK)
-            for (d in PngPixels.decode(head, n)) {
+            // Try the packing that worked last time first, so most chunks decode exactly once.
+            val first = PngPixels.preferDropAlpha
+            for (drop in listOf(first, !first)) {
+                val d = PngPixels.decodeOne(head, n, drop) ?: continue
                 val at = if (looksLikeMedia(d.bytes, d.bytes.size, 0)) 0 else findMedia(d.bytes, d.bytes.size, 0)
                 if (at != null) {
+                    PngPixels.preferDropAlpha = drop
                     // The picture is a fixed size, so the video is followed by padding. Stop at the
                     // last whole MPEG-TS packet, or the player hits the padding and gives up.
                     val end = tsEnd(d.bytes, at)
