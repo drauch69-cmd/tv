@@ -80,11 +80,14 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             for (d in PngPixels.decode(head, n)) {
                 val at = if (looksLikeMedia(d.bytes, d.bytes.size, 0)) 0 else findMedia(d.bytes, d.bytes.size, 0)
                 if (at != null) {
+                    // The picture is a fixed size, so the video is followed by padding. Stop at the
+                    // last whole MPEG-TS packet, or the player hits the padding and gives up.
+                    val end = tsEnd(d.bytes, at)
                     Report.logOnce("pixels", "Decoded video hidden in the picture's pixels (${d.layout}, " +
-                        "${d.bytes.size - at} bytes of video)")
+                        "${end - at} bytes of video, ${d.bytes.size - end} bytes of padding dropped)")
                     buf = d.bytes
                     bufPos = at
-                    bufEnd = d.bytes.size
+                    bufEnd = end
                     bufOnly = true
                     return C.LENGTH_UNSET.toLong()
                 }
@@ -265,6 +268,17 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 i++
             }
             return 0
+        }
+
+        /**
+         * End of the run of MPEG-TS packets starting at [at] (each 188 bytes, starting 0x47).
+         * For anything that isn't MPEG-TS, the whole buffer.
+         */
+        fun tsEnd(b: ByteArray, at: Int): Int {
+            if (at >= b.size || b[at] != SYNC) return b.size
+            var end = at
+            while (end + TS <= b.size && b[end] == SYNC) end += TS
+            return end
         }
 
         /** Real video starts at [at]: MPEG-TS packets, an MP4 box, or an ID3 tag. */

@@ -27,4 +27,10 @@ class UnwrapTest {
         val data = ByteArray(200_000).also { r.nextBytes(it) }
         assertNull(UnwrapDataSource.findMedia(data, data.size, 1))
     }
+
+    @Test
+    fun paddingAfterVideoIsDropped() {
+        val data = ts(10) + ByteArray(5000)
+        assertEquals(1880, UnwrapDataSource.tsEnd(data, 0))
+    }
 }
