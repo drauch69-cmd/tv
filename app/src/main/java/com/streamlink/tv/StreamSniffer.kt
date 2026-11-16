@@ -23,8 +23,17 @@ import org.json.JSONArray
 import org.json.JSONTokener
 import java.io.ByteArrayInputStream
 
-/** A video stream found on a page, plus the headers the site's own player used to fetch it. */
-data class FoundStream(val url: String, val headers: Map<String, String>, val pageUrl: String)
+/**
+ * A video stream found on a page, plus the headers the site's own player used to fetch it.
+ * [referers] are the pages that may have asked for it, best guess first; the player tries each,
+ * because many stream servers refuse requests that don't claim to come from their own player page.
+ */
+data class FoundStream(
+    val url: String,
+    val headers: Map<String, String>,
+    val pageUrl: String,
+    val referers: List<String> = listOf(""),
+)
 
 /**
  * Loads a page in a hidden WebView, blocks popups/redirects/ad networks, nudges the page's
@@ -38,6 +47,7 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
     private var pageUrl = ""
     private var firstPageLoaded = false
     private var nudgeCount = 0
+    private val frameUrls = java.util.Collections.synchronizedList(mutableListOf<String>())
     private var onResult: ((FoundStream?) -> Unit)? = null
 
     private val timeout = Runnable { finish(null) }
@@ -60,6 +70,7 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
         pageUrl = url
         firstPageLoaded = false
         nudgeCount = 0
+        frameUrls.clear()
         onResult = callback
         val wv = createWebView()
         webView = wv
@@ -97,14 +108,24 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
         if (done) return
         val ua = webView?.settings?.userAgentString
         val headers = LinkedHashMap<String, String>()
+        var requestReferer: String? = null
         for ((k, v) in requestHeaders) {
-            if (k.equals("Range", true) || k.equals("Accept-Encoding", true)) continue
-            headers[k] = v
+            when {
+                k.equals("Referer", true) -> requestReferer = v
+                k.equals("Range", true) || k.equals("Accept-Encoding", true) || k.equals("Origin", true) -> {}
+                else -> headers[k] = v
+            }
         }
         if (headers.keys.none { it.equals("User-Agent", true) } && ua != null) headers["User-Agent"] = ua
-        if (headers.keys.none { it.equals("Referer", true) }) headers["Referer"] = webView?.url ?: pageUrl
         CookieManager.getInstance().getCookie(url)?.let { if (it.isNotBlank()) headers["Cookie"] = it }
-        finish(FoundStream(url, headers, pageUrl))
+        // Candidates for "which page asked for this video": the embedded player frames (newest
+        // first), then the page itself, then no referer at all.
+        val frames = synchronized(frameUrls) { frameUrls.toList() }.asReversed()
+        val referers = (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, pageUrl))
+            .filter { it.startsWith("http") }
+            .distinct()
+            .take(5) + ""
+        finish(FoundStream(url, headers, pageUrl, referers))
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -141,7 +162,10 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
                 val scheme = target.scheme?.lowercase()
                 if (scheme != "http" && scheme != "https") return true // intent://, market://, etc.
                 if (AdBlock.isBlockedHost(target.host)) return true
-                if (!request.isForMainFrame) return false
+                if (!request.isForMainFrame) {
+                    frameUrls.add(target.toString())
+                    return false
+                }
                 // A server redirect while the first page is still loading (e.g. the site moved) is allowed.
                 if (request.isRedirect && !firstPageLoaded) {
                     pageUrl = target.toString()
@@ -155,6 +179,9 @@ class StreamSniffer(private val activity: Activity, private val holder: ViewGrou
                 request ?: return null
                 if (AdBlock.isBlockedHost(request.url.host)) return emptyResponse()
                 val u = request.url.toString()
+                // Remember embedded player pages (iframes); the stream server may expect them as referer.
+                val accept = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value ?: ""
+                if (!request.isForMainFrame && accept.contains("text/html") && u.startsWith("http")) frameUrls.add(u)
                 if (isStreamUrl(u)) {
                     val headers = HashMap(request.requestHeaders ?: emptyMap())
                     main.post { found(u, headers) }
