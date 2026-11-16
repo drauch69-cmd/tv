@@ -21,7 +21,7 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Build
-        run: gradle assembleRelease --no-daemon
+        run: gradle testReleaseUnitTest assembleRelease --no-daemon -i 2>&1 | grep -E "LinkServerTest|HTTP/1.1|BUILD|FAIL|e: " ; exit ${PIPESTATUS[0]}
 
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk StreamLink.apk
