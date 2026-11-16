@@ -128,6 +128,16 @@ class LinkServer(
         out.write(head.toByteArray(Charsets.UTF_8))
         out.write(bytes)
         out.flush()
+        // Close gently: signal we're done, then drain anything the phone still sends, so the
+        // connection isn't reset before the phone has read the page.
+        try {
+            c.shutdownOutput()
+            c.soTimeout = 1000
+            val sink = ByteArray(1024)
+            val input = c.getInputStream()
+            while (input.read(sink) >= 0) { }
+        } catch (_: Exception) {
+        }
     }
 
     companion object {
