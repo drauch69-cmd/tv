@@ -31,6 +31,9 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.hls.DefaultHlsExtractorFactory
+import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
@@ -225,6 +228,8 @@ class PlayerActivity : Activity() {
         selector.setParameters(selector.buildUponParameters().setTunnelingEnabled(tunneling))
         Report.logOnce("tunnel-$tunneling", "Tunneled playback: ${if (tunneling) "on" else "off"}")
 
+        val dataSource = UnwrapDataSourceFactory(http)
+
         // Bigger cushion: wait for 8s of video after a stall (not 5s) so one hiccup doesn't
         // turn into several stalls in a row.
         val loadControl = DefaultLoadControl.Builder()
@@ -245,7 +250,7 @@ class PlayerActivity : Activity() {
         val p = ExoPlayer.Builder(this, renderers)
             .setTrackSelector(selector)
             .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(UnwrapDataSourceFactory(http)))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
             .build()
         player = p
         playerView.player = p
@@ -273,7 +278,19 @@ class PlayerActivity : Activity() {
         p.addListener(listener)
         p.addAnalyticsListener(downloads)
         showCover(if (reconnects == 0) "Loading…" else "Reconnecting…")
-        p.setMediaItem(item)
+        if (lower.contains("m3u8")) {
+            // Be as forgiving as a browser with how the stream is put together. Many relayed
+            // streams never send the "IDR" keyframe Android's player waits for before starting
+            // (it would sit buffering forever), or don't mark where each frame begins.
+            val lenient = DefaultHlsExtractorFactory(
+                DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
+                    DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
+                true,
+            )
+            p.setMediaSource(HlsMediaSource.Factory(dataSource).setExtractorFactory(lenient).createMediaSource(item))
+        } else {
+            p.setMediaItem(item)
+        }
         main.postDelayed(startCheck, 12_000)
         p.prepare()
         p.playWhenReady = true
