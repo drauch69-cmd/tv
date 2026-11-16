@@ -1,0 +1,54 @@
+name: Build TV Cleaner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cleaner/**"
+      - ".github/workflows/cleaner.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Build
+        run: |
+          set +e
+          gradle -p cleaner testReleaseUnitTest assembleRelease --no-daemon > build.log 2>&1
+          code=$?
+          # Surface compiler errors and failed tests as annotations.
+          grep -E "^e: " build.log | head -20 | sed 's/^/::error::/'
+          grep -E "FAILED|AssertionError|expected:" build.log | head -20 | sed 's/^/::error::/'
+          grep -A8 "What went wrong" build.log | head -20 | tr '\n' ' ' | sed 's/^/::error::/'; echo
+          tail -40 build.log
+          exit $code
+
+      - name: Rename APK
+        run: cp cleaner/app/build/outputs/apk/release/app-release.apk TVCleaner.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TVCleaner-apk
+          path: TVCleaner.apk
+
+      # A fixed download link for the TV: .../releases/download/cleaner-latest/TVCleaner.apk
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete cleaner-latest --yes --cleanup-tag || true
+          gh release create cleaner-latest TVCleaner.apk --title "TV Cleaner (latest build)" --notes "Build ${{ github.run_number }}" --latest=false

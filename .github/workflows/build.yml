@@ -3,6 +3,9 @@ name: Build APK
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "cleaner/**"
+      - ".github/workflows/cleaner.yml"
   workflow_dispatch:
 
 jobs:

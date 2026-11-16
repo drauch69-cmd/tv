@@ -60,3 +60,26 @@ You normally only see the video in the app's own player.
 ## Building
 
 Every push to `main` builds the APK on GitHub (see the **Actions** tab) and updates the `latest` release.
+
+---
+
+# TV Cleaner
+
+A second app in this repo (`cleaner/`): debloat the TV from the TV itself, with the remote. It uses
+[Shizuku](https://github.com/thedjchi/Shizuku) for the rights to turn apps off, and the per-model lists from
+[tellyscope-devices](https://github.com/man15h/tellyscope-devices) (based on cleanyourtv, MIT).
+
+- **Suggested cleanup** finds your TV's tested list and pre-ticks the safe items (only when the list was tested on your Android version).
+- **All apps** lets you turn any app off or back on, or restore one that was uninstalled.
+- **History / undo** keeps every change and can turn everything back on.
+- Apps the TV needs (Settings, Play services, keyboard, remote, Wi-Fi, home screen, updates, setup) are locked.
+- Apps are turned off (disabled), never deleted.
+
+## Install
+
+1. Install Shizuku (TV version) and start it: in Downloader go to `github.com/thedjchi/Shizuku/releases`.
+2. In Downloader, enter:
+   `https://github.com/drauch69-cmd/tv/releases/download/cleaner-latest/TVCleaner.apk`
+3. Open **TV Cleaner**, allow it in Shizuku, then go to **Suggested cleanup**.
+
+Every push that touches `cleaner/` builds it on GitHub and updates the `cleaner-latest` release.
