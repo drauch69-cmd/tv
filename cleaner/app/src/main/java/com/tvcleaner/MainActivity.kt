@@ -26,7 +26,7 @@ import java.util.Date
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
-    private enum class Page { SETUP, SUGGESTED, ALL, HISTORY }
+    private enum class Page { SETUP, SUGGESTED, HOME, ALL, HISTORY }
     private enum class Filter { BUILT_IN, YOURS, OFF }
 
     private val io = Executors.newSingleThreadExecutor()
@@ -41,7 +41,9 @@ class MainActivity : Activity() {
     private var listKeeps: Map<String, String> = emptyMap()
     private var warnings: Map<String, String> = emptyMap()
     private var apps: Map<String, TvApp> = emptyMap()
-    private var homes: Map<String, Boolean> = emptyMap()
+    private var homes: Map<String, Home> = emptyMap()
+    private var currentHome: String? = null
+    private var overrides: Set<String> = emptySet()
     private var entry: ListEntry? = null
     private var list: TvList? = null
     private var listFailed = false
@@ -51,6 +53,7 @@ class MainActivity : Activity() {
     private val selected = mutableSetOf<String>()
     private var selectionFor: String? = null
     private var busy = false
+    private var applyButton: Button? = null
 
     private lateinit var status: TextView
     private lateinit var content: LinearLayout
@@ -72,8 +75,8 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // Coming back from Shizuku or Settings: the state may have changed.
-        if (loaded && !busy) onShizukuChanged()
+        // Coming back from Shizuku, a launcher or Settings: things may have changed.
+        if (loaded && !busy) reloadApps()
     }
 
     override fun onDestroy() {
@@ -84,6 +87,8 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    private val gone get() = isFinishing || isDestroyed
+
     private fun shellState() = try {
         Shell.state(packageManager)
     } catch (_: Exception) {
@@ -91,53 +96,82 @@ class MainActivity : Activity() {
     }
 
     private fun onShizukuChanged() {
+        if (gone) return
         if (shellState() == Shell.State.READY && page == Page.SETUP) page = Page.SUGGESTED
-        render()
+        reloadApps()
+    }
+
+    /** Runs [work] off the main thread and hands its result back, unless the screen has closed. */
+    private fun <T> background(work: () -> T, then: (T) -> Unit) {
+        if (io.isShutdown) return
+        io.execute {
+            val result = work()
+            main.post { if (!gone) then(result) }
+        }
     }
 
     // ---------- Loading ----------
 
+    private class Loaded(
+        val index: ListIndex?,
+        val labels: Map<String, String>,
+        val protected: Pair<Map<String, String>, Map<String, String>>?,
+        val entry: ListEntry?,
+        val list: TvList?,
+        val device: Device,
+    )
+
+    /** What changes on the TV itself: its apps, home screens and accessibility services. */
+    private class Device(val apps: Map<String, TvApp>, val homes: Map<String, Home>, val current: String?, val overrides: Set<String>)
+
+    private fun readDevice(lbl: Map<String, String>): Device {
+        val services = if (shellState() == Shell.State.READY) Launchers.enabledServices() else emptyList()
+        val overrideOn = Launchers.ALL.filter { l ->
+            Launchers.overrideService(this, l.pkg)?.let { s -> services.any { it.equals(s, ignoreCase = true) } } == true
+        }.map { it.pkg }.toSet()
+        return Device(Apps.load(this, lbl), Apps.homes(this), Apps.currentHome(this), overrideOn)
+    }
+
+    private fun useDevice(d: Device) {
+        apps = d.apps
+        homes = d.homes
+        currentHome = d.current
+        overrides = d.overrides
+    }
+
     private fun load() {
         status.text = "Loading…"
-        io.execute {
+        background({
             val f = Fetcher(this)
             val idx = f.get("index.json")?.let(Lists::parseIndex)
             val lbl = idx?.files?.get("labels")?.let { f.get(it.first, it.second) }?.let(Lists::parseLabels).orEmpty()
             val prot = idx?.files?.get("protected")?.let { f.get(it.first, it.second) }?.let(Lists::parseProtected)
-            val tv = Apps.tvInfo()
             val savedId = prefs.getString("list_id", null)
-            val e = idx?.devices?.firstOrNull { it.id == savedId } ?: idx?.let { Lists.bestMatch(it.devices, tv) }
+            val e = idx?.devices?.firstOrNull { it.id == savedId } ?: idx?.let { Lists.bestMatch(it.devices, Apps.tvInfo()) }
             val l = e?.let { f.get(it.file, it.sha256) }?.let(Lists::parseList)
-            val a = Apps.load(this, lbl)
-            val h = Apps.homes(this)
-            main.post {
-                index = idx
-                labels = lbl
-                listKeeps = prot?.first.orEmpty()
-                warnings = prot?.second.orEmpty()
-                entry = e
-                list = l
-                listFailed = e != null && l == null
-                apps = a
-                homes = h
-                loaded = true
-                if (shellState() == Shell.State.READY) page = Page.SUGGESTED
-                render()
-            }
+            Loaded(idx, lbl, prot, e, l, readDevice(lbl))
+        }) { r ->
+            index = r.index
+            labels = r.labels
+            listKeeps = r.protected?.first.orEmpty()
+            warnings = r.protected?.second.orEmpty()
+            entry = r.entry
+            list = r.list
+            listFailed = r.entry != null && r.list == null
+            useDevice(r.device)
+            loaded = true
+            if (shellState() == Shell.State.READY) page = Page.SUGGESTED
+            render()
         }
     }
 
-    /** Re-reads the apps on the TV after a change. */
-    private fun reloadApps(then: () -> Unit = {}) {
-        io.execute {
-            val a = Apps.load(this, labels)
-            val h = Apps.homes(this)
-            main.post {
-                apps = a
-                homes = h
-                render()
-                then()
-            }
+    /** Re-reads the TV after a change. */
+    private fun reloadApps() {
+        if (!loaded) return
+        val lbl = labels
+        background({ readDevice(lbl) }) { d ->
+            useDevice(d)
+            render()
         }
     }
 
@@ -145,21 +179,18 @@ class MainActivity : Activity() {
         prefs.edit().putString("list_id", e.id).apply()
         selectionFor = null
         status.text = "Loading the list for ${e.name}…"
-        io.execute {
-            val l = Fetcher(this).get(e.file, e.sha256)?.let(Lists::parseList)
-            main.post {
-                entry = e
-                list = l
-                listFailed = l == null
-                page = Page.SUGGESTED
-                render()
-            }
+        background({ Fetcher(this).get(e.file, e.sha256)?.let(Lists::parseList) }) { l ->
+            entry = e
+            list = l
+            listFailed = l == null
+            page = Page.SUGGESTED
+            render()
         }
     }
 
     private fun protectedReason(pkg: String): String? {
         val keeps = listKeeps + (list?.keep.orEmpty().associateWith { "This TV's list says keep it" })
-        return Protect.reason(pkg, packageName, Protect.protectedHomes(homes), keeps)
+        return Protect.reason(pkg, packageName, Protect.protectedHomes(homes.keys), keeps)
     }
 
     // ---------- Layout ----------
@@ -175,6 +206,7 @@ class MainActivity : Activity() {
         listOf(
             Page.SETUP to "Setup",
             Page.SUGGESTED to "Suggested cleanup",
+            Page.HOME to "Home screen",
             Page.ALL to "All apps",
             Page.HISTORY to "History / undo",
         ).forEach { (p, label) ->
@@ -204,19 +236,19 @@ class MainActivity : Activity() {
     }
 
     private fun render() {
-        if (!loaded) return
+        if (!loaded || gone) return
         val state = shellState()
         val tv = Apps.tvInfo()
-        status.text = "${tv.manufacturer} ${tv.model} · Android SDK ${tv.sdk} · " + when (state) {
-            Shell.State.READY -> "Shizuku connected"
-            else -> "Shizuku not connected"
-        }
+        status.text = "${tv.manufacturer} ${tv.model} · Android SDK ${tv.sdk} · " +
+            if (state == Shell.State.READY) "Shizuku connected" else "Shizuku not connected"
         navButtons.forEach { (p, b) -> b.isSelected = p == page }
         val hadFocus = content.findFocus() != null
         content.removeAllViews()
+        applyButton = null
         when (page) {
             Page.SETUP -> renderSetup(state)
             Page.SUGGESTED -> renderSuggested()
+            Page.HOME -> renderHome()
             Page.ALL -> renderAll()
             Page.HISTORY -> renderHistory()
         }
@@ -231,14 +263,17 @@ class MainActivity : Activity() {
         heading("Setup")
         when (state) {
             Shell.State.NOT_INSTALLED -> {
-                para("TV Cleaner needs Shizuku to turn apps off. Install the TV-friendly version first:")
+                para("TV Cleaner needs Shizuku to make changes. Install the TV-friendly version first:")
                 para("1. Open Downloader and go to github.com/thedjchi/Shizuku/releases\n2. Install the latest APK.\n3. Come back here.")
                 action("Check again") { render() }
             }
             Shell.State.NOT_RUNNING -> {
                 para("Shizuku is installed but not running.")
-                para("1. Settings → System → Developer options → turn on Wireless debugging.\n2. Open Shizuku and choose Start via Wireless debugging (pair first if it asks).\n3. Come back here.")
-                action("Open Shizuku") { openShizuku() }
+                para(
+                    "1. Settings → System → Developer options → turn on Wireless debugging.\n" +
+                        "2. Open Shizuku and choose Start via Wireless debugging (pair first if it asks).\n3. Come back here.",
+                )
+                action("Open Shizuku") { openApp(Protect.SHIZUKU) }
                 action("Check again") { render() }
             }
             Shell.State.NO_PERMISSION -> {
@@ -247,15 +282,13 @@ class MainActivity : Activity() {
                     try {
                         Shizuku.requestPermission(1)
                     } catch (e: Exception) {
-                        toastDialog("Couldn't ask Shizuku", e.message ?: "Open Shizuku and allow TV Cleaner there.")
+                        message("Couldn't ask Shizuku", e.message ?: "Open Shizuku and allow TV Cleaner there.")
                     }
                 }
             }
-            Shell.State.TOO_OLD -> {
-                para("This Shizuku is too old. Install the latest from github.com/thedjchi/Shizuku/releases.")
-            }
+            Shell.State.TOO_OLD -> para("This Shizuku is too old. Install the latest from github.com/thedjchi/Shizuku/releases.")
             Shell.State.READY -> {
-                para("All set. TV Cleaner can turn apps off and back on.")
+                para("All set. TV Cleaner can turn apps off and back on, and install a home screen.")
                 action("Go to suggested cleanup") {
                     page = Page.SUGGESTED
                     render()
@@ -304,7 +337,7 @@ class MainActivity : Activity() {
 
         var notOnTv = 0
         l.groups.forEach { g ->
-            val rows = g.apps.filter { a -> apps[a.pkg].also { if (it == null) notOnTv++ } != null }
+            val rows = g.apps.filter { a -> (a.pkg in apps).also { if (!it) notOnTv++ } }
             if (rows.isEmpty()) return@forEach
             sub(g.title)
             rows.forEach { a ->
@@ -326,8 +359,6 @@ class MainActivity : Activity() {
         updateApplyButton()
     }
 
-    private var applyButton: Button? = null
-
     private fun updateApplyButton() {
         val n = selected.count { changeable(it) }
         applyButton?.text = if (n == 0) "Nothing selected" else "Turn off $n selected app(s)"
@@ -348,6 +379,116 @@ class MainActivity : Activity() {
             .setPositiveButton("Turn off") { _, _ -> perform(todo.map { Triple(it.pkg, it.label, "disable") }) }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun renderHome() {
+        heading("Home screen")
+        val now = currentHome
+        val nowName = when {
+            now == null -> "Not set (Android asks)"
+            else -> apps[now]?.label ?: now
+        }
+        para("Home opens: $nowName" + if (overrides.isNotEmpty()) " (overridden by ${overrides.joinToString { name(it) }})" else "")
+        para(
+            "On Google TV the built-in home screen keeps taking the Home button back. Projectivy and AT4K get around " +
+                "that with an \"override\" service, which TV Cleaner turns on for you. The built-in home screen stays installed.",
+            DIM,
+        )
+        Launchers.ALL.forEach { l ->
+            val app = apps[l.pkg]
+            val state = when {
+                app == null || !app.installed -> "Not installed"
+                l.pkg in overrides || l.pkg == now -> "Your home screen"
+                else -> "Installed"
+            }
+            val extra = if (l.canOverride) "" else " · may not stay as Home on Google TV"
+            actionRow(l.name, "$state · ${l.about}$extra") { launcherDialog(l) }
+        }
+        val custom = overrides.isNotEmpty() || (now != null && homes[now]?.system == false)
+        if (custom) {
+            sub("Undo")
+            action("Back to the built-in home screen") { backToStock() }
+        }
+    }
+
+    private fun name(pkg: String) = Launchers.ALL.firstOrNull { it.pkg == pkg }?.name ?: apps[pkg]?.label ?: pkg
+
+    private fun launcherDialog(l: Launcher) {
+        val app = apps[l.pkg]
+        val installed = app != null && app.installed
+        val isHome = l.pkg in overrides || l.pkg == currentHome
+        val b = AlertDialog.Builder(this).setTitle(l.name).setNegativeButton("Cancel", null)
+        when {
+            isHome -> b.setMessage("${l.name} is your home screen.").setPositiveButton("Open it") { _, _ -> openApp(l.pkg) }
+            installed -> b.setMessage("Make ${l.name} the home screen?").setPositiveButton("Make it Home") { _, _ -> makeHome(l) }
+            else -> b.setMessage(
+                "Download ${l.name} from its developer's GitHub page, check its signature, install it and make it the home screen?",
+            ).setPositiveButton("Install") { _, _ -> makeHome(l) }
+        }
+        b.show()
+    }
+
+    private fun makeHome(l: Launcher) {
+        task("Setting up ${l.name}") { progress ->
+            val steps = mutableListOf<String>()
+            val installedNow = packageManager.isInstalled(l.pkg)
+            if (!installedNow) {
+                progress("Downloading ${l.name}…")
+                val apk = try {
+                    Launchers.download(this, l) { pct -> if (pct >= 0) progress("Downloading ${l.name}… $pct%") }
+                } catch (e: Exception) {
+                    return@task "Couldn't download ${l.name}: ${e.message}"
+                }
+                progress("Installing ${l.name}…")
+                val r = Shell.install(apk)
+                apk.delete()
+                history.add(Change(l.pkg, l.name, "install", System.currentTimeMillis(), r.ok))
+                if (!r.ok) return@task "Couldn't install ${l.name}: ${r.out.take(200)}"
+                steps += "Installed ${l.name}."
+            }
+            progress("Making ${l.name} the home screen…")
+            val home = Apps.homes(this)[l.pkg]
+            val setHome = home?.let { Shell.setHome(it.activity) }
+            if (setHome?.ok == true) steps += "Set ${l.name} as the default home screen."
+            var overrideOk = false
+            if (l.canOverride) {
+                val service = Launchers.overrideService(this, l.pkg)
+                if (service != null) {
+                    overrideOk = Launchers.setService(service, true).ok
+                    if (overrideOk) steps += "Turned on ${l.name}'s Home button override."
+                }
+            }
+            val ok = setHome?.ok == true || overrideOk
+            history.add(Change(l.pkg, l.name, "home", System.currentTimeMillis(), ok))
+            steps += if (ok) {
+                "\nPress Home on the remote to check. If the built-in home screen still opens, open ${l.name}'s settings " +
+                    "and turn on its \"override current launcher\" option."
+            } else {
+                "\nCouldn't make it the home screen automatically. Open ${l.name}'s settings and turn on its \"override current launcher\" option."
+            }
+            steps.joinToString("\n")
+        }
+    }
+
+    private fun backToStock() {
+        task("Going back to the built-in home screen") { progress ->
+            progress("Turning off launcher overrides…")
+            val off = mutableListOf<String>()
+            Launchers.ALL.filter { it.canOverride }.forEach { l ->
+                val service = Launchers.overrideService(this, l.pkg) ?: return@forEach
+                if (Launchers.enabledServices().any { it.equals(service, ignoreCase = true) }) {
+                    if (Launchers.setService(service, false).ok) off += l.name
+                }
+            }
+            val stock = Apps.stockHome(Apps.homes(this))
+            val r = stock?.let { Shell.setHome(it.value.activity) }
+            val label = stock?.let { apps[it.key]?.label ?: it.key } ?: "built-in home"
+            history.add(Change(stock?.key ?: "android", label, "stockhome", System.currentTimeMillis(), r?.ok == true || off.isNotEmpty()))
+            buildString {
+                if (off.isNotEmpty()) append("Turned off the override for ${off.joinToString()}.\n")
+                append(if (r?.ok == true) "$label is the home screen again." else "Couldn't set $label as the home screen: ${r?.out ?: "not found"}")
+            }
+        }
     }
 
     private fun renderAll() {
@@ -421,31 +562,54 @@ class MainActivity : Activity() {
             val verb = when (c.action) {
                 "disable" -> "Turned off"
                 "enable" -> "Turned on"
-                else -> "Restored"
+                "restore" -> "Restored"
+                "install" -> "Installed"
+                "home" -> "Made home screen"
+                "stockhome" -> "Back to built-in home screen"
+                else -> c.action
             }
             val whenText = DateFormat.format("MMM d, h:mm a", Date(c.time))
             val detail = "$verb · $whenText · ${c.pkg}" + if (c.ok) "" else " · FAILED"
             val app = apps[c.pkg]
-            if (app == null) infoRow(c.label, detail) else actionRow(c.label, detail) { appDialog(app) }
+            if (app == null || c.action in setOf("install", "home", "stockhome")) infoRow(c.label, detail) else actionRow(c.label, detail) { appDialog(app) }
         }
     }
 
     // ---------- Doing things ----------
 
-    /** Runs each (package, label, action) in turn, saving every result to History as it goes. */
-    private fun perform(todo: List<Triple<String, String, String>>) {
+    /**
+     * Shows a progress box while [work] runs off the main thread, then its message. [work] gets a
+     * function to update the progress text and returns the message to show.
+     */
+    private fun task(title: String, work: ((String) -> Unit) -> String) {
         if (shellState() != Shell.State.READY) {
             page = Page.SETUP
             render()
-            toastDialog("Shizuku isn't connected", "Start Shizuku again, then try once more.")
+            message("Shizuku isn't connected", "Start Shizuku again, then try once more.")
             return
         }
         busy = true
-        val progress = AlertDialog.Builder(this).setTitle("Working…").setMessage("").setCancelable(false).show()
-        io.execute {
+        val progress = AlertDialog.Builder(this).setTitle(title).setMessage("Starting…").setCancelable(false).show()
+        background({
+            try {
+                work { text -> main.post { if (!gone && progress.isShowing) progress.setMessage(text) } }
+            } catch (e: Exception) {
+                "Something went wrong: ${e.message}"
+            }
+        }) { result ->
+            busy = false
+            if (progress.isShowing) progress.dismiss()
+            message(title, result)
+            reloadApps()
+        }
+    }
+
+    /** Runs each (package, label, action) in turn, saving every result to History as it goes. */
+    private fun perform(todo: List<Triple<String, String, String>>) {
+        task("Working") { progress ->
             val failed = mutableListOf<String>()
             todo.forEachIndexed { i, (pkg, label, act) ->
-                main.post { progress.setMessage("${i + 1} of ${todo.size}: $label") }
+                progress("${i + 1} of ${todo.size}: $label")
                 val r = when (act) {
                     "disable" -> Shell.disable(pkg)
                     "enable" -> Shell.enable(pkg)
@@ -455,15 +619,8 @@ class MainActivity : Activity() {
                 history.add(Change(pkg, label, act, System.currentTimeMillis(), ok))
                 if (!ok) failed += "$label: ${r.out.ifBlank { "no change" }.take(120)}"
             }
-            main.post {
-                busy = false
-                progress.dismiss()
-                val done = todo.size - failed.size
-                val title = if (failed.isEmpty()) "Done" else "Done, with problems"
-                val msg = "$done of ${todo.size} changed." + if (failed.isEmpty()) "" else "\n\n" + failed.joinToString("\n")
-                toastDialog(title, msg)
-                reloadApps()
-            }
+            val done = todo.size - failed.size
+            "$done of ${todo.size} changed." + if (failed.isEmpty()) "" else "\n\nProblems:\n" + failed.joinToString("\n")
         }
     }
 
@@ -473,14 +630,14 @@ class MainActivity : Activity() {
         val off = s == PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER || s == PackageManager.COMPONENT_ENABLED_STATE_DISABLED
         if (act == "disable") off else !off
     } catch (_: Exception) {
-        act == "disable"
+        false
     }
 
     private fun showPicker() {
         val idx = index ?: return
         val tv = Apps.tvInfo()
         val maker = Lists.byMaker(idx.devices, tv)
-        val choices = if (maker.isEmpty()) idx.devices else maker
+        val choices = maker.ifEmpty { idx.devices }
         val names = choices.map { it.name }.toMutableList()
         if (maker.isNotEmpty()) names += "Show every TV (${idx.devices.size})…"
         AlertDialog.Builder(this)
@@ -498,13 +655,13 @@ class MainActivity : Activity() {
             .show()
     }
 
-    private fun openShizuku() {
-        val intent = packageManager.getLeanbackLaunchIntentForPackage(Protect.SHIZUKU)
-            ?: packageManager.getLaunchIntentForPackage(Protect.SHIZUKU)
-        if (intent != null) startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) else toastDialog("Shizuku not found", "Install it first.")
+    private fun openApp(pkg: String) {
+        val intent = packageManager.getLeanbackLaunchIntentForPackage(pkg) ?: packageManager.getLaunchIntentForPackage(pkg)
+        if (intent != null) startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) else message("Not found", "That app isn't installed.")
     }
 
-    private fun toastDialog(title: String, msg: String) {
+    private fun message(title: String, msg: String) {
+        if (gone) return
         AlertDialog.Builder(this).setTitle(title).setMessage(msg).setPositiveButton("OK", null).show()
     }
 
@@ -551,10 +708,13 @@ class MainActivity : Activity() {
 
     private fun action(label: String, onClick: () -> Unit): Button {
         val b = button(label, onClick)
-        content.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            topMargin = dp(6)
-            bottomMargin = dp(6)
-        })
+        content.addView(
+            b,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(6)
+                bottomMargin = dp(6)
+            },
+        )
         return b
     }
 
@@ -616,4 +776,12 @@ class MainActivity : Activity() {
         val ACCENT = Color.rgb(120, 170, 255)
         val WARN = Color.rgb(255, 200, 90)
     }
+}
+
+/** True when [pkg] is installed for this user. */
+private fun PackageManager.isInstalled(pkg: String): Boolean = try {
+    getApplicationInfo(pkg, 0)
+    true
+} catch (_: PackageManager.NameNotFoundException) {
+    false
 }

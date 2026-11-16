@@ -88,5 +88,5 @@ object Protect {
      * can let the setup wizard's recovery screen take over Home, so switching launchers needs its own
      * flow rather than a plain "turn off".
      */
-    fun protectedHomes(homes: Map<String, Boolean>): Set<String> = homes.keys
+    fun protectedHomes(homes: Set<String>): Set<String> = homes
 }

@@ -37,6 +37,15 @@ jobs:
           tail -40 build.log
           exit $code
 
+      - name: Lint (Android lint and ktlint)
+        run: |
+          gradle -p cleaner lintRelease --no-daemon -q || true
+          cp cleaner/app/build/reports/lint.txt lint.txt || echo "(no lint report)" > lint.txt
+          curl -sSL -o ktlint https://github.com/pinterest/ktlint/releases/download/1.3.1/ktlint
+          chmod +x ktlint
+          ./ktlint "cleaner/app/src/**/*.kt" --reporter=plain > ktlint.txt 2>&1 || true
+          echo "Android lint: $(grep -cE ': (Error|Warning):' lint.txt) issues; ktlint: $(grep -c '\.kt:' ktlint.txt) issues"
+
       - name: Rename APK
         run: cp cleaner/app/build/outputs/apk/release/app-release.apk TVCleaner.apk
 
@@ -51,4 +60,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete cleaner-latest --yes --cleanup-tag || true
-          gh release create cleaner-latest TVCleaner.apk --title "TV Cleaner (latest build)" --notes "Build ${{ github.run_number }}" --latest=false
+          gh release create cleaner-latest TVCleaner.apk lint.txt ktlint.txt --title "TV Cleaner (latest build)" --notes "Build ${{ github.run_number }}" --latest=false

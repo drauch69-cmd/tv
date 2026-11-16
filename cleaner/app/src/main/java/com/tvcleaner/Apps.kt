@@ -6,8 +6,8 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
+
+data class Home(val activity: String, val system: Boolean)
 
 /** One app on the TV. [installed] is false when it was uninstalled for this user but can come back. */
 data class TvApp(
@@ -56,16 +56,38 @@ object Apps {
         }
     }
 
-    /** Home screen apps, as package to "is a built-in app". */
+    /** Home screen apps by package: its home activity as "package/class", and whether it came with the TV. */
     @Suppress("DEPRECATION")
-    fun homes(ctx: Context): Map<String, Boolean> {
+    fun homes(ctx: Context): Map<String, Home> {
         val pm = ctx.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
         val found = pm.queryIntentActivities(intent, PackageManager.MATCH_DISABLED_COMPONENTS)
         // Settings carries a fallback home that only shows while the TV starts; it's protected anyway.
-        return found.map { it.activityInfo.applicationInfo }
+        return found.map { it.activityInfo }
             .filter { it.packageName != "com.android.tv.settings" && it.packageName != "com.android.settings" }
-            .associate { it.packageName to ((it.flags and ApplicationInfo.FLAG_SYSTEM) != 0) }
+            .associate {
+                it.packageName to Home("${it.packageName}/${it.name}", (it.applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0)
+            }
+    }
+
+    /**
+     * The TV's own home screen: Google's, if present, then any other built-in one that isn't the setup
+     * wizard (which registers a Home screen of its own for recovery).
+     */
+    fun stockHome(homes: Map<String, Home>): Map.Entry<String, Home>? {
+        val known = listOf("com.google.android.apps.tv.launcherx", "com.google.android.tvlauncher", "com.google.android.leanbacklauncher")
+        known.forEach { k -> homes.entries.firstOrNull { it.key == k }?.let { return it } }
+        return homes.entries.firstOrNull { (pkg, home) ->
+            home.system && listOf("setup", "wizard", "wraith", "provision").none { it in pkg.lowercase() }
+        }
+    }
+
+    /** The package Home opens right now, or null when Android would ask. */
+    @Suppress("DEPRECATION")
+    fun currentHome(ctx: Context): String? {
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        return ctx.packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
+            ?.takeIf { it != "android" }
     }
 
     fun tvInfo() = TvInfo(Build.MANUFACTURER, Build.BRAND, Build.MODEL, Build.DEVICE, Build.VERSION.SDK_INT)
@@ -96,16 +118,5 @@ class Fetcher(ctx: Context) {
         return if (cached.exists()) cached.readText() else null
     }
 
-    private fun download(url: String): String {
-        val c = URL(url).openConnection() as HttpURLConnection
-        c.connectTimeout = 15000
-        c.readTimeout = 20000
-        c.setRequestProperty("User-Agent", "TV-Cleaner")
-        try {
-            if (c.responseCode != 200) error("HTTP ${c.responseCode}")
-            return c.inputStream.bufferedReader().readText()
-        } finally {
-            c.disconnect()
-        }
-    }
+    private fun download(url: String): String = Net.get(url)
 }

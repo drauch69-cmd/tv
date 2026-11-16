@@ -34,7 +34,7 @@ class ListsTest {
     @Test
     fun protectsWhatTheTvNeeds() {
         val self = "com.tvcleaner"
-        val homes = Protect.protectedHomes(mapOf("com.google.android.apps.tv.launcherx" to true))
+        val homes = Protect.protectedHomes(setOf("com.google.android.apps.tv.launcherx"))
         assertNotNull(Protect.reason("com.google.android.apps.tv.launcherx", self, homes))
         assertNotNull(Protect.reason("com.google.android.tungsten.setupwraith", self, homes))
         assertNotNull(Protect.reason("com.google.android.gms", self, homes))
@@ -45,7 +45,7 @@ class ListsTest {
         assertNull(Protect.reason("com.google.android.feedback", self, homes))
         assertNull(Protect.reason("com.android.providers.calendar", self, homes))
         // Even with your own home screen installed, both stay locked.
-        val withProjectivy = Protect.protectedHomes(mapOf("com.google.android.apps.tv.launcherx" to true, "com.spocky.projengmenu" to false))
+        val withProjectivy = Protect.protectedHomes(setOf("com.google.android.apps.tv.launcherx", "com.spocky.projengmenu"))
         assertNotNull(Protect.reason("com.google.android.apps.tv.launcherx", self, withProjectivy))
         assertNotNull(Protect.reason("com.spocky.projengmenu", self, withProjectivy))
     }
@@ -61,5 +61,28 @@ class ListsTest {
     fun shortensTitles() {
         assertEquals("Stock home", Lists.cleanTitle("Stock home. launcher/build-and-install.sh disables launcherx"))
         assertEquals("Preloaded apps", Lists.cleanTitle("Preloaded apps"))
+    }
+}
+
+class HomesTest {
+    @Test
+    fun picksGoogleHomeNotTheSetupWizard() {
+        val homes = linkedMapOf(
+            "com.google.android.tungsten.setupwraith" to Home("com.google.android.tungsten.setupwraith/.RecoveryActivity", true),
+            "com.spocky.projengmenu" to Home("com.spocky.projengmenu/.ui.home.MainActivity", false),
+            "com.google.android.apps.tv.launcherx" to Home("com.google.android.apps.tv.launcherx/.home.HomeActivity", true),
+        )
+        assertEquals("com.google.android.apps.tv.launcherx", Apps.stockHome(homes)?.key)
+        homes.remove("com.google.android.apps.tv.launcherx")
+        assertNull(Apps.stockHome(homes))
+    }
+
+    @Test
+    fun launcherCatalogIsSane() {
+        Launchers.ALL.forEach {
+            assertTrue(Protect.PACKAGE.matches(it.pkg))
+            assertTrue(Regex("[0-9a-f]{64}").matches(it.signer))
+            assertTrue(it.repo.count { c -> c == '/' } == 1)
+        }
     }
 }
