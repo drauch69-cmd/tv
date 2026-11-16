@@ -14,6 +14,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="#FF0D1220"
+        android:baselineAligned="false"
         android:orientation="horizontal"
         android:padding="48dp">
 
@@ -25,6 +26,7 @@
 
             <ImageView
                 android:id="@+id/qr"
+                android:contentDescription="QR code to open the phone page"
                 android:layout_width="260dp"
                 android:layout_height="260dp"
                 android:background="#FFFFFFFF"

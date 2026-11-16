@@ -117,7 +117,7 @@ object Verifier {
                 continue
             }
             val text = String(r.body, Charsets.UTF_8)
-            val t = text.trimStart('﻿', ' ', '\r', '\n', '\t')
+            val t = text.trimStart('\uFEFF', ' ', '\r', '\n', '\t')
             val isHls = t.startsWith("#EXTM3U")
             val isDash = !isHls && text.contains("<MPD")
             if (!isHls && !isDash) {
