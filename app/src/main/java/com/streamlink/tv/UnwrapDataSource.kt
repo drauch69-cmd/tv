@@ -45,7 +45,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         if (dataSpec.position == 0L) {
             val cached = PrefetchCache.take(dataSpec.uri.toString())
             if (cached != null) {
-                val bytes = cached.first
+                val bytes = fixPlaylist(cached.first)
                 buf = bytes
                 bufEnd = bytes.size
                 cachedUri = Uri.parse(cached.second)
@@ -67,11 +67,19 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             fill(512 * 1024)
             if (looksLikePlaylist(head, n)) {
                 logPlaylist(head, n)
+                if (eof) {
+                    // Whole playlist in hand: correct known typos before the player reads it.
+                    val fixed = fixPlaylist(head.copyOf(n))
+                    buf = fixed
+                    bufPos = 0
+                    bufEnd = fixed.size
+                    bufOnly = true
+                    return fixed.size.toLong()
+                }
                 buf = head
                 bufPos = 0
                 bufEnd = n
-                bufOnly = eof
-                return if (eof) n.toLong() else length
+                return length
             }
             // Not a playlist after all (e.g. a video chunk with "m3u8" in its address): treat as video.
             buf = null
@@ -294,6 +302,26 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
     }
 
     companion object {
+        /** Tags some sites write as "#TAG=value" instead of "#TAG:value". */
+        private val MISSPELLED_TAG = Regex(
+            "^(#EXT-X-(?:MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE|TARGETDURATION|VERSION|PLAYLIST-TYPE|PROGRAM-DATE-TIME))\\s*=\\s*",
+            RegexOption.MULTILINE,
+        )
+
+        /**
+         * Corrects playlist typos Android's player can't read but browsers tolerate. The one that
+         * matters most: "#EXT-X-MEDIA-SEQUENCE=123" (should be ":"), without which the player
+         * thinks a live stream never moves forward and never starts playing.
+         */
+        fun fixPlaylist(bytes: ByteArray): ByteArray {
+            val text = String(bytes, Charsets.UTF_8)
+            if (!text.contains("#EXT-X-") || !MISSPELLED_TAG.containsMatchIn(text)) return bytes
+            val fixed = MISSPELLED_TAG.replace(text) { m -> m.groupValues[1] + ":" }
+            val tags = MISSPELLED_TAG.findAll(text).map { it.groupValues[1] }.distinct().joinToString(", ")
+            Report.logOnce("playlist-fix-$tags", "Fixed malformed playlist tag(s) the player can't read: $tags (\"=\" instead of \":\")")
+            return fixed.toByteArray(Charsets.UTF_8)
+        }
+
         private const val PEEK = 64 * 1024
         private const val MAX_SEARCH = 1024 * 1024
         private const val MAX_PEEK = 8 * 1024 * 1024
