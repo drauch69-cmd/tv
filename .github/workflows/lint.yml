@@ -1,0 +1,36 @@
+name: Lint
+
+on:
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Android lint
+        run: gradle lintRelease --no-daemon -q || true
+
+      - name: Kotlin style (ktlint)
+        run: |
+          curl -sSL -o ktlint https://github.com/pinterest/ktlint/releases/download/1.3.1/ktlint
+          chmod +x ktlint
+          ./ktlint "app/src/**/*.kt" --reporter=plain > ktlint.txt 2>&1 || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            app/build/reports/lint.txt
+            app/build/reports/lint-results-release.html
+            ktlint.txt
