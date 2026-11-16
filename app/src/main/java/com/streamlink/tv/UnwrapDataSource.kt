@@ -66,6 +66,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             n += r
         }
         val skip = junkPrefix(head, n)
+        Report.logOnce("chunk-head", describeChunk(dataSpec, head, n, skip))
         if (skip > 0) Report.logOnce("unwrap", "Unwrapped disguised video chunks ($skip junk bytes removed)")
         buf = head
         bufPos = skip
@@ -102,6 +103,25 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             upstreamOpen = false
             upstream.close()
         }
+    }
+
+    /** One line for the report: what the first video chunk really looks like. */
+    private fun describeChunk(spec: DataSpec, head: ByteArray, n: Int, skip: Int): String {
+        val type = upstream.responseHeaders.entries
+            .firstOrNull { it.key.equals("Content-Type", true) }?.value?.firstOrNull() ?: "?"
+        val hex = (0 until minOf(n, 16)).joinToString(" ") { String.format("%02X", head[it]) }
+        val text = String(head, 0, minOf(n, 60), Charsets.ISO_8859_1).replace(Regex("[^\\x20-\\x7E]"), ".")
+        val guess = when {
+            n == 0 -> "empty"
+            skip > 0 -> "disguised video, unwrapped"
+            head[0] == SYNC -> "normal MPEG-TS video"
+            isBox(head, 4) -> "normal MP4 video"
+            text.startsWith("<") || text.contains("<html", true) -> "a web page, not video"
+            text.startsWith("#EXTM3U") -> "a playlist, not video"
+            else -> "unknown format, possibly encrypted"
+        }
+        return "First video chunk ${Report.short(spec.uri.toString())}: $n bytes, type $type, " +
+            "starts [$hex] \"$text\" -> $guess"
     }
 
     companion object {

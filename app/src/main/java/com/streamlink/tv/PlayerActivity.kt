@@ -249,7 +249,8 @@ class PlayerActivity : Activity() {
         }
         val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
         val why = if (http != null) "server said $http" else error.errorCodeName
-        Report.log("Playback error: $why")
+        val detail = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.firstOrNull()?.take(200)
+        Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
 
         val src = set?.sources?.getOrNull(sourceIndex)
         if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS && playingSince == 0L &&
