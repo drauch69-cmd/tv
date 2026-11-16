@@ -44,9 +44,9 @@ class ListsTest {
         assertNull(Protect.reason("com.google.android.play.games", self, homes))
         assertNull(Protect.reason("com.google.android.feedback", self, homes))
         assertNull(Protect.reason("com.android.providers.calendar", self, homes))
-        // With your own home screen installed, the stock one may go and yours stays.
+        // Even with your own home screen installed, both stay locked.
         val withProjectivy = Protect.protectedHomes(mapOf("com.google.android.apps.tv.launcherx" to true, "com.spocky.projengmenu" to false))
-        assertNull(Protect.reason("com.google.android.apps.tv.launcherx", self, withProjectivy))
+        assertNotNull(Protect.reason("com.google.android.apps.tv.launcherx", self, withProjectivy))
         assertNotNull(Protect.reason("com.spocky.projengmenu", self, withProjectivy))
     }
 

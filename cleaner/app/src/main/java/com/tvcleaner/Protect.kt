@@ -84,11 +84,9 @@ object Protect {
     }
 
     /**
-     * Which home screens must stay on. With only built-in home screens, all of them stay. Once you
-     * have installed your own (like Projectivy), yours stays and the built-in ones may be turned off.
+     * Which home screens must stay on: all of them. On Google TV, turning off the stock home screen
+     * can let the setup wizard's recovery screen take over Home, so switching launchers needs its own
+     * flow rather than a plain "turn off".
      */
-    fun protectedHomes(homes: Map<String, Boolean>): Set<String> {
-        val yours = homes.filterValues { system -> !system }.keys
-        return if (yours.isEmpty()) homes.keys else yours
-    }
+    fun protectedHomes(homes: Map<String, Boolean>): Set<String> = homes.keys
 }
