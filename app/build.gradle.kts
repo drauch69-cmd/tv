@@ -57,6 +57,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-datasource-cronet:$media3")
+    implementation("com.google.android.gms:play-services-cronet:18.0.1")
     implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.webkit:webkit:1.12.1")
     testImplementation("junit:junit:4.13.2")

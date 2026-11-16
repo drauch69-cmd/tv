@@ -28,6 +28,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        ChromeNet.init(this)
         statusView = findViewById(R.id.status)
         recentList = findViewById(R.id.recentList)
         recentLabel = findViewById(R.id.recentLabel)

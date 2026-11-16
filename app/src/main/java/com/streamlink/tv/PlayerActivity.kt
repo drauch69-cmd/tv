@@ -25,6 +25,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cronet.CronetDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -176,12 +177,24 @@ class PlayerActivity : Activity() {
                 if (referer.isEmpty()) "no referer" else "referer ${Report.short(referer)}"
         )
 
-        val http = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(15_000)
-            .setDefaultRequestProperties(headers)
-        userAgent?.let { http.setUserAgent(it) }
+        // Fetch through Chrome's network engine when available, so servers that only serve real
+        // browsers don't refuse the player (see ChromeNet).
+        val engine = ChromeNet.engine
+        Report.logOnce("net-${engine != null}", "Network: ${ChromeNet.describe()}")
+        val http: HttpDataSource.Factory = if (engine != null) {
+            CronetDataSource.Factory(engine, ChromeNet.executor)
+                .setConnectionTimeoutMs(15_000)
+                .setReadTimeoutMs(15_000)
+                .setDefaultRequestProperties(headers)
+                .apply { userAgent?.let { setUserAgent(it) } }
+        } else {
+            DefaultHttpDataSource.Factory()
+                .setAllowCrossProtocolRedirects(true)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(15_000)
+                .setDefaultRequestProperties(headers)
+                .apply { userAgent?.let { setUserAgent(it) } }
+        }
 
         // Tunneled playback: the video chip syncs audio/video and draws frames itself, bypassing
         // Android's normal video path. Smoother and less work for the processor on TV boxes.

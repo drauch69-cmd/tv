@@ -172,7 +172,7 @@ object Verifier {
     private fun fetch(url: String, headers: Map<String, String>, referer: String): Resp? {
         var conn: HttpURLConnection? = null
         return try {
-            conn = URL(url).openConnection() as HttpURLConnection
+            conn = ChromeNet.open(url)
             conn.connectTimeout = 4000
             conn.readTimeout = 4000
             conn.instanceFollowRedirects = true
