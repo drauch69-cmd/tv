@@ -55,7 +55,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
   private static final int FALLBACK_INTERVAL = 45;
 
   /** After this many frames, log what kind of stream this is to the StreamLink report. */
-  private static final int ANALYSIS_FRAMES = 150;
+  private static final int ANALYSIS_FRAMES = 30;
 
   private final SeiReader seiReader;
   private final boolean allowNonIdrKeyframes;
@@ -343,6 +343,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
     private int framesSeen;
     private int recoveryPointsSeen;
     private int fallbackKeyframes;
+    private long firstSampleTimeUs = C.TIME_UNSET;
     private boolean randomAccessIndicator;
 
     public SampleReader(
@@ -591,6 +592,9 @@ public final class LenientH264Reader implements ElementaryStreamReader {
       // StreamLink: a stream with neither keyframes nor recovery points still has to start
       // somewhere; browsers start anywhere. Use one frame every FALLBACK_INTERVAL frames.
       framesSeen++;
+      if (firstSampleTimeUs == C.TIME_UNSET) {
+        firstSampleTimeUs = sampleTimeUs;
+      }
       if (sampleIsKeyframe) {
         framesWithoutKeyframe = 0;
       } else if (!realKeyframeSeen && ++framesWithoutKeyframe >= FALLBACK_INTERVAL) {
@@ -608,7 +612,12 @@ public final class LenientH264Reader implements ElementaryStreamReader {
                     ? ""
                     : ", starting from "
                         + (recoveryPointsSeen > 0 ? "recovery points" : "a frame every "
-                            + FALLBACK_INTERVAL + " frames")));
+                            + FALLBACK_INTERVAL + " frames"))
+                + String.format(
+                    java.util.Locale.US,
+                    "; frames stamped %.1fs to %.1fs",
+                    firstSampleTimeUs / 1_000_000.0,
+                    sampleTimeUs / 1_000_000.0));
       }
       @C.BufferFlags int flags = sampleIsKeyframe ? C.BUFFER_FLAG_KEY_FRAME : 0;
       int size = (int) (nalUnitStartPosition - samplePosition);
