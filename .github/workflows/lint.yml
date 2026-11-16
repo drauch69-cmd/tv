@@ -27,10 +27,10 @@ jobs:
           chmod +x ktlint
           ./ktlint "app/src/**/*.kt" --reporter=plain > ktlint.txt 2>&1 || true
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: lint-reports
-          path: |
-            app/build/reports/lint.txt
-            app/build/reports/lint-results-release.html
-            ktlint.txt
+      - name: Print reports
+        run: |
+          echo "===== ANDROID LINT ====="
+          cat app/build/reports/lint.txt || echo "(no android lint report)"
+          echo "===== KTLINT ====="
+          cat ktlint.txt
+          echo "===== END ====="
