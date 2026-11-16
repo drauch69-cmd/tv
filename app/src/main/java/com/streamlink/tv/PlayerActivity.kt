@@ -27,7 +27,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cronet.CronetDataSource
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
@@ -86,6 +88,8 @@ class PlayerActivity : Activity() {
     private var qualityOptions: List<Pair<Tracks.Group, Int>> = emptyList()
     private var qualityChoice = -1
     private var tunneling = false
+    private var smoothLive = true
+    private var stalls = 0
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
     private var linkGen = 0
@@ -142,6 +146,7 @@ class PlayerActivity : Activity() {
         refererIndex = 0
         reconnects = 0
         playingSince = 0
+        stalls = 0
         hidePicker()
         Session.mode = "player"
         Session.title = Report.host(s.pageUrl)
@@ -204,8 +209,17 @@ class PlayerActivity : Activity() {
         selector.setParameters(selector.buildUponParameters().setTunnelingEnabled(tunneling))
         Report.logOnce("tunnel-$tunneling", "Tunneled playback: ${if (tunneling) "on" else "off"}")
 
+        // Bigger cushion: wait for 8s of video after a stall (not 5s) so one hiccup doesn't
+        // turn into several stalls in a row.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(30_000, 60_000, 2_500, 8_000)
+            .build()
+        smoothLive = smoothLiveAllowed()
+        Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~30s behind live)" else "low delay"}")
+
         val p = ExoPlayer.Builder(this)
             .setTrackSelector(selector)
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(DefaultMediaSourceFactory(UnwrapDataSourceFactory(http)))
             .build()
         player = p
@@ -217,6 +231,18 @@ class PlayerActivity : Activity() {
         val item = MediaItem.Builder().setUri(src.url).apply {
             if (lower.contains("m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8)
             else if (lower.contains(".mpd")) setMimeType(MimeTypes.APPLICATION_MPD)
+            if (smoothLive) {
+                // Play ~30s behind live so there's room to buffer, and never speed up to catch up
+                // (that drains the cushion); only slow down imperceptibly to rebuild it.
+                setLiveConfiguration(
+                    MediaItem.LiveConfiguration.Builder()
+                        .setTargetOffsetMs(30_000)
+                        .setMinOffsetMs(15_000)
+                        .setMinPlaybackSpeed(0.97f)
+                        .setMaxPlaybackSpeed(1.0f)
+                        .build()
+                )
+            }
         }.build()
 
         p.addListener(listener)
@@ -242,7 +268,10 @@ class PlayerActivity : Activity() {
                     }
                     AppStatus.text = "Playing ${Session.title}"
                 }
-                Player.STATE_BUFFERING -> if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
+                Player.STATE_BUFFERING -> {
+                    if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
+                    if (playingSince != 0L) logStall()
+                }
                 Player.STATE_ENDED -> {
                     if (player?.isCurrentMediaItemLive == true) {
                         Report.log("Live stream stopped unexpectedly")
@@ -320,6 +349,29 @@ class PlayerActivity : Activity() {
     private fun tunnelingAllowed(): Boolean {
         if (tunnelOffThisRun) return false
         return getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_on", false)
+    }
+
+    /** For the report: is it the connection or the stream? */
+    private fun logStall() {
+        stalls++
+        val have = DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate
+        val need = player?.videoFormat?.bitrate ?: -1
+        val mbps = { b: Long -> String.format(java.util.Locale.US, "%.1f Mbps", b / 1_000_000.0) }
+        val ahead = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
+        Report.log(
+            "Buffering (stall #$stalls): connection ≈ ${mbps(have)}" +
+                (if (need > 0) ", this quality needs ≈ ${mbps(need.toLong())}" else "") +
+                String.format(java.util.Locale.US, ", %.1fs of video was buffered", ahead)
+        )
+    }
+
+    private fun smoothLiveAllowed(): Boolean =
+        getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("smooth_live", true)
+
+    private fun setSmoothLive(on: Boolean) {
+        getSharedPreferences("streamlink", MODE_PRIVATE).edit().putBoolean("smooth_live", on).apply()
+        Report.log("Live delay set to ${if (on) "smooth" else "low delay"} from the phone")
+        play()
     }
 
     private fun setTunneling(on: Boolean) {
@@ -481,6 +533,7 @@ class PlayerActivity : Activity() {
             "site" -> openSitePlayer("requested from phone")
             "open" -> v?.let { openLink(it) }
             "tunnel" -> setTunneling(v == "on")
+            "delay" -> setSmoothLive(v != "low")
         }
         publishSnapshot()
     }
@@ -534,6 +587,7 @@ class PlayerActivity : Activity() {
             sources = set?.sources?.map { it.label } ?: emptyList(),
             source = sourceIndex,
             tunneling = tunneling,
+            smoothLive = smoothLive,
         )
     }
 

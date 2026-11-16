@@ -59,6 +59,7 @@
   </label>
   <div class="after">
     <button type="button" class="ghost" id="sitebtn" data-c="site">Use the site's own player</button>
+    <button type="button" class="ghost" id="delaybtn">Live delay: Smooth</button>
     <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
   </div>
 </section>
@@ -104,6 +105,10 @@
       b.onclick = function(){ post('/cmd', 'c=' + encodeURIComponent(b.getAttribute('data-c'))).then(function(){ setTimeout(tick, 250); }); };
     })(buttons[i]);
   }
+  var smoothOn = true;
+  $('delaybtn').onclick = function(){
+    post('/cmd', 'c=delay&v=' + (smoothOn ? 'low' : 'smooth')).then(function(){ setTimeout(tick, 500); });
+  };
   var tunnelOn = false;
   $('tunnelbtn').onclick = function(){
     post('/cmd', 'c=tunnel&v=' + (tunnelOn ? 'off' : 'on')).then(function(){ setTimeout(tick, 500); });
@@ -141,6 +146,9 @@
       $('pp').textContent = player ? (s.playing ? 'Pause' : 'Play') : 'Play / Pause';
       $('livebtn').hidden = !player;
       $('sitebtn').hidden = !player;
+      smoothOn = s.smoothLive !== false;
+      $('delaybtn').hidden = !player;
+      $('delaybtn').textContent = 'Live delay: ' + (smoothOn ? 'Smooth, ~30s behind (tap for low delay)' : 'Low delay (tap for smoother)');
       tunnelOn = !!s.tunneling;
       $('tunnelbtn').hidden = !player;
       $('tunnelbtn').textContent = 'Tunneled playback: ' + (tunnelOn ? 'On (tap to turn off)' : 'Off (tap to try on)');
