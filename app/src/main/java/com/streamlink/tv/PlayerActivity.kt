@@ -247,13 +247,16 @@ class PlayerActivity : Activity() {
             p.prepare()
             return
         }
-        val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+        val httpError = error.cause as? HttpDataSource.InvalidResponseCodeException
+        val http = httpError?.responseCode
         val why = if (http != null) "server said $http" else error.errorCodeName
+        httpError?.dataSpec?.uri?.let { Report.log("  …for ${Report.short(it.toString())}") }
         val detail = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.firstOrNull()?.take(200)
         Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
 
         val src = set?.sources?.getOrNull(sourceIndex)
-        if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS && playingSince == 0L &&
+        // Only "not allowed" answers can be fixed by claiming a different page; "not found" can't.
+        if ((http == 401 || http == 403) && playingSince == 0L &&
             src != null && refererIndex + 1 < src.referers.size
         ) {
             refererIndex++

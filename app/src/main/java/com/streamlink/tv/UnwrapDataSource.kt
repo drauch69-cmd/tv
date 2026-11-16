@@ -37,6 +37,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         bufPos = 0
         bufEnd = 0
         cachedUri = null
+        bufOnly = false
 
         if (dataSpec.position == 0L) {
             val cached = PrefetchCache.take(dataSpec.uri.toString())
@@ -73,6 +74,24 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             skip = searchFrom(1) ?: 0
         }
 
+        // Nothing after the picture: the video may be hidden in the picture's pixels.
+        if (image != null && !looksLikeMedia(head, n, skip)) {
+            fill(MAX_PEEK)
+            for (d in PngPixels.decode(head, n)) {
+                val at = if (looksLikeMedia(d.bytes, d.bytes.size, 0)) 0 else findMedia(d.bytes, d.bytes.size, 0)
+                if (at != null) {
+                    Report.logOnce("pixels", "Decoded video hidden in the picture's pixels (${d.layout}, " +
+                        "${d.bytes.size - at} bytes of video)")
+                    buf = d.bytes
+                    bufPos = at
+                    bufEnd = d.bytes.size
+                    bufOnly = true
+                    return C.LENGTH_UNSET.toLong()
+                }
+            }
+            Report.logOnce("pixels-fail", "The picture's pixels didn't contain recognisable video either")
+        }
+
         Report.logOnce("chunk-head", describeChunk(dataSpec, head, n, skip))
         if (skip > 0) {
             if (looksLikeMedia(head, n, skip)) {
@@ -89,6 +108,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         return if (length == C.LENGTH_UNSET.toLong()) C.LENGTH_UNSET.toLong() else length - skip
     }
 
+    private var bufOnly = false
     private var head = ByteArray(0)
     private var n = 0
     private var eof = false
@@ -173,7 +193,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 bufPos += count
                 return count
             }
-            if (cachedUri != null) return C.RESULT_END_OF_INPUT
+            if (cachedUri != null || bufOnly) return C.RESULT_END_OF_INPUT
         }
         return upstream.read(buffer, offset, length)
     }

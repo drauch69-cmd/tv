@@ -180,7 +180,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         wv.webChromeClient = SafeChromeClient()
         val c = object : SafeWebViewClient(url) {
             override fun onFrame(url: String) {
-                frameUrls.add(url)
+                if (!AdBlock.isBlockedHost(Report.host(url))) frameUrls.add(url)
             }
 
             override fun onResource(request: WebResourceRequest) {
