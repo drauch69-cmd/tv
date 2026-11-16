@@ -102,6 +102,9 @@ class PlayerActivity : Activity() {
     private var useChromeNet = true
     /** Use the TV's software video decoder (slower, more forgiving) for this link. */
     private var preferSoftware = false
+    /** Experiment for stuck streams: play with the audio switched off to see if it's the blocker. */
+    private var audioOff = false
+    private var audioOffTried = false
     private var loadsLogged = 0
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
@@ -162,6 +165,8 @@ class PlayerActivity : Activity() {
         stalls = 0
         useChromeNet = true
         preferSoftware = false
+        audioOff = false
+        audioOffTried = false
         hidePicker()
         Session.mode = "player"
         Session.title = Report.host(s.pageUrl)
@@ -225,7 +230,11 @@ class PlayerActivity : Activity() {
         tunneling = tunnelingAllowed()
         firstFrame = false
         val selector = DefaultTrackSelector(this)
-        selector.setParameters(selector.buildUponParameters().setTunnelingEnabled(tunneling))
+        selector.setParameters(
+            selector.buildUponParameters()
+                .setTunnelingEnabled(tunneling)
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, audioOff)
+        )
         Report.logOnce("tunnel-$tunneling", "Tunneled playback: ${if (tunneling) "on" else "off"}")
 
         val dataSource = UnwrapDataSourceFactory(http)
@@ -301,6 +310,10 @@ class PlayerActivity : Activity() {
             main.removeCallbacks(stallCheck)
             when (playbackState) {
                 Player.STATE_READY -> {
+                    if (audioOff && playingSince == 0L) {
+                        Report.log("Experiment result: the video starts with the audio off, so the audio is what's holding it back. Turning the audio back on in 3s")
+                        main.postDelayed(audioBackOn, 3_000)
+                    }
                     if (tunneling && !firstFrame) {
                         main.removeCallbacks(firstFrameCheck)
                         main.postDelayed(firstFrameCheck, FIRST_FRAME_MS)
@@ -441,7 +454,45 @@ class PlayerActivity : Activity() {
     }
 
     /** Video arrived but won't play: try the software decoder once, then the site's own player. */
+    /** After the audio-off experiment started the video: bring the audio back in mid-play. */
+    private val audioBackOn = Runnable {
+        val p = player ?: return@Runnable
+        audioOff = false
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false).build()
+        Report.log("Audio switched back on while playing")
+    }
+
+    /**
+     * For the report: per decoder, how many frames came in, how many were shown/played, how many
+     * were dropped as too late. "Received but none shown, many dropped late" = a timing problem.
+     */
+    private fun decoderStats(): String {
+        val p = player ?: return "Decoders: no player"
+        val v = p.videoDecoderCounters
+        val a = p.audioDecoderCounters
+        v?.ensureUpdated()
+        a?.ensureUpdated()
+        val vs = if (v == null) "video decoder never started" else
+            "video frames received ${v.queuedInputBufferCount}, shown ${v.renderedOutputBufferCount}, " +
+                "dropped late ${v.droppedBufferCount}, skipped ${v.skippedOutputBufferCount + v.skippedInputBufferCount}"
+        val aus = if (a == null) "audio decoder never started" else
+            "audio frames received ${a.queuedInputBufferCount}, played ${a.renderedOutputBufferCount}, skipped ${a.skippedInputBufferCount}"
+        return String.format(java.util.Locale.US, "Decoders: %s; %s; position %.1fs, buffered to %.1fs",
+            vs, aus, p.currentPosition / 1000.0, p.bufferedPosition / 1000.0)
+    }
+
     private fun decodeProblem() {
+        Report.log(decoderStats())
+        if (!audioOffTried) {
+            audioOffTried = true
+            audioOff = true
+            Report.log("Experiment: retrying with the audio switched off, to see if the audio is what's holding it back")
+            play()
+            return
+        }
+        if (audioOff) Report.log("Experiment result: still stuck with the audio off, so the audio isn't the blocker")
+        audioOff = false
         if (!preferSoftware) {
             preferSoftware = true
             Report.log("Retrying with the TV's software video decoder")
@@ -491,6 +542,7 @@ class PlayerActivity : Activity() {
 
     /** For the report: is it the connection or the stream? */
     private fun logStall() {
+        Report.log(decoderStats())
         stalls++
         val have = DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate
         val need = player?.videoFormat?.bitrate ?: -1
@@ -644,6 +696,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun release() {
+        main.removeCallbacks(audioBackOn)
         main.removeCallbacks(startCheck)
         main.removeCallbacks(stallCheck)
         main.removeCallbacks(firstFrameCheck)

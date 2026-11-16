@@ -145,7 +145,7 @@ class SitePlayerActivity : Activity() {
                 customCallback = null
             }
         }
-        web.webViewClient = object : SafeWebViewClient(url, allowVideoAds = true, blockAds = false) {
+        web.webViewClient = object : SafeWebViewClient(url, allowVideoAds = true) {
             override fun onLoaded() {
                 focusTries = 0
                 main.removeCallbacks(focusTick)
