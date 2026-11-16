@@ -14,9 +14,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -49,7 +49,7 @@ jobs:
       - name: Rename APK
         run: cp cleaner/app/build/outputs/apk/release/app-release.apk TVCleaner.apk
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: TVCleaner-apk
           path: TVCleaner.apk
@@ -60,4 +60,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete cleaner-latest --yes --cleanup-tag || true
-          gh release create cleaner-latest TVCleaner.apk lint.txt ktlint.txt --title "TV Cleaner (latest build)" --notes "Build ${{ github.run_number }}" --latest=false
+          # Deleting the old tag can take a moment to settle, so try a few times.
+          for i in 1 2 3 4 5; do
+            if gh release create cleaner-latest TVCleaner.apk lint.txt ktlint.txt \
+                --target "${{ github.sha }}" --title "TV Cleaner (latest build)" \
+                --notes "Build ${{ github.run_number }}" --latest=false; then
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
