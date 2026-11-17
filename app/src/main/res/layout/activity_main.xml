@@ -2,7 +2,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FF0D1220">
+    android:background="#FF0E1116">
 
     <!-- Hidden page loader. It sits behind the screen below, so it renders but is never seen. -->
     <FrameLayout
@@ -10,109 +10,81 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <LinearLayout
+    <ScrollView
+        android:id="@+id/homeScroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#FF0D1220"
-        android:baselineAligned="false"
-        android:orientation="horizontal"
-        android:padding="48dp">
+        android:background="#FF0E1116"
+        android:fillViewport="true"
+        android:scrollbars="none">
 
         <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:orientation="vertical">
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="42dp"
+            android:paddingTop="28dp"
+            android:paddingEnd="42dp"
+            android:paddingBottom="24dp">
 
-            <ImageView
-                android:id="@+id/qr"
-                android:contentDescription="QR code to open the phone page"
-                android:layout_width="260dp"
-                android:layout_height="260dp"
-                android:background="#FFFFFFFF"
-                android:padding="12dp" />
-
-            <TextView
-                android:id="@+id/address"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:textColor="#FFB8C4E0"
-                android:textSize="18sp" />
-
-            <TextView
-                android:id="@+id/checkUpdate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/recent_item"
-                android:clickable="true"
-                android:focusable="true"
-                android:paddingStart="14dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="14dp"
-                android:paddingBottom="6dp"
-                android:text="Check for updates"
-                android:textColor="#FFFFFFFF"
-                android:textSize="14sp" />
-
-            <TextView
-                android:id="@+id/updateInfo"
-                android:layout_width="260dp"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:gravity="center"
-                android:textColor="#FF7F8DAD"
-                android:textSize="12sp"
-                android:visibility="gone" />
-
-            <TextView
-                android:layout_width="260dp"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center"
-                android:text="iPhone tip: the phone page can add “Play on TV” to Safari's Share menu."
-                android:textColor="#FF7F8DAD"
-                android:textSize="13sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="56dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="StreamLink"
-                android:textColor="#FFFFFFFF"
-                android:textSize="36sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/updateBanner"
+            <!-- Top bar: name on the left, update chip and "Send a link" on the right -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/recent_item"
-                android:clickable="true"
-                android:focusable="true"
-                android:padding="12dp"
-                android:textColor="#FFFFFFFF"
-                android:textSize="18sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/brand"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:drawablePadding="9dp"
+                    android:gravity="center_vertical"
+                    android:text="StreamLink"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="21sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/updateBanner"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:paddingStart="12dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="6dp"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/sendLink"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:drawablePadding="8dp"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:paddingStart="12dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="8dp"
+                    android:text="Send a link"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/updatePerm"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="10dp"
                 android:text="To install updates, allow StreamLink to install apps: Settings → Apps → Security &amp; restrictions → Unknown sources → StreamLink"
                 android:textColor="#FFFFC66B"
-                android:textSize="15sp"
+                android:textSize="13sp"
                 android:visibility="gone" />
 
             <TextView
@@ -120,16 +92,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:background="@drawable/recent_item"
                 android:clickable="true"
                 android:focusable="true"
-                android:paddingStart="14dp"
+                android:paddingStart="12dp"
                 android:paddingTop="6dp"
-                android:paddingEnd="14dp"
+                android:paddingEnd="12dp"
                 android:paddingBottom="6dp"
                 android:text="Open the install permission settings"
-                android:textColor="#FFFFFFFF"
-                android:textSize="14sp"
+                android:textColor="#FFE8EAED"
+                android:textSize="13sp"
                 android:visibility="gone" />
 
             <TextView
@@ -137,24 +108,74 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Scan the code with your phone and send a link."
-                android:textColor="#FFB8C4E0"
-                android:textSize="20sp" />
+                android:textColor="#FFA3ABB7"
+                android:textSize="13sp" />
 
+            <!-- Live now -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:baselineAligned="true"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Live now"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/liveSub"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:textColor="#FFA3ABB7"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <HorizontalScrollView
+                android:id="@+id/liveScroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:clipToPadding="false"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/liveRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <!-- Your lists -->
             <TextView
                 android:id="@+id/listLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="Stream lists"
-                android:textColor="#FF7F8DAD"
-                android:textSize="16sp" />
+                android:layout_marginTop="14dp"
+                android:text="Your lists"
+                android:textColor="#FFE8EAED"
+                android:textSize="19sp"
+                android:textStyle="bold" />
 
             <HorizontalScrollView
                 android:id="@+id/listScroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="6dp"
+                android:clipToPadding="false"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:scrollbars="none">
 
                 <LinearLayout
@@ -164,27 +185,150 @@
                     android:orientation="horizontal" />
             </HorizontalScrollView>
 
+            <!-- Recent links -->
             <TextView
                 android:id="@+id/recentLabel"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:text="Recent"
-                android:textColor="#FF7F8DAD"
-                android:textSize="16sp" />
+                android:layout_marginTop="14dp"
+                android:textColor="#FFA3ABB7"
+                android:textSize="13sp" />
 
-            <ScrollView
+            <HorizontalScrollView
+                android:id="@+id/recentScroll"
                 android:layout_width="match_parent"
-                android:layout_height="0dp"
-                android:layout_marginTop="8dp"
-                android:layout_weight="1">
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:clipToPadding="false"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:scrollbars="none">
 
                 <LinearLayout
                     android:id="@+id/recentList"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-            </ScrollView>
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/hints"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="OK  Play     Menu  Refresh all lists     Hold OK  Remove"
+                android:textColor="#FF8A93A0"
+                android:textSize="12sp" />
         </LinearLayout>
-    </LinearLayout>
+    </ScrollView>
+
+    <!-- "Send a link" panel: the QR code for the phone page, plus app version and updates -->
+    <FrameLayout
+        android:id="@+id/qrPanel"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#E60E1116"
+        android:clickable="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/qrCard"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Scan with your phone"
+                android:textColor="#FFE8EAED"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/qr"
+                android:layout_width="200dp"
+                android:layout_height="200dp"
+                android:layout_marginTop="14dp"
+                android:background="#FFFFFFFF"
+                android:contentDescription="QR code to open the phone page"
+                android:padding="10dp" />
+
+            <TextView
+                android:id="@+id/address"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textColor="#FFE8EAED"
+                android:textSize="15sp" />
+
+            <TextView
+                android:layout_width="300dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="Paste a link there to play it here, or add a page of events as a list. iPhone tip: the phone page can add “Play on TV” to Safari's Share menu."
+                android:textColor="#FFA3ABB7"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/checkUpdate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingStart="14dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="8dp"
+                    android:text="Check for updates"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="13sp" />
+
+                <TextView
+                    android:id="@+id/qrClose"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:paddingStart="14dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="8dp"
+                    android:text="Close"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/updateInfo"
+                android:layout_width="300dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:textColor="#FF8A93A0"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/versionText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textColor="#FF8A93A0"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </FrameLayout>
 </FrameLayout>
