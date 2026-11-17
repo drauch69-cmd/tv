@@ -59,7 +59,7 @@ object Verifier {
 
     private val adWords = listOf("/ads/", "/ad/", "vast", "preroll", "pre-roll", "advert", "doubleclick", "imasdk")
 
-    fun rank(cands: List<StreamCandidate>, log: (String) -> Unit = { log(it) }): List<Source> {
+    fun rank(cands: List<StreamCandidate>, log: (String) -> Unit = { Report.log(it) }): List<Source> {
         // Check all candidates at once, with a hard overall time limit, so a slow site can't keep
         // the TV on "Finding the video…" for minutes.
         val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 12))
