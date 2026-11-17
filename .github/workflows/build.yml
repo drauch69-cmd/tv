@@ -95,5 +95,27 @@ jobs:
         run: |
           gh release delete test-latest --yes --cleanup-tag || true
           gh release create test-latest StreamLink-Test.apk version.json --title "Test build" --notes "Test build ${{ github.run_number }}"
+
+      # Android Lint report. Runs after build/test and publishing so it can never block them.
+      - name: Android Lint
+        if: always()
+        continue-on-error: true
+        run: |
+          gradle :app:lintDebug --no-daemon --console=plain > lint.log 2>&1 || tail -40 lint.log
+          ls -l app/build/reports/ || true
+          echo "===== LINT SUMMARY ====="
+          grep -E "[0-9]+ errors?, [0-9]+ warnings?" app/build/reports/lint-results.txt || true
+          grep -E "^(Error|Warning):|^[^ ]+:[0-9]+: (Error|Warning)" app/build/reports/lint-results.txt | sed -E 's/.*\[([A-Za-z]+)\]$/\1/' | sort | uniq -c | sort -rn || true
+          echo "===== LINT TEXT REPORT ====="
+          cat app/build/reports/lint-results.txt || true
+
+      - name: Upload lint report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results*
+          if-no-files-found: warn
     permissions:
       contents: write

@@ -18,7 +18,7 @@ import java.io.ByteArrayInputStream
 
 /** Shared settings for every web view the app opens: scripts on, popups and app-jumps off. */
 object SafeWeb {
-    @SuppressLint("SetJavaScriptEnabled")
+    @SuppressLint("SetJavaScriptEnabled", "RestrictedApi")
     fun configure(wv: WebView) {
         with(wv.settings) {
             javaScriptEnabled = true
