@@ -176,6 +176,7 @@ public final class LenientHlsExtractorFactory implements HlsExtractorFactory {
   }
 
   @Override
+  @SuppressLint("UnsafeOptInUsageError")
   public LenientHlsExtractorFactory experimentalParseSubtitlesDuringExtraction(
       boolean parseSubtitlesDuringExtraction) {
     this.parseSubtitlesDuringExtraction = parseSubtitlesDuringExtraction;
@@ -183,6 +184,7 @@ public final class LenientHlsExtractorFactory implements HlsExtractorFactory {
   }
 
   @Override
+  @SuppressLint("UnsafeOptInUsageError")
   public LenientHlsExtractorFactory experimentalSetCodecsToParseWithinGopSampleDependencies(
       @C.VideoCodecFlags int codecsToParseWithinGopSampleDependencies) {
     this.codecsToParseWithinGopSampleDependencies = codecsToParseWithinGopSampleDependencies;
