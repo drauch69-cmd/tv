@@ -62,7 +62,7 @@ class HomeFeedTest {
 
     @Test fun whenLineAlwaysOn() {
         val z = TimeZone.getTimeZone("UTC")
-        assertEquals("Started 3 h ago", HomeFeed.whenLine(item("a", now - 3 * hour), now, z, Locale.US))
+        assertEquals("Started 3 h 00 min ago", HomeFeed.whenLine(item("a", now - 3 * hour), now, z, Locale.US))
         assertEquals("Always on", HomeFeed.whenLine(item("a", now - 1234 * hour), now, z, Locale.US))
         assertEquals("Always on", HomeFeed.whenLine(item("a", now - 25 * hour), now, z, Locale.US))
     }
