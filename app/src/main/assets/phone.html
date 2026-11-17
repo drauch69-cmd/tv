@@ -4,112 +4,173 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="color-scheme" content="dark">
 <title>StreamLink</title>
 <style>
-  :root{--bg:#0d1220;--card:#162038;--line:#2c3a5c;--text:#e8edf8;--dim:#b8c4e0;--muted:#7f8dad;--accent:#4f8cff;--red:#ff4f5e}
+  :root{--bg:#0E1116;--surface:#171B22;--chip:#2A3240;--line:#2A303A;--text:#E8EAED;--dim:#A3ABB7;--accent:#4DA3FF;--live:#D93A40;--neutral:#2E3A4D;--ok:#8EE3B5;--okbg:#16261F;--warn:#FF8A94}
   *{box-sizing:border-box}
-  body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);padding:20px 18px 40px;max-width:560px;margin:0 auto;-webkit-text-size-adjust:100%}
-  h1{font-size:24px;margin:4px 0 16px}
-  input,select{width:100%;font-size:17px;padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);-webkit-appearance:none;appearance:none}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0 auto;max-width:480px;min-height:100vh;padding:24px 20px calc(28px + env(safe-area-inset-bottom));background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;display:flex;flex-direction:column;gap:18px}
+  .top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  h1{font-size:24px;margin:0;font-weight:700}
+  .pill{font-size:13px;padding:6px 10px;border-radius:999px;color:var(--ok);background:var(--okbg);white-space:nowrap}
+  .pill.off{color:var(--warn);background:#2A1A1D}
+  input,select{width:100%;min-height:48px;font-size:16px;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);-webkit-appearance:none;appearance:none;font-family:inherit}
   select{background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),linear-gradient(135deg,var(--dim) 50%,transparent 50%);background-position:calc(100% - 20px) 55%,calc(100% - 14px) 55%;background-size:6px 6px;background-repeat:no-repeat;padding-right:36px}
-  button{font-size:17px;padding:13px 10px;border:0;border-radius:12px;background:var(--card);color:var(--text);font-weight:600;border:1px solid var(--line);touch-action:manipulation}
+  input::placeholder{color:#6F7885}
+  button{font-size:15px;font-weight:600;line-height:1.2;font-family:inherit;min-height:44px;padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);touch-action:manipulation;cursor:pointer}
   button:active{opacity:.7}
-  button.primary{width:100%;margin-top:10px;background:var(--accent);border-color:var(--accent);color:#fff;font-size:19px}
-  button.ghost{width:100%;background:transparent;color:var(--dim)}
-  .status{margin:16px 2px;font-size:16px;color:var(--dim);min-height:22px}
-  .card{background:#111a2e;border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:8px}
-  .now{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:600;margin-bottom:14px;word-break:break-all}
-  .badge{background:var(--red);color:#fff;font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;letter-spacing:.5px;flex:none}
+  button:disabled{opacity:.5}
+  button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#0E1116;font-weight:700;font-size:16px}
+  button.ghost{width:100%;background:transparent;color:var(--text)}
+  .row{display:flex;gap:8px}
+  .row>input{flex:1;min-width:0}
+  .row>button.primary{padding:0 20px}
+  .fl{display:flex;flex-direction:column;gap:10px}
+  .lbl{font-size:14px;color:var(--dim)}
+  .tabs{display:flex;background:var(--surface);border-radius:12px;padding:4px;gap:2px}
+  .tabs button{flex:1;border:0;background:transparent;color:var(--dim);border-radius:9px;padding:10px 6px;font-size:15px}
+  .tabs button[aria-selected=true]{background:var(--chip);color:var(--text)}
+  .status{font-size:14px;color:var(--dim);min-height:20px;overflow-wrap:anywhere}
+  .card{background:var(--surface);border-radius:14px;padding:14px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .grid .wide{grid-column:1 / -1}
-  label{display:block;margin-top:14px;font-size:14px;color:var(--muted)}
-  label select{margin-top:6px}
-  .after{margin-top:14px}
-  details{margin-top:22px;background:#111a2e;border:1px solid var(--line);border-radius:16px;padding:14px 16px}
-  summary{font-size:17px;font-weight:600;cursor:pointer;color:var(--dim)}
-  pre{white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45;color:var(--dim);background:var(--bg);border-radius:10px;padding:12px;max-height:50vh;overflow:auto;margin:12px 0}
-  .foot{margin-top:26px;font-size:15px;text-align:center}
-  a{color:var(--accent);text-decoration:none}
-  .lrow{display:flex;gap:8px;margin-top:8px}
-  .lrow .main,.ev{flex:1;text-align:left;font-weight:600;display:block;width:100%;min-width:0}
-  .lrow .x{flex:none;width:48px;padding:13px 0;color:var(--dim)}
-  .sub{font-size:14px;font-weight:400;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
-  .ttl{overflow-wrap:anywhere}
-  .ev{margin-top:8px}
-  .ev .bd{display:inline-block;font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;background:#4a5470;color:#fff;margin-bottom:6px}
-  .ev .bd.live{background:var(--red)} .ev .bd.soon{background:#e08a1e} .ev .bd.upcoming{background:#3a5fa8}
-  .err{color:#ff8a94;font-size:15px;margin:8px 2px;overflow-wrap:anywhere}
+  .ev{display:flex;align-items:center;gap:12px;background:var(--surface);border-radius:14px;padding:14px;margin-bottom:10px}
+  .ev .body{flex:1;min-width:0}
+  .ev .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:22px}
+  .ev .ttl{font-size:17px;font-weight:600;margin-top:6px;overflow-wrap:anywhere}
+  .ev .sub{font-size:13px;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
+  .bd{display:inline-block;font-weight:700;font-size:11px;letter-spacing:.06em;padding:3px 7px;border-radius:5px;background:var(--neutral);color:var(--text);text-transform:uppercase}
+  .bd.live{background:var(--live);color:#fff}
+  .lname{font-size:13px;color:var(--dim);overflow-wrap:anywhere}
+  .round{width:46px;height:46px;flex:none;border-radius:50%;padding:0;border:0;background:var(--accent);display:flex;align-items:center;justify-content:center}
+  .round svg{fill:#0E1116}
+  .round.soon,.wait{border-radius:12px;width:auto;height:46px;padding:0 12px;background:transparent;border:1px solid var(--line);color:var(--text);font-size:14px}
+  .evbtn{width:100%;text-align:left;display:block;background:var(--surface);border:0;border-radius:14px;padding:14px;margin-bottom:10px;min-height:56px}
+  .evbtn .ttl{font-size:17px;font-weight:600;margin-top:6px;overflow-wrap:anywhere}
+  .evbtn .sub{font-size:13px;font-weight:400;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
+  .lrow{display:flex;gap:8px;margin-bottom:10px}
+  .lrow .main{flex:1;min-width:0;text-align:left;border:0;padding:14px;border-radius:14px}
+  .lrow .main .ttl{font-size:17px;font-weight:600;overflow-wrap:anywhere}
+  .lrow .main .sub{font-size:13px;font-weight:400;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
+  .lrow .x{flex:none;width:48px;padding:0;color:var(--dim);border-radius:14px}
+  .empty{text-align:center;padding:28px 10px;color:var(--dim)}
+  .empty b{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
+  .section{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin:6px 2px 8px}
+  .err{color:var(--warn);font-size:14px;margin:8px 2px;overflow-wrap:anywhere}
+  .now{display:flex;align-items:center;gap:10px;font-size:17px;font-weight:600;margin-bottom:12px;overflow-wrap:anywhere}
+  .after{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+  .remlabel{display:block;margin-top:12px;font-size:14px;color:var(--dim)}
+  .remlabel select{margin-top:6px}
+  pre{white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45;color:var(--dim);background:var(--bg);border-radius:10px;padding:12px;max-height:40vh;overflow:auto;margin:12px 0}
+  .bottom{margin-top:auto;display:flex;gap:10px}
+  .bottom button{flex:1;padding:12px}
+  .foot{font-size:15px;text-align:center;margin:0}
+  a{color:#7DB8FF}
+  .small{font-size:13px;color:var(--dim);margin:6px 0 0}
   [hidden]{display:none!important}
 </style>
 </head>
 <body>
-<h1>StreamLink</h1>
+<div class="top">
+  <h1>StreamLink</h1>
+  <span id="pill" class="pill off" role="status">TV not reachable</span>
+</div>
 
-<form id="f">
-  <input id="u" type="url" inputmode="url" placeholder="Paste a link" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
-  <button class="primary" type="submit">Play on TV</button>
-  <input id="lname" type="text" maxlength="60" placeholder="Name for a stream list (optional)" autocomplete="off" style="margin-top:10px">
-  <button class="ghost" type="button" id="addlist" style="margin-top:8px">Add as stream list</button>
+<form id="f" class="fl">
+  <label for="u" class="lbl">Paste a link to play on the TV</label>
+  <div class="row">
+    <input id="u" type="url" inputmode="url" placeholder="https://" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button class="primary" type="submit">Play</button>
+  </div>
 </form>
 
-<div id="status" class="status">Connecting to the TV…</div>
+<div id="status" class="status" aria-live="polite">Connecting to the TV…</div>
 
 <section id="updatecard" class="card" hidden>
   <div class="now" style="margin-bottom:10px"><span id="updtext"></span></div>
-  <button type="button" class="primary" id="updbtn" style="margin-top:0">Install update on TV</button>
-  <div id="updhint" class="sub" hidden>Go back to the TV's home screen to install it.</div>
+  <button type="button" class="primary" id="updbtn" style="width:100%">Install update on TV</button>
+  <div id="updhint" class="small" hidden>Go back to the TV's home screen to install it.</div>
 </section>
 
-<section id="remote" class="card" hidden>
-  <div class="now"><span id="title"></span><span id="live" class="badge" hidden>LIVE</span></div>
-  <div class="grid">
-    <button type="button" id="pp" data-c="toggle">Pause</button>
-    <button type="button" id="livebtn" data-c="live">Jump to live</button>
-    <button type="button" data-c="reload">Reconnect</button>
-    <button type="button" data-c="stop">Stop</button>
-  </div>
-  <label id="qwrap" hidden>Quality
-    <select id="quality"></select>
-  </label>
-  <label id="swrap" hidden>Source
-    <select id="source"></select>
-  </label>
-  <div class="after">
-    <button type="button" class="ghost" id="sitebtn" data-c="site">Use the site's own player</button>
-    <button type="button" class="ghost" id="cleanbtn" data-c="clean">Try the clean browser player</button>
-    <button type="button" class="ghost" id="delaybtn">Live delay: Smooth</button>
-    <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
-  </div>
+<div class="tabs" role="tablist">
+  <button type="button" role="tab" id="tab-live" data-tab="live" aria-selected="true">Live now</button>
+  <button type="button" role="tab" id="tab-lists" data-tab="lists" aria-selected="false">Lists</button>
+  <button type="button" role="tab" id="tab-remote" data-tab="remote" aria-selected="false">Remote</button>
+</div>
+
+<section id="pane-live" role="tabpanel">
+  <div id="livebox"></div>
 </section>
 
-<section id="waitcard" class="card" hidden>
-  <div class="now"><span id="wtitle"></span></div>
-  <button type="button" class="ghost" data-c="stop">Stop waiting</button>
-</section>
-
-<section id="lists" class="card" hidden>
+<section id="pane-lists" role="tabpanel" hidden>
   <div id="listsView">
-    <div class="now" style="margin-bottom:0">Stream lists</div>
+    <div class="fl card" style="margin-bottom:12px">
+      <label for="lname" class="lbl">Save the pasted link as a stream list</label>
+      <input id="lname" type="text" maxlength="60" placeholder="Name for a stream list (optional)" autocomplete="off">
+      <button class="ghost" type="button" id="addlist">Add as stream list</button>
+    </div>
+    <div class="section">Stream lists</div>
     <div id="listItems"></div>
+    <div id="listsEmpty" class="empty" hidden><b>No stream lists yet</b>Paste the link of an index page above and tap Add as stream list.</div>
   </div>
   <div id="listDetail" hidden>
     <div class="grid"><button type="button" id="lback">&lsaquo; Back</button><button type="button" id="lrefresh">Refresh</button></div>
-    <div id="lhead" class="status" style="margin:12px 2px 4px"></div>
+    <div id="lhead" class="status" style="margin:12px 2px 8px"></div>
     <div id="lerr" class="err" hidden></div>
     <div id="events"></div>
   </div>
 </section>
 
-<details id="details">
-  <summary>What happened?</summary>
+<section id="pane-remote" role="tabpanel" hidden>
+  <div id="noplayer" class="empty"><b>Nothing is playing</b>Play a link or an event to get the remote.</div>
+  <div id="waitcard" class="card" hidden>
+    <div class="now"><span id="wtitle"></span></div>
+    <button type="button" class="ghost" data-c="stop">Stop waiting</button>
+  </div>
+  <div id="remote" class="card" hidden>
+    <div class="now"><span id="title"></span><span id="live" class="bd live" hidden>LIVE</span></div>
+    <div class="grid">
+      <button type="button" id="pp" data-c="toggle">Pause</button>
+      <button type="button" id="livebtn" data-c="live">Jump to live</button>
+      <button type="button" data-c="reload">Reconnect</button>
+      <button type="button" data-c="stop">Stop</button>
+    </div>
+    <label id="qwrap" class="remlabel" hidden>Quality
+      <select id="quality"></select>
+    </label>
+    <label id="swrap" class="remlabel" hidden>Source
+      <select id="source"></select>
+    </label>
+    <div class="after">
+      <button type="button" class="ghost" id="sitebtn" data-c="site">Use the site's own player</button>
+      <button type="button" class="ghost" id="cleanbtn" data-c="clean">Try the clean browser player</button>
+      <button type="button" class="ghost" id="delaybtn">Live delay: Smooth</button>
+      <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
+    </div>
+  </div>
+  <div class="section" style="margin-top:18px">More</div>
+  <div class="card">
+    <a href="/sample" download style="font-weight:600;font-size:16px;display:inline-block;min-height:44px;line-height:44px">Save sample</a>
+    <p class="small" style="margin:0">Saves the playlist and first video chunks, plus a snapshot of the last list page read, so a developer can see exactly what the site sends. Contains those pages' addresses — only share it with people you trust.</p>
+  </div>
+</section>
+
+<section id="reportbox" class="card" hidden>
+  <div class="section" style="margin-top:0">What happened?</div>
   <pre id="report">Nothing yet.</pre>
   <div class="grid">
     <button type="button" id="refresh">Refresh</button>
     <button type="button" id="copy">Copy report</button>
   </div>
-  <p style="margin:14px 0 4px"><a href="/sample" download style="color:var(--accent);font-weight:600;font-size:17px">Save sample</a></p>
-  <p style="margin:0;font-size:14px;color:var(--dim)">Saves the playlist and first video chunks so a developer can see exactly what the site sends. Contains the stream's address — only share it with people you trust.</p>
-</details>
+  <p style="margin:10px 0 0"><a href="/sample" download style="font-weight:600;display:inline-block;min-height:44px;line-height:44px">Save sample</a></p>
+  <p class="small" style="margin:0">Saves the playlist and first video chunks, plus a snapshot of the last list page read, so a developer can see exactly what the site sends. Contains those pages' addresses — only share it with people you trust.</p>
+</section>
+
+<div class="bottom">
+  <button type="button" id="whatbtn" aria-expanded="false">What happened?</button>
+  <button type="button" id="stopbtn" data-c="stop">Stop</button>
+</div>
 
 <p class="foot"><a href="/shortcut">Add “Play on TV” to your iPhone Share menu →</a></p>
 
@@ -118,6 +179,38 @@
   function $(id){ return document.getElementById(id); }
   function post(path, body){
     return fetch(path, {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:body});
+  }
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text; // never innerHTML: titles come from websites
+    return e;
+  }
+  var NOREACH = 'Could not reach the TV. Is StreamLink open?';
+  function playIcon(){
+    var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    s.setAttribute('width', '18'); s.setAttribute('height', '18'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true');
+    var p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', 'M8 5v14l11-7z');
+    s.appendChild(p); return s;
+  }
+  function badge(it){
+    return el('span', 'bd' + (it.status === 'live' ? ' live' : ''), it.badge || '');
+  }
+
+  // Tabs
+  var tab = 'live';
+  function setTab(t){
+    tab = t;
+    ['live', 'lists', 'remote'].forEach(function(n){
+      $('pane-' + n).hidden = n !== t;
+      $('tab-' + n).setAttribute('aria-selected', n === t ? 'true' : 'false');
+    });
+    if (t === 'live') loadLive();
+    if (t === 'lists') { listsKey = ''; loadLists(); if (openId) loadDetail(); }
+  }
+  var tabBtns = document.querySelectorAll('[data-tab]');
+  for (var ti = 0; ti < tabBtns.length; ti++) {
+    (function(b){ b.onclick = function(){ setTab(b.getAttribute('data-tab')); }; })(tabBtns[ti]);
   }
 
   // Send a link
@@ -131,17 +224,8 @@
         $('status').textContent = t;
         if (r.ok) { $('u').value = ''; $('u').blur(); setTimeout(tick, 300); }
       });
-    }).catch(function(){
-      $('status').textContent = 'Could not reach the TV. Is StreamLink open?';
-    });
+    }).catch(function(){ $('status').textContent = NOREACH; });
   };
-
-  function el(tag, cls, text){
-    var e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined && text !== null) e.textContent = text; // never innerHTML: titles come from websites
-    return e;
-  }
 
   // Add the pasted link as a stream list
   $('addlist').onclick = function(){
@@ -151,10 +235,85 @@
     post('/lists/add', 'url=' + encodeURIComponent(u) + '&name=' + encodeURIComponent($('lname').value.trim())).then(function(r){
       return r.text().then(function(t){
         $('status').textContent = t;
-        if (r.ok) { $('u').value = ''; $('lname').value = ''; $('u').blur(); loadLists(); setTimeout(loadLists, 3000); }
+        if (r.ok) { $('u').value = ''; $('lname').value = ''; $('u').blur(); listsKey = ''; loadLists(); setTimeout(loadLists, 3000); }
       });
-    }).catch(function(){ $('status').textContent = 'Could not reach the TV. Is StreamLink open?'; });
+    }).catch(function(){ $('status').textContent = NOREACH; });
   };
+
+  // Play an event of a list (the TV waits if it has not started yet)
+  function playItem(id, it){
+    var body = 'id=' + encodeURIComponent(id) + '&url=' + encodeURIComponent(it.url);
+    if (typeof it.start === 'number') body += '&start=' + it.start;
+    $('status').textContent = 'Sending…';
+    post('/list/play', body).then(function(r){ return r.text(); }).then(function(t){ $('status').textContent = t; setTimeout(tick, 400); })
+      .catch(function(){ $('status').textContent = NOREACH; });
+    window.scrollTo(0, 0);
+  }
+
+  // Live now: live and soon events of every list
+  var liveSeq = 0, liveKey = null;
+  function renderLive(items, anyLists){
+    var key = JSON.stringify(items.map(function(x){ return [x.id, x.it.url, x.it.status, x.it.badge, x.it.title]; })) + anyLists;
+    if (key === liveKey) return;
+    liveKey = key;
+    var box = $('livebox'); box.textContent = '';
+    if (!items.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('b', null, 'Nothing live right now'));
+      em.appendChild(document.createTextNode(anyLists ? 'Open Lists to see everything that is coming up.' : 'Open Lists to add a stream list.'));
+      box.appendChild(em);
+      return;
+    }
+    items.forEach(function(x){
+      var it = x.it, live = it.status === 'live';
+      var card = el('div', 'ev');
+      var body = el('div', 'body');
+      var meta = el('div', 'meta');
+      meta.appendChild(badge(it)); meta.appendChild(el('span', 'lname', x.name));
+      body.appendChild(meta); body.appendChild(el('div', 'ttl', it.title));
+      card.appendChild(body);
+      var b = el('button');
+      b.type = 'button';
+      if (live) {
+        b.className = 'round'; b.setAttribute('aria-label', 'Play on TV: ' + (it.title || '')); b.appendChild(playIcon());
+      } else {
+        b.className = 'wait'; b.textContent = 'Wait for it'; b.setAttribute('aria-label', 'Wait for it: ' + (it.title || ''));
+      }
+      b.onclick = function(){ playItem(x.id, it); };
+      card.appendChild(b);
+      box.appendChild(card);
+    });
+  }
+  function loadLive(){
+    var seq = ++liveSeq;
+    fetch('/lists', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+      var ls = d.lists || [];
+      return Promise.all(ls.map(function(l){
+        return fetch('/list?id=' + encodeURIComponent(l.id), {cache:'no-store'}).then(function(r){
+          return r.ok ? r.json() : null;
+        }).catch(function(){ return null; });
+      })).then(function(all){
+        if (seq !== liveSeq) return;
+        var items = [];
+        all.forEach(function(ld){
+          if (!ld) return;
+          (ld.items || []).forEach(function(it){
+            if (it.status === 'live' || it.status === 'soon') items.push({id: ld.id, name: ld.name, it: it});
+          });
+        });
+        // live first, then by start time (soonest first); stable otherwise
+        items.forEach(function(x, i){ x.i = i; });
+        items.sort(function(a, b){
+          var la = a.it.status === 'live' ? 0 : 1, lb = b.it.status === 'live' ? 0 : 1;
+          if (la !== lb) return la - lb;
+          var sa = typeof a.it.start === 'number' ? a.it.start : Infinity, sb = typeof b.it.start === 'number' ? b.it.start : Infinity;
+          if (sa !== sb) return sa < sb ? -1 : 1;
+          return a.i - b.i;
+        });
+        renderLive(items, ls.length > 0);
+      });
+    }).catch(function(){});
+  }
 
   // Stream lists
   var openId = null, listsKey = '', detailKey = '';
@@ -165,7 +324,7 @@
   function loadLists(){
     fetch('/lists', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
       var ls = d.lists || [];
-      $('lists').hidden = ls.length === 0 && !openId;
+      $('listsEmpty').hidden = ls.length > 0;
       var key = JSON.stringify(ls);
       if (key === listsKey) return;
       listsKey = key;
@@ -181,7 +340,7 @@
         var x = el('button', 'x', '✕'); x.type = 'button'; x.setAttribute('aria-label', 'Remove ' + l.name);
         x.onclick = function(){
           if (!confirm('Remove the stream list “' + l.name + '”?')) return;
-          post('/lists/remove', 'id=' + encodeURIComponent(l.id)).then(function(){ listsKey = ''; loadLists(); });
+          post('/lists/remove', 'id=' + encodeURIComponent(l.id)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
         };
         row.appendChild(b); row.appendChild(x); box.appendChild(row);
       });
@@ -202,21 +361,19 @@
       $('lhead').textContent = d.name + ' · ' + (d.readAt ? 'updated ' + d.ago : 'not read yet');
       $('lerr').hidden = !d.error; $('lerr').textContent = d.error || '';
       var box = $('events'); box.textContent = '';
-      if (!d.items.length) box.appendChild(el('div', 'status', d.readAt ? 'No upcoming events found.' : 'Not read yet. Tap Refresh.'));
+      if (!d.items.length) {
+        var em = el('div', 'empty');
+        em.appendChild(el('b', null, d.readAt ? 'No upcoming events found.' : 'Not read yet'));
+        if (!d.readAt) em.appendChild(document.createTextNode('Tap Refresh.'));
+        box.appendChild(em);
+      }
       d.items.forEach(function(it){
-        var b = el('button', 'ev'); b.type = 'button';
-        b.appendChild(el('span', 'bd ' + (/^[a-z]+$/.test(it.status) ? it.status : ''), it.badge));
+        var b = el('button', 'evbtn'); b.type = 'button';
+        b.appendChild(badge(it));
         b.appendChild(el('div', 'ttl', it.title));
         var meta = [it.subtitle, it.section].filter(function(x){ return x; }).join(' · ');
         if (meta) b.appendChild(el('div', 'sub', meta));
-        b.onclick = function(){
-          var body = 'id=' + encodeURIComponent(id) + '&url=' + encodeURIComponent(it.url);
-          if (typeof it.start === 'number') body += '&start=' + it.start;
-          $('status').textContent = 'Sending…';
-          post('/list/play', body).then(function(r){ return r.text(); }).then(function(t){ $('status').textContent = t; setTimeout(tick, 400); })
-            .catch(function(){ $('status').textContent = 'Could not reach the TV. Is StreamLink open?'; });
-          window.scrollTo(0, 0);
-        };
+        b.onclick = function(){ playItem(id, it); };
         box.appendChild(b);
       });
     }).catch(function(){});
@@ -229,6 +386,7 @@
   };
   var beats = 0;
   function listsTick(){
+    if (tab !== 'lists' || document.visibilityState === 'hidden') return;
     beats++;
     if (openId) { if (beats % 2 === 0 || $('lrefresh').disabled) loadDetail(); }
     else if (beats % 3 === 0) loadLists();
@@ -244,7 +402,7 @@
   $('updbtn').onclick = function(){
     $('status').textContent = 'Asking the TV to install the update…';
     post('/cmd', 'c=update').then(function(){ setTimeout(tick, 400); })
-      .catch(function(){ $('status').textContent = 'Could not reach the TV. Is StreamLink open?'; });
+      .catch(function(){ $('status').textContent = NOREACH; });
   };
   var smoothOn = true;
   $('delaybtn').onclick = function(){
@@ -264,7 +422,7 @@
     if (sel.getAttribute('data-k') === key) return;
     if (document.activeElement === sel) return;
     sel.setAttribute('data-k', key);
-    sel.innerHTML = '';
+    sel.textContent = '';
     if (withAuto) {
       var a = document.createElement('option'); a.value = '-1'; a.textContent = 'Auto'; sel.appendChild(a);
     }
@@ -274,10 +432,15 @@
     sel.value = String(current);
   }
 
+  function pill(ok){
+    $('pill').textContent = ok ? 'TV connected' : 'TV not reachable';
+    $('pill').className = 'pill' + (ok ? '' : ' off');
+  }
   var failures = 0;
   function tick(){
     fetch('/state', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
       failures = 0;
+      pill(true);
       $('status').textContent = s.status || '';
       var up = s.update;
       $('updatecard').hidden = !up;
@@ -293,6 +456,7 @@
       $('wtitle').textContent = s.title || '';
       var clean = s.mode === 'clean', player = s.mode === 'player' || clean, site = s.mode === 'site';
       $('remote').hidden = !(player || site);
+      $('noplayer').hidden = waiting || player || site;
       if (!(player || site)) return;
       $('title').textContent = s.title || '';
       $('live').hidden = !(player && s.live);
@@ -315,7 +479,7 @@
       }
     }).catch(function(){
       failures++;
-      if (failures >= 2) $('status').textContent = 'Lost connection to the TV.';
+      if (failures >= 2) { pill(false); $('status').textContent = 'Lost connection to the TV.'; }
     });
   }
 
@@ -326,7 +490,12 @@
       $('report').textContent = t || 'Nothing yet.';
     }).catch(function(){ $('report').textContent = 'Could not reach the TV.'; });
   }
-  $('details').addEventListener('toggle', function(){ if (this.open) loadReport(); });
+  $('whatbtn').onclick = function(){
+    var open = $('reportbox').hidden;
+    $('reportbox').hidden = !open;
+    $('whatbtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) { loadReport(); $('reportbox').scrollIntoView({block: 'nearest'}); }
+  };
   $('refresh').onclick = loadReport;
   $('copy').onclick = function(){
     var t = $('report').textContent;
@@ -353,9 +522,11 @@
   };
 
   tick();
-  loadLists();
+  loadLive();
   setInterval(tick, 1500);
   setInterval(listsTick, 1500);
+  setInterval(function(){ if (tab === 'live' && document.visibilityState !== 'hidden') loadLive(); }, 30000);
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && tab === 'live') loadLive(); });
 })();
 </script>
 </body>
