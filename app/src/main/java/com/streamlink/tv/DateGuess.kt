@@ -34,6 +34,14 @@ object DateGuess {
     private val REL_DAY = Regex("""\b(today|tonight|tomorrow|yesterday)\b""", OPT)
     private val WEEKDAY = Regex("""\b($DAYS)\b\.?""", OPT)
 
+    // zone labels: a token right after the time ("12:00 PM ET", "8:30 PM PT Sat") or at the end of the text
+    private const val ZONE_WORDS = "(?:UTC|GMT|ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|PT|PST|PDT|Z|Eastern|Central|Mountain|Pacific)(?:\\s+Time)?"
+    private const val OFFSET_LABEL = "(?:UTC|GMT)\\s*[+-]\\d{1,2}(?::?\\d{2})?"
+    private val ZONE_AFTER_TIME = Regex("""^\s*(${OFFSET_LABEL}|[+-]\d{2}:\d{2}|$ZONE_WORDS)(?![A-Za-z])""", OPT)
+    private val ZONE_AT_END = Regex("""(?<![A-Za-z])($OFFSET_LABEL|$ZONE_WORDS)\s*$""", OPT)
+    private val OFFSET_VALUE = Regex("""([+-])(\d{1,2})(?::?(\d{2}))?""")
+    private val NOON_MIDNIGHT = Regex("""\b(?:noon|midnight)\b""", OPT)
+
     /**
      * @param timeText date/time text as shown (may be empty)
      * @param section heading above the row, used for the date when [timeText] has none
@@ -76,6 +84,9 @@ object DateGuess {
         // time text with the time cut out, so its digits cannot be mistaken for a date
         val dateSources = listOf(timeTextRaw, datetime, sectionRaw).map { stripTimes(it) }
 
+        // zone label written next to the time (e.g. "12:00 PM ET"): the date and time are read in that zone
+        val zone2 = zoneLabel(timeTextRaw) ?: zoneLabel(sectionRaw) ?: zone
+
         // 4. the date
         var date: LocalDate? = null
         var weekdayOnly: DayOfWeek? = null
@@ -94,11 +105,55 @@ object DateGuess {
         if (date == null && weekdayOnly != null) {
             var d = today.plusDays(((weekdayOnly.value - today.dayOfWeek.value + 7) % 7).toLong())
             // the same weekday earlier today but long over means next week
-            if (d == today && ZonedDateTime.of(d, time, zone).toInstant().toEpochMilli() < nowMillis - 4 * 3_600_000L) d = d.plusDays(7)
+            if (d == today && ZonedDateTime.of(d, time, zone2).toInstant().toEpochMilli() < nowMillis - 4 * 3_600_000L) d = d.plusDays(7)
             date = d
         }
         if (date == null) return null
-        return ZonedDateTime.of(date, time, zone).toInstant().toEpochMilli()
+        return ZonedDateTime.of(date, time, zone2).toInstant().toEpochMilli()
+    }
+
+    /** Zone named by a label in [text] (see ZONE_AFTER_TIME / ZONE_AT_END), or null. */
+    private fun zoneLabel(text: String): ZoneId? {
+        if (text.isBlank()) return null
+        timeEnd(text)?.let { end ->
+            ZONE_AFTER_TIME.find(text.substring(end))?.let { return zoneOfLabel(it.groupValues[1]) }
+        }
+        ZONE_AT_END.find(text.trimEnd())?.let { return zoneOfLabel(it.groupValues[1]) }
+        return null
+    }
+
+    /** Index just past the time of day in [text], in the same order timeOf() looks for it. */
+    private fun timeEnd(text: String): Int? {
+        TIME12.find(text)?.let { return it.range.last + 1 }
+        TIME24.find(text)?.let { return it.range.last + 1 }
+        NOON_MIDNIGHT.find(text)?.let { return it.range.last + 1 }
+        return null
+    }
+
+    private fun zoneOfLabel(label: String): ZoneId? {
+        val s = label.uppercase().replace(Regex("""\s+"""), "").removeSuffix("TIME")
+        if (s.startsWith("UTC") || s.startsWith("GMT")) {
+            val rest = s.drop(3)
+            return if (rest.isEmpty()) ZoneId.of("UTC") else offsetLabel(rest)
+        }
+        if (s.startsWith("+") || s.startsWith("-")) return offsetLabel(s)
+        return when (s) {
+            "ET", "EST", "EDT", "EASTERN" -> ZoneId.of("America/New_York")
+            "CT", "CST", "CDT", "CENTRAL" -> ZoneId.of("America/Chicago")
+            "MT", "MST", "MDT", "MOUNTAIN" -> ZoneId.of("America/Denver")
+            "PT", "PST", "PDT", "PACIFIC" -> ZoneId.of("America/Los_Angeles")
+            "Z" -> ZoneId.of("UTC")
+            else -> null
+        }
+    }
+
+    /** "+2", "-5", "+02:00", "-0530" -> fixed offset zone, or null if out of range. */
+    private fun offsetLabel(s: String): ZoneId? {
+        val m = OFFSET_VALUE.matchEntire(s) ?: return null
+        val sign = if (m.groupValues[1] == "-") -1 else 1
+        val h = m.groupValues[2].toInt()
+        val mi = m.groupValues[3].ifEmpty { "0" }.toInt()
+        return runCatching { java.time.ZoneOffset.ofTotalSeconds(sign * (h * 3600 + mi * 60)) }.getOrNull()
     }
 
     private fun parseOffset(s: String): java.time.ZoneOffset {

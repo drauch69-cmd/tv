@@ -59,11 +59,12 @@ object HomeFeed {
         return java.text.SimpleDateFormat("h:mm a", locale).apply { timeZone = zone }.format(java.util.Date(s))
     }
 
-    /** Bottom line of a card: "Started 25 min ago" / "Starts in 12 min" / "Today 7:30 PM" / "Live". */
+    /** Bottom line of a card: "Started 25 min ago" / "Always on" (started over 24 h ago) / "Starts in 12 min" / "Today 7:30 PM" / "Live". */
     fun whenLine(item: ListItem, now: Long, zone: java.util.TimeZone, locale: java.util.Locale): String {
         val s = item.startMillis ?: return if (item.liveHint) "Live" else ""
         val d = s - now
         return when {
+            d <= 0 && ListStatus.isAlwaysOn(s, now) -> "Always on"
             d <= 0 -> "Started ${ListText.duration(-d)} ago"
             d < 60 * 60 * 1000L -> "Starts in ${ListText.duration(d)}"
             else -> ListText.whenText(s, now, zone, locale)

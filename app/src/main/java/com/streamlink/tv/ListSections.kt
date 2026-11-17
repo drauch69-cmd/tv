@@ -41,6 +41,7 @@ object ListSections {
         val st = item.startMillis
         val whenPart = when {
             st == null -> item.timeText.trim().takeIf { it.isNotEmpty() }
+            ListStatus.of(item, now) == ListStatus.LIVE && st <= now && ListStatus.isAlwaysOn(st, now) -> "Always on"
             ListStatus.of(item, now) == ListStatus.LIVE && st <= now -> startedAgo(st, now)
             ListStatus.of(item, now) == ListStatus.FINISHED -> ListText.whenText(st, now, zone, locale)
             else -> ListText.whenText(st, now, zone, locale)

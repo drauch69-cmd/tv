@@ -1,6 +1,7 @@
 package com.streamlink.tv
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -127,5 +128,15 @@ class ListModelTest {
         assertNull(r.items[0].imageUrl)
         val rec = IndexReader.parseExtraction(json.replace("\"automatic\"", "\"recipe\""), "x", "ex.com", nowMs, zone) { false }
         assertEquals("recipe:ex.com", rec.result.method)
+    }
+
+    @Test fun alwaysOnRules() {
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", now - 3 * hour), now))
+        assertEquals(ListStatus.FINISHED, ListStatus.of(item("a", now - 10 * hour), now))
+        assertEquals(ListStatus.FINISHED, ListStatus.of(item("a", now - 24 * hour), now)) // exactly 24 h: still finished
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", now - 24 * hour - 1), now))
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", now - 3 * 24 * hour), now)) // a channel
+        assertTrue(ListStatus.isAlwaysOn(now - 3 * 24 * hour, now))
+        assertFalse(ListStatus.isAlwaysOn(now - 10 * hour, now))
     }
 }

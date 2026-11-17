@@ -30,9 +30,15 @@ object ListStatus {
 
     private const val LIVE_WINDOW_MS = 4 * 60 * 60 * 1000L
     private const val SOON_MS = 30 * 60 * 1000L
+    const val ALWAYS_ON_MS = 24 * 60 * 60 * 1000L
 
-    /** live: liveHint, or started and less than 4h ago; soon: starts within 30 min; upcoming: later;
-     *  finished: started more than 4h ago; unknown: no time and no liveHint. */
+    /** A start more than 24 h ago means a channel, not a one-time event: "always on". */
+    fun isAlwaysOn(start: Long, nowMillis: Long): Boolean = nowMillis - start > ALWAYS_ON_MS
+
+    /** live: liveHint, started less than 4h ago, or started more than 24h ago (always on); soon: starts
+     *  within 30 min; upcoming: later; finished: started 4h..24h ago; unknown: no time and no liveHint.
+     *  Index pages drop real one-time events once they are over, so an entry still listed a day or more
+     *  after its start is treated as a channel. */
     fun of(item: ListItem, nowMillis: Long): String {
         if (item.liveHint) return LIVE
         val start = item.startMillis ?: return UNKNOWN
@@ -41,6 +47,7 @@ object ListStatus {
             delta > SOON_MS -> UPCOMING
             delta > 0 -> SOON
             -delta < LIVE_WINDOW_MS -> LIVE
+            -delta > ALWAYS_ON_MS -> LIVE
             else -> FINISHED
         }
     }

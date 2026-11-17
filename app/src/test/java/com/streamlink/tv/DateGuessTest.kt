@@ -96,4 +96,43 @@ class DateGuessTest {
         assertNull(g("25:99"))
         assertNull(g("Starts soon"))
     }
+
+    private fun utcInstant(s: String): Long = Instant.parse(s).toEpochMilli()
+
+    @Test fun writtenZoneLabelsAreUsed() {
+        // TV is in Chicago: 12:00 PM Eastern is 11:00 Central, 17:00 UTC in November, 16:00 UTC in June
+        assertEquals(utcInstant("2026-11-19T17:00:00Z"), g("Nov 19, 12:00 PM ET"))
+        assertEquals(utcInstant("2026-06-19T16:00:00Z"), g("Jun 19, 12:00 PM ET"))
+        assertEquals(utcInstant("2026-09-10T16:00:00Z"), g("Thursday, September 10, 2026 - 12:00 PM ET"))
+        assertEquals(utcInstant("2026-11-20T04:30:00Z"), g("Nov 19, 8:30 PM PT")) // Pacific is UTC-8 in November
+        assertEquals(utcInstant("2026-11-19T17:00:00Z"), g("Nov 19, 12:00 PM Eastern Time"))
+        assertEquals(utcInstant("2026-11-19T12:00:00Z"), g("Nov 19, 12:00 PM GMT"))
+        assertEquals(utcInstant("2026-11-19T12:00:00Z"), g("Nov 19, 12:00 PM UTC"))
+        assertEquals(utcInstant("2026-11-19T17:00:00Z"), g("Nov 19 at 17:00Z"))
+    }
+
+    @Test fun zoneLabelInSectionAndRelativeDays() {
+        // "tomorrow" is tomorrow in the TV's zone (Nov 18 here), the time is then read in Eastern
+        assertEquals(utcInstant("2026-11-18T18:00:00Z"), g("Tomorrow 1 PM ET"))
+        assertEquals(utcInstant("2026-11-19T17:00:00Z"), g("12:00 PM ET", "Thursday, November 19, 2026"))
+    }
+
+    @Test fun numericOffsets() {
+        assertEquals(utcInstant("2026-11-19T10:00:00Z"), g("Nov 19, 12:00 PM UTC+2"))
+        assertEquals(utcInstant("2026-11-19T10:00:00Z"), g("Nov 19, 12:00 PM +02:00"))
+        assertEquals(utcInstant("2026-11-19T16:00:00Z"), g("Nov 19, 11:00 AM GMT-5"))
+    }
+
+    @Test fun timeWithoutLabelIsUnchanged() {
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19, 12:00 PM"))
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19 12:00 PM", "Thursday, November 19, 2026"))
+    }
+
+    @Test fun wordsAreNotZoneLabels() {
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19, 12:00 PM SET"))
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19, 12:00 PM META"))
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19, 12:00 PM ETA"))
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19, 12:00 PM PTO"))
+        assertEquals(at(2026, 11, 19, 12), g("Nov 19 12:00 PM", "Meta Live Set"))
+    }
 }

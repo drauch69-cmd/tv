@@ -59,4 +59,11 @@ class HomeFeedTest {
         assertEquals("IN 12 MIN", HomeFeed.badge(item("a", now + 12 * min - 1000), ListStatus.SOON, now, z, Locale.US))
         assertEquals("", HomeFeed.badge(item("a", null), ListStatus.UNKNOWN, now, z, Locale.US))
     }
+
+    @Test fun whenLineAlwaysOn() {
+        val z = TimeZone.getTimeZone("UTC")
+        assertEquals("Started 3 h ago", HomeFeed.whenLine(item("a", now - 3 * hour), now, z, Locale.US))
+        assertEquals("Always on", HomeFeed.whenLine(item("a", now - 1234 * hour), now, z, Locale.US))
+        assertEquals("Always on", HomeFeed.whenLine(item("a", now - 25 * hour), now, z, Locale.US))
+    }
 }
