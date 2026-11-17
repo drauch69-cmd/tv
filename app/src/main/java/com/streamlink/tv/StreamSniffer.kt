@@ -28,7 +28,15 @@ data class Source(
 data class StreamSet(val pageUrl: String, val sources: List<Source>)
 
 /** A stream the page requested, before it has been checked. */
-data class StreamCandidate(val url: String, val headers: Map<String, String>, val referers: List<String>)
+data class StreamCandidate(
+    val url: String,
+    val headers: Map<String, String>,
+    val referers: List<String>,
+    /** Text of the page's alternate-link button that produced this stream (display only), or "". */
+    val linkLabel: String = "",
+    /** Found on the link the page showed by default (before any other link was clicked). */
+    val isDefault: Boolean = true,
+)
 
 /**
  * Loads a page in a hidden WebView (with popups, off-site redirects and ad networks blocked),
@@ -61,6 +69,21 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var timeoutMs = TIMEOUT_MS
     private var siteHost = ""
 
+    // Alternate stream links ("Link 1 / Link 2 ..." buttons next to the player), see assets/source-switch.js.
+    private var linkState = 0 // 0 = not looked yet, 1 = looking for the row, 2 = trying the links, 3 = done
+    private var switcher: Switcher? = null
+    private val linkTried = HashSet<Int>()
+    private var linkCurrent = -1
+    private var linkBefore = 0
+    private var linkClickedAt = 0L
+    private var linkNewAt = 0L
+    private var linkDeadline = 0L
+    private var linkLoadedSinceClick = false
+    private var linkTapped = false
+    private var linkGot = 0
+    private var curLabel = ""
+    private var curDefault = true
+
     private val timeout = Runnable {
         if (done || verifying) return@Runnable
         if (candidates.isEmpty()) {
@@ -70,7 +93,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             verifyAndFinish()
         }
     }
-    private val collect = Runnable { verifyAndFinish() }
+    /** The first stream was seen and had a moment to be joined by its siblings: look for alternate links, then check. */
+    private val collect = Runnable { beginLinks() }
+    private val linkTick = object : Runnable {
+        override fun run() { linkStep() }
+    }
     private val settle = object : Runnable {
         override fun run() {
             if (done || verifying || clickPhase != 1) return
@@ -119,6 +146,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         clickSig = null
         clickUnchanged = 0
         siteHost = Report.host(target)
+        resetLinks()
         val base = if (SiteMemory.shouldShorten(context, siteHost)) {
             Report.log("The stream wasn't found on this site the last ${SiteMemory.fails(context, siteHost)} times; looking for ${SiteMemory.SHORT_TIMEOUT_MS / 1000} s only")
             SiteMemory.SHORT_TIMEOUT_MS
@@ -147,6 +175,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
+        main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         destroyWebView()
@@ -197,9 +226,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             .filter { it.startsWith("http") }
             .distinct()
             .take(5) + ""
-        candidates[url] = StreamCandidate(url, headers, referers)
+        candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault)
         Report.log("Found stream: ${Report.short(url)}")
-        if (candidates.size == 1) main.postDelayed(collect, COLLECT_MS)
+        if (candidates.size == 1 && linkState == 0) main.postDelayed(collect, COLLECT_MS)
         if (candidates.size >= MAX_CANDIDATES) verifyAndFinish()
     }
 
@@ -209,6 +238,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
+        main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         val list = candidates.values.toList()
@@ -220,7 +250,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 Verifier.rank(list)
             } catch (e: Exception) {
                 Report.log("Checking failed: ${e.javaClass.simpleName}")
-                list.map { Source(it.url, it.headers, it.referers, Report.host(it.url) + " · unchecked") }
+                list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true)) }
             }
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile
@@ -262,6 +292,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
 
             override fun onLoaded() {
+                if (linkState == 2) linkLoadedSinceClick = true
                 if (clickRef != null && clickPhase == 0) {
                     // list page of a click-only event: let it settle, then click the row (nudging first could tap another row)
                     clickPhase = 1
@@ -371,6 +402,143 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var playerX = -1f
     private var playerY = -1f
 
+    private fun resetLinks() {
+        main.removeCallbacks(linkTick)
+        linkState = 0
+        switcher = null
+        linkTried.clear()
+        linkCurrent = -1
+        linkGot = 0
+        curLabel = ""
+        curDefault = true
+    }
+
+    /** First stream seen: look for a row of alternate links next to the player; none (or not usable) means check what we have. */
+    private fun beginLinks() {
+        if (done || verifying) return
+        val wv = webView
+        if (linkState != 0 || wv == null) { verifyAndFinish(); return }
+        val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { verifyAndFinish(); return }
+        linkState = 1
+        val gen = generation
+        wv.evaluateJavascript("($script)('find')") { raw ->
+            if (done || verifying || gen != generation) return@evaluateJavascript
+            val sw = LinkOrder.parseFind(raw)
+            if (sw == null) { linkState = 3; verifyAndFinish(); return@evaluateJavascript }
+            startLinks(sw)
+        }
+    }
+
+    private fun startLinks(sw: Switcher) {
+        switcher = sw
+        linkState = 2
+        Report.log("Found ${sw.count} stream links on the page")
+        if (sw.active >= 0) {
+            linkTried.add(sw.active)
+            val activeLabel = sw.labels[sw.active]
+            for ((u, c) in candidates.entries.toList()) if (c.isDefault && c.linkLabel.isEmpty()) candidates[u] = c.copy(linkLabel = activeLabel)
+        }
+        linkDeadline = SystemClock.uptimeMillis() + LINK_TOTAL_MS
+        // The link phase brings its own time; this only guards against it hanging.
+        main.removeCallbacks(timeout)
+        main.postDelayed(timeout, LINK_TOTAL_MS + 3_000)
+        nextLink()
+    }
+
+    private fun nextLink() {
+        if (done || verifying || linkState != 2) return
+        val sw = switcher
+        val wv = webView
+        val idx = if (sw == null) null else LinkOrder.nextToTry(sw.count, linkTried)
+        if (sw == null || wv == null || idx == null || SystemClock.uptimeMillis() > linkDeadline - LINK_MIN_LEFT_MS) {
+            endLinks()
+            return
+        }
+        val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { endLinks(); return }
+        linkTried.add(idx)
+        linkCurrent = idx
+        curLabel = sw.labels[idx]
+        curDefault = false
+        linkBefore = candidates.size
+        linkNewAt = 0L
+        linkLoadedSinceClick = false
+        linkTapped = false
+        linkClickedAt = SystemClock.uptimeMillis()
+        val gen = generation
+        wv.evaluateJavascript("($script)('click $idx')") { raw ->
+            if (done || verifying || gen != generation || linkState != 2) return@evaluateJavascript
+            val ok = try {
+                val first = MiniJson.parse(raw ?: "null")
+                ((if (first is String) MiniJson.parse(first) else first) as? Map<*, *>)?.get("ok") == true
+            } catch (_: Exception) { false }
+            if (!ok) {
+                Report.log("Could not click link ${idx + 1}")
+                main.post { nextLink() }
+            } else {
+                main.postDelayed(linkTick, LINK_TICK_MS)
+            }
+        }
+    }
+
+    /** Every 300 ms while a clicked link is given its chance to start a stream. */
+    private fun linkStep() {
+        if (done || verifying || linkState != 2) return
+        val now = SystemClock.uptimeMillis()
+        val got = candidates.size > linkBefore
+        if (got && linkNewAt == 0L) linkNewAt = now
+        val finished = (got && now - linkNewAt >= LINK_GRACE_MS) || now - linkClickedAt >= LINK_WAIT_MS || now >= linkDeadline
+        if (!finished) {
+            if (!got && !linkTapped && !linkLoadedSinceClick && now - linkClickedAt >= LINK_TAP_AFTER_MS) {
+                linkTapped = true
+                tapLink(linkCurrent)
+            }
+            main.postDelayed(linkTick, LINK_TICK_MS)
+            return
+        }
+        if (got) linkGot++
+        Report.log("Link ${linkCurrent + 1} (${curLabel.ifEmpty { "no label" }}): " + if (got) "stream found" else "no new stream")
+        if (linkLoadedSinceClick) refindAfterLoad() else nextLink()
+    }
+
+    /** The click opened another page of the site: find the row again on it (same number of links) and go on. */
+    private fun refindAfterLoad() {
+        val wv = webView
+        val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { null }
+        if (wv == null || script == null) { endLinks(); return }
+        val gen = generation
+        wv.evaluateJavascript("($script)('find')") { raw ->
+            if (done || verifying || gen != generation || linkState != 2) return@evaluateJavascript
+            val sw = LinkOrder.parseFind(raw)
+            if (sw == null || sw.count != switcher?.count) {
+                Report.log("The links changed after opening another page; stopping there")
+                endLinks()
+            } else {
+                switcher = sw
+                nextLink()
+            }
+        }
+    }
+
+    private fun tapLink(i: Int) {
+        val wv = webView ?: return
+        val sw = switcher ?: return
+        if (i !in 0 until sw.count || sw.iw <= 0f || wv.width <= 0) return
+        val scale = wv.width / sw.iw
+        val x = sw.xs[i] * scale
+        val y = sw.ys[i] * scale
+        if (x <= 0f || y <= 0f || y >= wv.height) return
+        Report.log("The click did not start anything; tapping link ${i + 1}")
+        tap(wv, x, y)
+    }
+
+    private fun endLinks() {
+        linkState = 3
+        main.removeCallbacks(linkTick)
+        val n = (switcher?.count ?: 1) - 1
+        Report.log("Tried the other links: $linkGot of $n gave a stream")
+        verifyAndFinish()
+    }
+
     private fun tap(view: WebView, x: Float, y: Float) {
         val t = SystemClock.uptimeMillis()
         val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0)
@@ -405,7 +573,14 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         /** After the first stream is seen, how long to wait for more before checking them. */
         private const val COLLECT_MS = 1_200L
         private const val FIRST_NUDGE_MS = 1_500L
-        private const val MAX_CANDIDATES = 8
+        private const val MAX_CANDIDATES = 12
+        /** Alternate links: the most time they may add in total, how long to wait for each, and the pause after a new stream appears. */
+        const val LINK_TOTAL_MS = 25_000L
+        private const val LINK_WAIT_MS = 7_000L
+        private const val LINK_GRACE_MS = 900L
+        private const val LINK_TAP_AFTER_MS = 3_500L
+        private const val LINK_TICK_MS = 300L
+        private const val LINK_MIN_LEFT_MS = 2_500L
 
         fun isStreamUrl(url: String): Boolean {
             val u = url.lowercase()

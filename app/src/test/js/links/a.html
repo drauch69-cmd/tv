@@ -1,0 +1,20 @@
+<!doctype html><html><head><style>
+body{margin:0;font-family:sans-serif;background:#111;color:#eee}
+header{height:50px;background:#222}
+main{width:900px;margin:20px auto}
+.row{display:flex;gap:8px;margin:10px 0}
+.row button{height:36px;padding:0 14px;border:0;border-radius:4px;background:#333;color:#ddd;cursor:pointer}
+.row button.cur{background:#e50;color:#fff}
+iframe{width:900px;height:500px;border:0;background:#000}
+</style></head><body>
+<header><nav><a href="/x">Home</a></nav></header>
+<main>
+<div class="row" id="row">
+ <button class="sw">Alpha-1 X</button><button class="sw cur">Alpha-2 X</button><button class="sw">Alpha-3 X</button><button class="sw">Alpha-4 X</button>
+</div>
+<iframe id="p" src="frame1.html"></iframe>
+</main>
+<script>
+var bs=document.querySelectorAll('.sw');
+bs.forEach(function(b,i){b.onclick=function(){bs.forEach(function(x){x.classList.remove('cur')});b.classList.add('cur');document.getElementById('p').src='frame'+(i+1)+'.html';};});
+</script></body></html>

@@ -62,7 +62,7 @@ object Verifier {
     fun rank(cands: List<StreamCandidate>): List<Source> {
         // Check all candidates at once, with a hard overall time limit, so a slow site can't keep
         // the TV on "Finding the video…" for minutes.
-        val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 8))
+        val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 12))
         val futures = try {
             pool.invokeAll(cands.map { c -> Callable { check(c) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
         } finally {
@@ -93,17 +93,21 @@ object Verifier {
 
         if (list.any { it.ok && !it.adLike }) list = list.filter { !it.adLike }
 
-        return list.sortedByDescending { it.score }.take(6).map { c ->
+        // Best first; but the stream of the page's own (default) link stays first when it works.
+        val ranked = LinkOrder.defaultFirst(list.sortedByDescending { it.score }) { it.cand.isDefault && it.ok && !it.adLike }.take(8)
+        val labels = LinkOrder.uniqueLabels(ranked.map { c ->
             val kind = when {
                 c.dash -> "DASH"
                 c.master -> "adaptive"
                 else -> "single quality"
             }
-            val label = Report.host(c.cand.url) + " · " + kind + (if (c.ok) "" else " · didn't respond")
+            LinkOrder.sourceLabel(c.cand.linkLabel, Report.host(c.cand.url), kind, c.ok)
+        })
+        return ranked.mapIndexed { i, c ->
             val refs = if (c.workingReferer != null) {
                 listOf(c.workingReferer) + c.cand.referers.filter { it != c.workingReferer }
             } else c.cand.referers
-            Source(c.cand.url, c.cand.headers, refs, label)
+            Source(c.cand.url, c.cand.headers, refs, labels[i])
         }
     }
 
