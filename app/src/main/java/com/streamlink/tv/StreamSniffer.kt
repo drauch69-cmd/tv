@@ -138,6 +138,40 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private val linkTick = object : Runnable {
         override fun run() { linkStep() }
     }
+    private var linkPlayerTapLogged = false
+    /**
+     * While a clicked link is waited for: refresh the player's box (NUDGE_JS) and tap its middle, every
+     * [LINK_PLAYER_TAP_MS]. Stops by itself once the link phase is no longer waiting (linkState != 2); the
+     * callers also remove it on every step change.
+     */
+    private val linkPlayerTap: Runnable = object : Runnable {
+        override fun run() {
+            val wv = webView ?: return
+            if (done || verifying || linkState != 2) return
+            val gen = generation
+            wv.evaluateJavascript(NUDGE_JS) { raw ->
+                if (done || verifying || gen != generation || linkState != 2) return@evaluateJavascript
+                try {
+                    val s = JSONTokener(raw ?: "null").nextValue() as? String
+                    if (s != null) {
+                        val o = org.json.JSONObject(s)
+                        val iw = o.optDouble("iw", 0.0)
+                        if (iw > 0 && o.has("px") && wv.width > 0) {
+                            val scale = wv.width / iw.toFloat()
+                            playerX = (o.optDouble("px") * scale).toFloat()
+                            playerY = (o.optDouble("py") * scale).toFloat()
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+                if (!linkPlayerTapLogged) { linkPlayerTapLogged = true; linkLog("tapping the new player to start it") }
+                val x = if (playerX > 0) playerX else wv.width / 2f
+                val y = if (playerY > 0) playerY else wv.height / 2f
+                if (wv.width > 0 && wv.height > 0) tap(wv, x, y)
+            }
+            main.postDelayed(this, LINK_PLAYER_TAP_MS)
+        }
+    }
     private val settle = object : Runnable {
         override fun run() {
             if (done || verifying || clickPhase != 1) return
@@ -224,6 +258,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
         main.removeCallbacks(linkTick)
+        main.removeCallbacks(linkPlayerTap)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         destroyWebView()
@@ -323,7 +358,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             try {
                 // The hidden loader must stay silent: tells the overlay remover not to unmute on a click.
                 WebViewCompat.addDocumentStartJavaScript(wv, SILENT_JS, setOf("*"))
-                if (linksMode) WebViewCompat.addDocumentStartJavaScript(wv, LINKS_JS, setOf("*"))
                 WebViewCompat.addDocumentStartJavaScript(wv, SitePlayerActivity.OVERLAY_JS, setOf("*"))
                 WebViewCompat.addDocumentStartJavaScript(wv, loadAsset(context, "player-start.js"), setOf("*"))
             } catch (e: Exception) {
@@ -471,6 +505,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private fun resetLinks() {
         main.removeCallbacks(linkTick)
+        main.removeCallbacks(linkPlayerTap)
         linkState = 0
         switcher = null
         linkTried.clear()
@@ -549,12 +584,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         linkDeadline = SystemClock.uptimeMillis() + LINK_TOTAL_MS
         // The link phase brings its own time; this only guards against it hanging.
         main.removeCallbacks(timeout)
-        main.postDelayed(timeout, LINK_TOTAL_MS + 3_000)
+        main.postDelayed(timeout, LINK_TOTAL_MS + 3_000)  // backstop: 3 s over the link-phase cap
         nextLink()
     }
 
     private fun nextLink() {
         if (done || verifying || linkState != 2) return
+        main.removeCallbacks(linkPlayerTap) // the previous link's player taps stop here
         val sw = switcher
         val wv = webView
         val idx = if (sw == null) null else LinkOrder.nextToTry(sw.count, linkTried)
@@ -578,6 +614,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         linkPlaylists.set(0)
         linkKnown.set(0)
         linkTapDone = false
+        linkPlayerTapLogged = false
         linkClickedAt = SystemClock.uptimeMillis()
         val gen = generation
         wv.evaluateJavascript("($script)('click $idx')") { raw ->
@@ -591,6 +628,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 main.post { nextLink() }
             } else {
                 main.postDelayed(linkTick, LINK_TICK_MS)
+                main.post(linkPlayerTap) // the player is tapped right after the click, then every LINK_PLAYER_TAP_MS
             }
         }
     }
@@ -610,6 +648,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             main.postDelayed(linkTick, LINK_TICK_MS)
             return
         }
+        main.removeCallbacks(linkPlayerTap)
         if (got) linkGot++
         val frame = if (linkFrames.get() > 0) "yes (${linkFrameHost.ifEmpty { "?" }})" else "no"
         linkLog("Link ${linkCurrent + 1} (${curLabel.ifEmpty { "no label" }}): " + (if (got) "stream found" else "no new stream") +
@@ -653,7 +692,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun endLinks() {
         linkState = 3
         main.removeCallbacks(linkTick)
-        val n = (switcher?.count ?: 1) - 1
+        main.removeCallbacks(linkPlayerTap)
+        val n =(switcher?.count ?: 1) - 1
         linkLog("Tried the other links: $linkGot of $n gave a stream")
         verifyAndFinish()
     }
@@ -702,20 +742,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             return SEGMENT_EXTENSIONS.any { path.endsWith(it) }
         }
 
-        /** Background run: nothing may play (decoders and CPU are the player's). Muted-ness is SILENT_JS's job. */
-        private const val LINKS_JS = """
-            (function(){
-              try {
-                var P = HTMLMediaElement.prototype;
-                P.play = function(){ return Promise.resolve(); };
-                Object.defineProperty(P, 'autoplay', { get: function(){ return false; }, set: function(){}, configurable: true });
-                document.addEventListener('loadedmetadata', function(e){ try { e.target.pause(); } catch (x) {} }, true);
-              } catch (e) {}
-            })();
-        """
         /** Alternate links: the most time they may add in total, how long to wait for each, and the pause after a new stream appears. */
-        const val LINK_TOTAL_MS = 25_000L
-        private const val LINK_WAIT_MS = 7_000L
+        const val LINK_TOTAL_MS = 35_000L
+        private const val LINK_WAIT_MS = 10_000L
+        /** While a clicked link is waited for, the middle of the player is tapped this often (see [linkPlayerTap]). */
+        private const val LINK_PLAYER_TAP_MS = 2_500L
         private const val LINK_GRACE_MS = 900L
         private const val LINK_TAP_AFTER_MS = 3_500L
         private const val LINK_TICK_MS = 300L
