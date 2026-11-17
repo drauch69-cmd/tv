@@ -306,6 +306,7 @@ class PlayerActivity : Activity() {
             p.setMediaItem(item)
         }
         main.postDelayed(startCheck, 12_000)
+        main.postDelayed(earlyDecoderCheck, 6_000)
         p.prepare()
         p.playWhenReady = true
     }
@@ -455,6 +456,15 @@ class PlayerActivity : Activity() {
     }
 
     /** 12s in: lots of video waiting but nothing started -> the format is the problem; don't wait 20s. */
+    /** 6s in: frames already going into the decoder with no picture out -> switch decoders now. */
+    private val earlyDecoderCheck = Runnable {
+        if (playingSince == 0L && player != null && !tunnelEngaged() && decoderStuck()) {
+            Report.log("Early check: frames reach the video decoder but no picture comes out")
+            main.removeCallbacks(startCheck)
+            decodeProblem()
+        }
+    }
+
     private val startCheck = Runnable {
         val p = player ?: return@Runnable
         val buffered = (p.bufferedPosition - p.currentPosition) / 1000.0
@@ -750,6 +760,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun release() {
+        main.removeCallbacks(earlyDecoderCheck)
         main.removeCallbacks(audioBackOn)
         main.removeCallbacks(startCheck)
         main.removeCallbacks(stallCheck)
