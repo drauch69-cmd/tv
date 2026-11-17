@@ -100,6 +100,26 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (candidates.isEmpty()) {
             if (linksMode) linkLog("the page showed no stream within ${timeoutMs / 1000}s")
             else log("No video stream found within ${timeoutMs / 1000}s")
+            val wv = webView
+            if (linksMode && wv != null) {
+                // Snapshot what the page showed for "Save sample", then finish (2 s at most).
+                val gen = generation
+                var finished = false
+                val end = Runnable { if (!finished && gen == generation) { finished = true; finish(StreamSet(currentPage(), emptyList())) } }
+                main.postDelayed(end, 2_000)
+                try {
+                    wv.evaluateJavascript(IndexReader.SNAP_JS) { raw ->
+                        streamHtml = try { if (raw == null || raw == "null") "" else org.json.JSONTokener(raw).nextValue() as? String ?: "" } catch (_: Exception) { "" }
+                        if (gen == generation) streamSnapshot(wv, "no stream")
+                        main.removeCallbacks(end)
+                        end.run()
+                    }
+                } catch (_: Exception) {
+                    main.removeCallbacks(end)
+                    end.run()
+                }
+                return@Runnable
+            }
             finish(StreamSet(currentPage(), emptyList()))
         } else {
             verifyAndFinish()
