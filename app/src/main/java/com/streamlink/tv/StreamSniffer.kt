@@ -241,7 +241,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             try {
                 // The hidden loader must stay silent: tells the overlay remover not to unmute on a click.
-                WebViewCompat.addDocumentStartJavaScript(wv, "window.__slKeepMuted=1;", setOf("*"))
+                WebViewCompat.addDocumentStartJavaScript(wv, SILENT_JS, setOf("*"))
                 WebViewCompat.addDocumentStartJavaScript(wv, SitePlayerActivity.OVERLAY_JS, setOf("*"))
                 WebViewCompat.addDocumentStartJavaScript(wv, loadAsset(context, "player-start.js"), setOf("*"))
             } catch (e: Exception) {
@@ -414,6 +414,28 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             if (path.endsWith(".js") || path.endsWith(".css")) return false
             return u.contains("m3u8") || path.endsWith(".mpd") || u.contains(".mpd?")
         }
+
+        /**
+         * The hidden loader must never be heard, in any frame (a player frame from another site that
+         * autoplays with sound too): every video/audio element is forced muted and can't be unmuted.
+         * Also tells the overlay remover not to unmute on a click.
+         */
+        private const val SILENT_JS = """
+            (function(){
+              window.__slKeepMuted = 1;
+              try {
+                var P = HTMLMediaElement.prototype;
+                var d = Object.getOwnPropertyDescriptor(P, 'muted');
+                if (d && d.set) Object.defineProperty(P, 'muted', { get: d.get, set: function(){ d.set.call(this, true); }, configurable: true });
+                var op = P.play;
+                P.play = function(){ try { d.set.call(this, true); } catch (e) {} return op.apply(this, arguments); };
+              } catch (e) {}
+              var hush = function(e){ try { var t = e.target; if (t && t.tagName && /^(VIDEO|AUDIO)$/.test(t.tagName)) t.muted = true; } catch (x) {} };
+              document.addEventListener('play', hush, true);
+              document.addEventListener('playing', hush, true);
+              document.addEventListener('volumechange', hush, true);
+            })();
+        """
 
         private const val NUDGE_JS = """
             (function(){
