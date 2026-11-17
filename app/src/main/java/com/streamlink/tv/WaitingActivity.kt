@@ -4,12 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
-import android.util.TypedValue
+import android.view.View
 import android.view.Gravity
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -31,6 +32,15 @@ class WaitingActivity : Activity() {
     private lateinit var checkView: TextView
     private lateinit var infoView: TextView
     private lateinit var checkNowBtn: TextView
+    private lateinit var listNameView: TextView
+    private lateinit var stepsRow: LinearLayout
+    private lateinit var stepDots: List<TextView>
+    private lateinit var stepLabels: List<TextView>
+    private lateinit var stepLines: List<View>
+    private lateinit var usually: TextView
+    private lateinit var waitBox: LinearLayout
+    private lateinit var detailsBtn: TextView
+    private var showDetails = false
     private val main = Handler(Looper.getMainLooper())
 
     private var checking = false
@@ -218,71 +228,148 @@ class WaitingActivity : Activity() {
 
     private fun update(now: Long) {
         if (!::titleView.isInitialized) return
+        val zone = java.util.TimeZone.getDefault()
+        val locale = java.util.Locale.getDefault()
         titleView.text = ListText.displayTitle(item)
         val st = item.startMillis
-        whenView.text = if (st == null) "No start time on the page"
-        else ListText.whenText(st, now, java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) + "  ·  " + ListText.countdown(st, now)
-        checkView.text = when {
+        val waitMode = waiting || gaveUp
+        // Calm waiting state replaces the steps while the event has not started / nothing is there yet.
+        stepsRow.visibility = if (waitMode) View.GONE else View.VISIBLE
+        usually.visibility = if (waitMode) View.GONE else View.VISIBLE
+        waitBox.visibility = if (waitMode) View.VISIBLE else View.GONE
+        if (!waitMode) {
+            val states = WaitingText.steps(if (checking) sniffer.stage else 0, handedOff)
+            for (i in 0..2) styleStep(i, states[i])
+            for (i in 0..1) stepLines[i].setBackgroundColor(if (states[i] == WaitingText.DONE) Ui.ACCENT else Ui.NEUTRAL_BADGE)
+        }
+        whenView.text = if (gaveUp) "Gave up waiting" else WaitingText.headline(st, now, zone, locale)
+        nextView.text = when {
+            gaveUp -> "No stream appeared within 3 hours of the start. Press Back to return."
+            checking -> "Checking now…"
+            lastCheckAt == 0L -> "Looking for the video…"
+            else -> "Next check in ${ListText.duration((nextCheckAt - now).coerceAtLeast(0))}"
+        }
+        everyView.text = if (gaveUp) "" else "Checking every ${CHECK_EVERY_MS / 1000} s"
+        everyView.visibility = if (gaveUp) View.GONE else View.VISIBLE
+        // Details: the full status text that used to be always on screen.
+        val whenFull = if (st == null) "No start time on the page"
+        else ListText.whenText(st, now, zone, locale) + "  ·  " + ListText.countdown(st, now)
+        val check = when {
             gaveUp -> "Gave up: no stream appeared within 3 hours of the start. Press Back to return."
             checking -> if (waiting) "Checking now…" else "Looking for the video…"
             lastCheckAt == 0L -> "Looking for the video…"
             else -> "Last check ${ListText.duration(now - lastCheckAt)} ago: $lastResult. Next in ${ListText.duration((nextCheckAt - now).coerceAtLeast(0))}."
         }
+        checkView.text = whenFull + "\n" + check
         infoView.text = if (gaveUp) "" else "Checking every 45 seconds. The player starts by itself when the stream appears. Back stops waiting."
-        checkNowBtn.visibility = if (gaveUp) android.view.View.GONE else android.view.View.VISIBLE
+        checkView.visibility = if (showDetails) View.VISIBLE else View.GONE
+        infoView.visibility = if (showDetails && !gaveUp) View.VISIBLE else View.GONE
+        detailsBtn.text = if (showDetails) "Hide details" else "Show details"
+        checkNowBtn.visibility = if (gaveUp) View.GONE else View.VISIBLE
         if (!handedOff) assertSession()
     }
 
+    private fun styleStep(i: Int, state: Int) {
+        val dot = stepDots[i]
+        when (state) {
+            WaitingText.DONE -> { dot.background = Ui.rounded(this, Ui.ACCENT, 13f); dot.text = "✓" }
+            WaitingText.ACTIVE -> { dot.background = Ui.rounded(this, Ui.BG, 13f, Ui.ACCENT, 2f); dot.text = "" }
+            else -> { dot.background = Ui.rounded(this, Ui.BG, 13f, Ui.NEUTRAL_BADGE, 2f); dot.text = "" }
+        }
+        stepLabels[i].setTextColor(if (state == WaitingText.TODO) Ui.TEXT_2 else Ui.TEXT)
+        stepLabels[i].typeface = Typeface.create(Typeface.DEFAULT, if (state == WaitingText.ACTIVE) Typeface.BOLD else Typeface.NORMAL)
+    }
+
+    private lateinit var nextView: TextView
+    private lateinit var everyView: TextView
+
     private fun buildUi() {
         val root = FrameLayout(this)
-        root.setBackgroundColor(0xFF0D1220.toInt())
+        root.setBackgroundColor(Ui.BG)
         val holder = FrameLayout(this)
         root.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         sniffer = StreamSniffer(this, holder)
 
+        val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
         val col = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setBackgroundColor(0xFF0D1220.toInt())
-            setPadding(dp(80), dp(40), dp(80), dp(40))
+            gravity = Gravity.CENTER
+            setBackgroundColor(Ui.BG)
+            setPadding(dp(60), dp(30), dp(60), dp(30))
         }
-        col.addView(text("Waiting for it to start", 18f, 0xFF7F8DAD.toInt()))
-        titleView = text("", 38f, 0xFFFFFFFF.toInt(), true).apply { maxLines = 3; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(8), 0, dp(8)) }
+        val listName = intent.getStringExtra("listName") ?: ""
+        listNameView = text(listName, 12f, Ui.TEXT_2).apply { gravity = Gravity.CENTER; maxLines = 1; ellipsize = TextUtils.TruncateAt.END; visibility = if (listName.isBlank()) View.GONE else View.VISIBLE }
+        col.addView(listNameView)
+        titleView = text("", 30f, Ui.TEXT, true).apply { gravity = Gravity.CENTER; maxLines = 3; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(4), 0, dp(4)) }
         col.addView(titleView)
-        if (item.subtitle.isNotBlank()) col.addView(text(item.subtitle.trim(), 20f, 0xFFB8C4E0.toInt()).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
-        whenView = text("", 24f, 0xFF8FB4FF.toInt(), true).apply { setPadding(0, dp(20), 0, dp(8)) }
-        col.addView(whenView)
-        checkView = text("", 20f, 0xFFB8C4E0.toInt())
+        if (item.subtitle.isNotBlank()) col.addView(text(item.subtitle.trim(), 14f, Ui.TEXT_2).apply { gravity = Gravity.CENTER; maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
+
+        // Looking: 3 steps.
+        stepsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val names = listOf("Opening page", "Finding the stream", "Starting video")
+        val dots = mutableListOf<TextView>(); val labels = mutableListOf<TextView>(); val lines = mutableListOf<View>()
+        for (i in 0..2) {
+            val cell = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+            val dot = text("", 13f, Ui.ON_ACCENT, true).apply { gravity = Gravity.CENTER }
+            cell.addView(dot, LinearLayout.LayoutParams(dp(26), dp(26)))
+            val label = text(names[i], 12f, Ui.TEXT).apply { gravity = Gravity.CENTER; setPadding(0, dp(7), 0, 0) }
+            cell.addView(label)
+            stepsRow.addView(cell, LinearLayout.LayoutParams(dp(128), wrap))
+            dots += dot; labels += label
+            if (i < 2) {
+                val line = View(this)
+                stepsRow.addView(line, LinearLayout.LayoutParams(dp(52), dp(2)).apply { bottomMargin = dp(22) })
+                lines += line
+            }
+        }
+        stepDots = dots; stepLabels = labels; stepLines = lines
+        col.addView(stepsRow, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(26) })
+        usually = text("Usually ready in under 10 seconds", 12f, Ui.TEXT_3).apply { gravity = Gravity.CENTER; setPadding(0, dp(20), 0, 0) }
+        col.addView(usually)
+
+        // Not started yet: calm waiting state.
+        waitBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; visibility = View.GONE }
+        whenView = text("", 32f, Ui.TEXT, true).apply { gravity = Gravity.CENTER; setPadding(0, dp(22), 0, dp(6)) }
+        waitBox.addView(whenView)
+        everyView = text("", 14f, Ui.TEXT_2).apply { gravity = Gravity.CENTER }
+        waitBox.addView(everyView)
+        nextView = text("", 13f, Ui.TEXT_3).apply { gravity = Gravity.CENTER; setPadding(0, dp(4), 0, 0) }
+        waitBox.addView(nextView)
+        col.addView(waitBox)
+
+        // Details (hidden until "Show details").
+        checkView = text("", 14f, Ui.TEXT_2).apply { gravity = Gravity.CENTER; setPadding(0, dp(16), 0, 0); visibility = View.GONE }
         col.addView(checkView)
-        infoView = text("", 16f, 0xFF7F8DAD.toInt()).apply { setPadding(0, dp(12), 0, dp(24)) }
+        infoView = text("", 12f, Ui.TEXT_3).apply { gravity = Gravity.CENTER; setPadding(0, dp(6), 0, 0); visibility = View.GONE }
         col.addView(infoView)
-        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val cancel = button("Cancel") { finish() }
+        buttons.addView(cancel, LinearLayout.LayoutParams(wrap, wrap).apply { marginEnd = dp(10) })
+        detailsBtn = button("Show details") { showDetails = !showDetails; update(System.currentTimeMillis()) }
+        buttons.addView(detailsBtn, LinearLayout.LayoutParams(wrap, wrap).apply { marginEnd = dp(10) })
         checkNowBtn = button("Check now") { if (waiting && !checking && !gaveUp) check() }
-        buttons.addView(checkNowBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(16) })
+        buttons.addView(checkNowBtn, LinearLayout.LayoutParams(wrap, wrap).apply { marginEnd = dp(10) })
         val site = button("Open the page's own player") {
             val u = Uri.parse(item.url)
             if (u.scheme == "http" || u.scheme == "https") startActivity(SitePlayerActivity.intent(this, item.url))
         }
         buttons.addView(site)
-        col.addView(buttons)
+        col.addView(buttons, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(28) })
         root.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
-        checkNowBtn.requestFocus()
+        cancel.requestFocus()
     }
 
-    private fun button(label: String, onClick: () -> Unit) = text(label, 18f, 0xFFFFFFFF.toInt(), true).apply {
-        setPadding(dp(22), dp(12), dp(22), dp(12))
-        setBackgroundResource(R.drawable.recent_item)
+    private fun button(label: String, onClick: () -> Unit) = text(label, 13f, Ui.TEXT, true).apply {
+        setPadding(dp(14), dp(9), dp(14), dp(9))
+        background = Ui.focusable(this@WaitingActivity, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
         isFocusable = true; isClickable = true
         setOnClickListener { onClick() }
     }
 
-    private fun text(s: String, sp: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
-        text = s // plain text only: titles come from untrusted pages
-        setTextColor(color)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-        if (bold) setTypeface(typeface, Typeface.BOLD)
-    }
+    // plain text only: titles come from untrusted pages
+    private fun text(s: String, sp: Float, color: Int, bold: Boolean = false): TextView = Ui.text(this, s, sp, color, bold)
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 

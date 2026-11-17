@@ -3,15 +3,13 @@ package com.streamlink.tv
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
-import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -22,7 +20,7 @@ import android.widget.TextView
 
 /**
  * One stream list: shows the cached events at once, reads the index page again, and re-reads every
- * 2 minutes while open. OK on an event plays it (and waits for it if it has not started yet).
+ * minute while open. OK on an event plays it (and waits for it if it has not started yet).
  */
 class ListActivity : Activity() {
 
@@ -32,7 +30,15 @@ class ListActivity : Activity() {
     private lateinit var scroll: ScrollView
     private lateinit var subtitle: TextView
     private lateinit var errorView: TextView
-    private lateinit var refreshBtn: TextView
+    private lateinit var refreshBtn: LinearLayout
+    private lateinit var panel: LinearLayout
+    private lateinit var pBadgeHolder: FrameLayout
+    private lateinit var pTitle: TextView
+    private lateinit var pMeta: TextView
+    private lateinit var playBtn: TextView
+    private lateinit var siteBtn: TextView
+    private var selected: ListItem? = null
+    private var selectedUrl: String? = null
     private val main = Handler(Looper.getMainLooper())
     private var cached: CachedList? = null
     private var reading = false
@@ -59,7 +65,7 @@ class ListActivity : Activity() {
                 finishRead(ListResult(list.url, "", emptyList(), "automatic", "the page took too long to answer"))
             }
             if (!reading && now >= nextReadAt) refresh()
-            if (beats % 15 == 0) render() // keep badges and "updated … ago" current
+            if (beats % RERENDER_BEATS == 0) render() // keep badges, minutes and "updated ... ago" current without a read
             main.postDelayed(this, 1000)
         }
     }
@@ -81,8 +87,27 @@ class ListActivity : Activity() {
         super.onStart()
         openId = list.id
         assertSession()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The 60 s re-read and 30 s re-render only run while this screen is in front.
         main.removeCallbacks(beat)
         main.post(beat)
+    }
+
+    override fun onPause() {
+        main.removeCallbacks(beat)
+        super.onPause()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_MENU) {
+            nextReadAt = 0
+            refresh()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onStop() {
@@ -147,7 +172,7 @@ class ListActivity : Activity() {
 
     private fun buildUi() {
         val root = FrameLayout(this)
-        root.setBackgroundColor(0xFF0D1220.toInt())
+        root.setBackgroundColor(Ui.BG)
         // Hidden page loader for the reader, behind the content.
         val holder = FrameLayout(this)
         root.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -155,33 +180,81 @@ class ListActivity : Activity() {
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF0D1220.toInt())
-            setPadding(dp(48), dp(32), dp(48), dp(24))
+            setBackgroundColor(Ui.BG)
+            setPadding(dp(42), dp(30), dp(42), dp(22))
         }
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
         val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        titles.addView(text(list.name, 30f, 0xFFFFFFFF.toInt(), bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-        subtitle = text("", 16f, 0xFFB8C4E0.toInt()).apply { setPadding(0, dp(4), 0, 0) }
-        titles.addView(subtitle)
+        titles.addView(text("Your lists", 12f, Ui.TEXT_3))
+        titles.addView(text(list.name, 27f, Ui.TEXT, bold = true).apply {
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0)
+        })
         top.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        refreshBtn = text("Refresh", 18f, 0xFFFFFFFF.toInt(), bold = true).apply {
-            setPadding(dp(22), dp(12), dp(22), dp(12))
-            setBackgroundResource(R.drawable.recent_item)
+        // Right-aligned note; focusable so OK also refreshes now (Menu does the same).
+        refreshBtn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+            background = Ui.focusable(this@ListActivity, 0, Ui.SURFACE_FOCUS, 10f)
+            setPadding(dp(10), dp(6), dp(10), dp(6))
             isFocusable = true; isClickable = true
             setOnClickListener { nextReadAt = 0; refresh() }
         }
+        refreshBtn.addView(text("↻  Refreshes by itself every minute", 11f, Ui.TEXT_2).apply { gravity = Gravity.END })
+        subtitle = text("", 11f, Ui.TEXT_3).apply { gravity = Gravity.END; setPadding(0, dp(2), 0, 0) }
+        refreshBtn.addView(subtitle)
         top.addView(refreshBtn)
         content.addView(top)
-        errorView = text("", 16f, 0xFFFF8A94.toInt()).apply { setPadding(0, dp(8), 0, 0); visibility = View.GONE }
+        errorView = text("", 12f, Ui.LIVE_TEXT).apply { setPadding(0, dp(8), 0, 0); visibility = View.GONE }
         content.addView(errorView)
 
-        scroll = ScrollView(this).apply { isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true }
+        val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        scroll = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true
+            clipToPadding = false
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+        }
         rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(16) })
-        content.addView(text("OK plays an event. If it has not started, StreamLink waits for it. Back returns.", 14f, 0xFF7F8DAD.toInt()).apply { setPadding(0, dp(10), 0, 0) })
+        body.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        panel = buildPanel()
+        body.addView(panel, LinearLayout.LayoutParams(dp(248), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginStart = dp(20) })
+        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
+        content.addView(text("OK  Play   ·   Menu  Refresh now   ·   “Maybe ended” events are at the bottom", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
+    }
+
+    private fun buildPanel(): LinearLayout {
+        val p = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.rounded(this@ListActivity, Ui.SURFACE, 12f)
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            visibility = View.GONE
+        }
+        pBadgeHolder = FrameLayout(this)
+        p.addView(pBadgeHolder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        pTitle = text("", 17f, Ui.TEXT, bold = true).apply { maxLines = 4; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(10), 0, 0) }
+        p.addView(pTitle)
+        pMeta = text("", 12f, Ui.TEXT_2).apply { maxLines = 4; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(10), 0, 0); setLineSpacing(0f, 1.2f) }
+        p.addView(pMeta)
+        p.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        playBtn = text("Play", 13f, Ui.ON_ACCENT, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = Ui.primaryButton(this@ListActivity)
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            isFocusable = true; isClickable = true
+            setOnClickListener { selected?.let { play(it) } }
+        }
+        p.addView(playBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        siteBtn = text("Open the site’s own player", 13f, Ui.TEXT, bold = true).apply {
+            gravity = Gravity.CENTER
+            background = Ui.focusable(this@ListActivity, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            isFocusable = true; isClickable = true
+            setOnClickListener { selected?.let { openSitePlayer(it) } }
+        }
+        p.addView(siteBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        return p
     }
 
     private fun updateHeader() {
@@ -198,8 +271,9 @@ class ListActivity : Activity() {
         updateHeader()
         val now = System.currentTimeMillis()
         // Keep the highlighted event highlighted across rebuilds (matched by link).
-        val focusedUrl = (currentFocus?.tag as? String)
-        val hadFocusInRows = currentFocus?.parent === rows
+        val focus = currentFocus
+        val hadFocusInRows = focus?.parent === rows
+        val focusedUrl = if (hadFocusInRows) focus?.tag as? String else null
         val items = cached?.let { ListJson.visible(it.result.items, now) } ?: emptyList()
         rows.removeAllViews()
         if (items.isEmpty()) {
@@ -208,65 +282,88 @@ class ListActivity : Activity() {
                 cached == null -> "No events yet."
                 else -> "No upcoming events found on this page."
             }
-            rows.addView(text(msg, 20f, 0xFFB8C4E0.toInt()).apply { setPadding(0, dp(12), 0, 0) })
+            rows.addView(text(msg, 15f, Ui.TEXT_2).apply { setPadding(0, dp(10), 0, 0) })
+            selected = null
+            panel.visibility = View.GONE
             if (!refreshBtn.hasFocus()) refreshBtn.requestFocus()
             return
         }
         var focusTarget: View? = null
-        for (item in items) {
-            val row = row(item, now)
-            rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) })
-            if (focusedUrl != null && item.url == focusedUrl && focusTarget == null) focusTarget = row
+        var firstRow: View? = null
+        var first = true
+        for (section in ListSections.group(items, now)) {
+            val color = if (section.status == ListStatus.LIVE) Ui.LIVE_TEXT else Ui.TEXT_2
+            rows.addView(Ui.sectionLabel(this, section.label, color), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = if (first) 0 else dp(8); bottomMargin = dp(6)
+            })
+            first = false
+            for (item in section.items) {
+                val row = row(item, now)
+                rows.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(7) })
+                if (firstRow == null) firstRow = row
+                if (focusedUrl != null && item.url == focusedUrl && focusTarget == null) focusTarget = row
+            }
         }
+        // Details panel: keep showing the same event (by link) if it is still there.
+        val keep = items.firstOrNull { it.url == (focusedUrl ?: selectedUrl) } ?: items.first()
+        showDetails(keep, now)
         when {
             focusTarget != null -> focusTarget.requestFocus()
-            hadFocusInRows || currentFocus == null -> rows.getChildAt(0)?.requestFocus()
+            hadFocusInRows || currentFocus == null -> firstRow?.requestFocus()
         }
     }
 
+    private fun showDetails(item: ListItem, now: Long) {
+        selected = item
+        selectedUrl = item.url
+        panel.visibility = View.VISIBLE
+        val st = ListStatus.of(item, now)
+        val b = ListSections.badge(item, now)
+        val label = when (st) {
+            ListStatus.LIVE, ListStatus.SOON -> b.text
+            ListStatus.UPCOMING -> item.startMillis?.let { ListText.whenText(it, now, java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: b.text
+            else -> ListSections.label(st)
+        }
+        pBadgeHolder.removeAllViews()
+        pBadgeHolder.addView(Ui.badge(this, label, st == ListStatus.LIVE))
+        pTitle.text = ListText.displayTitle(item)
+        pMeta.text = ListSections.meta(item, now).replaceFirstChar { it.uppercase() }
+        pMeta.visibility = if (pMeta.text.isEmpty()) View.GONE else View.VISIBLE
+    }
+
     private fun row(item: ListItem, now: Long): View {
-        val status = ListStatus.of(item, now)
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setBackgroundResource(R.drawable.recent_item)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            background = Ui.focusable(this@ListActivity)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
             isFocusable = true; isClickable = true
             tag = item.url
             setOnClickListener { play(item) }
+            setOnFocusChangeListener { _, has -> if (has) showDetails(item, System.currentTimeMillis()) }
         }
-        val color = when (status) {
-            ListStatus.LIVE -> 0xFFE5384A.toInt()
-            ListStatus.SOON -> 0xFFE08A1E.toInt()
-            ListStatus.UPCOMING -> 0xFF3A5FA8.toInt()
-            else -> 0xFF4A5470.toInt()
-        }
-        val badge = text(ListText.badge(item, now), 15f, Color.WHITE, bold = true).apply {
-            gravity = Gravity.CENTER
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            background = GradientDrawable().apply { setColor(color); cornerRadius = dp(6).toFloat() }
-        }
-        row.addView(badge, LinearLayout.LayoutParams(dp(170), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(16) })
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(text(ListText.displayTitle(item), 20f, Color.WHITE, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
-        val meta = listOf(item.subtitle.trim(), item.section.trim()).filter { it.isNotEmpty() }.joinToString("  ·  ")
-        if (meta.isNotEmpty()) col.addView(text(meta, 15f, 0xFFB8C4E0.toInt()).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        col.addView(text(ListText.displayTitle(item), 16f, Ui.TEXT, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
+        val meta = ListSections.meta(item, now)
+        if (meta.isNotEmpty()) col.addView(text(meta, 11f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
+        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(14) })
+        val b = ListSections.badge(item, now)
+        val right: View = if (b.pill) Ui.badge(this, b.text, b.live) else text(b.text, 11f, Ui.TEXT_2, bold = true)
+        row.addView(right)
         return row
+    }
+
+    private fun openSitePlayer(item: ListItem) {
+        val u = Uri.parse(item.url)
+        if (u.scheme == "http" || u.scheme == "https") startActivity(SitePlayerActivity.intent(this, item.url))
     }
 
     private fun play(item: ListItem) {
         startActivity(WaitingActivity.intent(this, item, list.id, list.name))
     }
 
-    private fun text(s: String, sp: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
-        text = s // plain text, never HTML: titles come from untrusted pages
-        setTextColor(color)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
-        if (bold) setTypeface(typeface, Typeface.BOLD)
-    }
+    // plain text, never HTML: titles come from untrusted pages
+    private fun text(s: String, sp: Float, color: Int, bold: Boolean = false): TextView = Ui.text(this, s, sp, color, bold)
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
@@ -274,7 +371,9 @@ class ListActivity : Activity() {
         private const val EXTRA_ID = "id"
         /** The list whose screen is in front right now, so the phone's Refresh goes through it. */
         @Volatile var openId: String? = null
-        const val REREAD_MS = 120_000L
+        const val REREAD_MS = 60_000L
+        /** Statuses are re-rendered every 30 beats (30 s) even without a read. */
+        private const val RERENDER_BEATS = 30
         private const val READ_WATCHDOG_MS = 90_000L
         fun intent(ctx: Context, id: String) = Intent(ctx, ListActivity::class.java).putExtra(EXTRA_ID, id)
     }

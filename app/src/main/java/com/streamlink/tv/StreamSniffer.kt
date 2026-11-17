@@ -88,6 +88,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         }
     }
 
+    /** Read-only progress for the waiting screen: 0 = idle/loading the page, 1 = page loaded and looking, 2 = stream seen, checking it. */
+    val stage: Int
+        get() = when {
+            done -> 0
+            verifying || candidates.isNotEmpty() -> 2
+            client?.firstPageLoaded == true -> 1
+            else -> 0
+        }
+
     fun sniff(url: String, callback: (StreamSet) -> Unit) {
         cancel()
         val ref = ClickRef.parse(url)
