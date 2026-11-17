@@ -82,14 +82,14 @@ class ListTextTest {
         assertTrue(ListText.gaveUp(null, now - 3 * hour - min, now))
     }
 
-    @Test fun visibleHidesFinishedAndSorts() {
+    @Test fun visibleKeepsFinishedLastAndSorts() {
         val live = item(now - hour, "live")
         val later = item(now + 5 * hour, "later")
         val soon = item(now + 10 * min, "soon")
         val done = item(now - 6 * hour, "done")
         val unknown = item(null, "unknown")
         val shown = ListJson.visible(listOf(done, later, unknown, soon, live), now).map { it.title }
-        assertEquals(listOf("live", "soon", "later", "unknown"), shown)
+        assertEquals(listOf("live", "soon", "later", "unknown", "done"), shown)
     }
 
     @Test fun cacheJsonRoundTrip() {

@@ -332,6 +332,12 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                     parsed.items.size, Report.host(parsed.pageUrl), if (parsed.method.startsWith("recipe")) "recipe" else "automatic", secs)
             )
             if (ex.debug.isNotEmpty()) Report.log("List: ${ex.debug}")
+            if (parsed.items.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val counts = parsed.items.groupingBy { ListStatus.of(it, now) }.eachCount()
+                Report.log("List: by status " + counts.entries.joinToString(", ") { "${it.key} ${it.value}" } +
+                    (counts[ListStatus.FINISHED]?.let { " (start read as more than 4h ago; shown last as \"Maybe ended\")" } ?: ""))
+            }
             // A real list (2+ rows) on this site: remember its row shape for sibling pages with a single event.
             if (ex.shape.isNotEmpty() && parsed.items.size >= 2 && !parsed.method.startsWith("recipe")) {
                 LearnedShapes.remember(context, Uri.parse(currentPage()).host, ex.shape)

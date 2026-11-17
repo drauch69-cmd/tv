@@ -34,9 +34,11 @@ object ListJson {
         )
     }
 
-    /** What the TV shows and the phone lists: sorted, finished events hidden. */
-    fun visible(items: List<ListItem>, now: Long): List<ListItem> =
-        ListStatus.sorted(items, now).filter { ListStatus.of(it, now) != ListStatus.FINISHED }
+    /**
+     * What the TV shows and the phone lists: sorted. Events that look finished are kept (last, marked
+     * "Maybe ended"): the page still lists them, and a misread start time must not make an event vanish.
+     */
+    fun visible(items: List<ListItem>, now: Long): List<ListItem> = ListStatus.sorted(items, now)
 
     /** GET /lists */
     fun listsForPhone(lists: List<SavedList>, cache: (String) -> CachedList?, busy: (String) -> Boolean,

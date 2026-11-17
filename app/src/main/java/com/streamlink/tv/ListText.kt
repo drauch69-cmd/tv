@@ -48,7 +48,7 @@ object ListText {
     fun badge(item: ListItem, now: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String =
         when (ListStatus.of(item, now)) {
             ListStatus.LIVE -> "LIVE"
-            ListStatus.FINISHED -> "Finished"
+            ListStatus.FINISHED -> "Maybe ended"
             ListStatus.SOON -> "Starts in ${minutesCeil(item, now)} min"
             ListStatus.UPCOMING -> {
                 val s = item.startMillis ?: now
