@@ -199,6 +199,9 @@ class WaitingActivity : Activity() {
             Session.mode = "waiting"
             Session.title = ListText.displayTitle(item)
             Session.snapshot = null
+            Session.listId = intent.getStringExtra("listId")
+            Session.listName = intent.getStringExtra("listName") ?: ""
+            Session.listItemUrl = item.url
         }
         AppStatus.text = statusText(System.currentTimeMillis())
     }

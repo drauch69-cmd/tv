@@ -26,6 +26,11 @@ object Session {
     @Volatile var current: StreamSet? = null
     @Volatile var snapshot: PlayerSnapshot? = null
 
+    /** The saved list (and event URL in it) being played, if it came from a list; null for a direct link. Used for channel surfing. */
+    @Volatile var listId: String? = null
+    @Volatile var listName: String = ""
+    @Volatile var listItemUrl: String? = null
+
     /** The screen currently playing registers here to receive phone remote commands. */
     @Volatile var commandHandler: ((String, String?) -> Unit)? = null
 
