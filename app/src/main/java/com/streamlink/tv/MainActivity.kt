@@ -183,17 +183,36 @@ class MainActivity : Activity() {
         return ok
     }
 
-    /** Re-reads a list: through its own screen if it is open, otherwise here in the background. */
+    /** Lists waiting to be read in the background, in order. One page is read at a time. */
+    private val readQueue = LinkedHashSet<String>()
+
+    /**
+     * Re-reads a list: through its own screen if it is open, otherwise here in the background.
+     * Background reads are queued, so adding several lists quickly reads every one of them
+     * (a new request used to cancel the read in progress).
+     */
     private fun refreshList(id: String) {
         if (ListActivity.openId == id) {
             Session.commandHandler?.invoke("refresh", id)
             return
         }
-        val l = SavedLists.get(this, id) ?: return
-        readingId?.let { SavedLists.setBusy(it, false) }
-        reader.cancel()
-        readingId = id
+        if (SavedLists.get(this, id) == null) return
+        if (readingId == id) return
+        readQueue.add(id)
         SavedLists.setBusy(id, true)
+        renderLists()
+        if (readingId == null) readNext()
+    }
+
+    private fun readNext() {
+        val id = readQueue.firstOrNull() ?: return
+        readQueue.remove(id)
+        val l = SavedLists.get(this, id)
+        if (l == null) {
+            readNext()
+            return
+        }
+        readingId = id
         val token = ++readToken
         fun done(r: ListResult) {
             if (token != readToken) return
@@ -201,6 +220,7 @@ class MainActivity : Activity() {
             SavedLists.setBusy(id, false)
             SavedLists.applyResult(this, l, r, System.currentTimeMillis())
             renderLists()
+            readNext()
         }
         reader.read(l.url) { done(it) }
         main.postDelayed({
