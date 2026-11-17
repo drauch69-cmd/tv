@@ -34,8 +34,12 @@ object Session {
     /** The screen currently playing registers here to receive phone remote commands. */
     @Volatile var commandHandler: ((String, String?) -> Unit)? = null
 
+    /** Whether "Head start" is on; the home screen provides the real value (keeps this object free of Android). */
+    @Volatile var prefetchEnabled: () -> Boolean = { true }
+
     fun stateJson(): String {
         val o = JSONObject()
+        o.put("prefetch", prefetchEnabled())
         o.put("mode", mode)
         o.put("title", title)
         o.put("status", AppStatus.text)

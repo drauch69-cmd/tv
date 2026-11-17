@@ -26,6 +26,7 @@ class ListActivity : Activity() {
 
     private lateinit var list: SavedList
     private lateinit var reader: IndexReader
+    private lateinit var prefetcher: Prefetcher
     private lateinit var rows: LinearLayout
     private lateinit var scroll: ScrollView
     private lateinit var subtitle: TextView
@@ -94,9 +95,15 @@ class ListActivity : Activity() {
         // The 60 s re-read and 30 s re-render only run while this screen is in front.
         main.removeCallbacks(beat)
         main.post(beat)
+        prefetcher.setActive(true)
+        // Back from playing with an event still focused: no focus event comes, so start the 2 s again.
+        val f = currentFocus
+        val sel = selected
+        if (f != null && f.parent === rows && sel != null && sel.url == f.tag) prefetcher.focus(sel)
     }
 
     override fun onPause() {
+        prefetcher.setActive(false)
         main.removeCallbacks(beat)
         super.onPause()
     }
@@ -121,6 +128,7 @@ class ListActivity : Activity() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        prefetcher.cancel()
         reader.cancel()
         SavedLists.setBusy(list.id, false)
         releaseSession()
@@ -177,6 +185,10 @@ class ListActivity : Activity() {
         val holder = FrameLayout(this)
         root.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         reader = IndexReader(this, holder)
+        // Second hidden loader for "Head start" (the focused event's stream, looked up in advance).
+        val prefetchHolder = FrameLayout(this)
+        root.addView(prefetchHolder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        prefetcher = Prefetcher(this, prefetchHolder, "list")
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -340,7 +352,14 @@ class ListActivity : Activity() {
             isFocusable = true; isClickable = true
             tag = item.url
             setOnClickListener { play(item) }
-            setOnFocusChangeListener { _, has -> if (has) showDetails(item, System.currentTimeMillis()) }
+            setOnFocusChangeListener { _, has ->
+                if (has) {
+                    showDetails(item, System.currentTimeMillis())
+                    prefetcher.focus(item)
+                } else {
+                    prefetcher.blur()
+                }
+            }
         }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(text(ListText.displayTitle(item), 16f, Ui.TEXT, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })

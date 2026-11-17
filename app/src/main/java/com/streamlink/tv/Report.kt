@@ -13,8 +13,12 @@ object Report {
     private var t0 = System.currentTimeMillis()
     private var link = ""
 
+    /** True while a background look-ahead (see Prefetcher) runs: its lines belong to no play, so none are kept. */
+    @Volatile var muted = false
+
     @Synchronized
     fun start(url: String) {
+        muted = false
         lines.clear()
         once.clear()
         blockedHosts.clear()
@@ -25,6 +29,7 @@ object Report {
 
     @Synchronized
     fun log(msg: String) {
+        if (muted) return
         val s = (System.currentTimeMillis() - t0) / 1000.0
         lines.add(String.format(java.util.Locale.US, "%6.1fs  %s", s, msg))
         if (lines.size > 500) lines.removeAt(0)
@@ -32,12 +37,14 @@ object Report {
 
     @Synchronized
     fun logOnce(key: String, msg: String) {
+        if (muted) return
         if (once.add(key)) log(msg)
     }
 
     @Synchronized
     fun countBlocked(host: String?) {
         val h = host ?: return
+        if (muted) return
         val n = (blockedHosts[h] ?: 0) + 1
         blockedHosts[h] = n
         if (n == 1) log("Blocked ad/popup network: $h")

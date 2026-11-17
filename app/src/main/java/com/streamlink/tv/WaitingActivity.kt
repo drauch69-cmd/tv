@@ -119,6 +119,12 @@ class WaitingActivity : Activity() {
 
     private fun check() {
         if (checking || handedOff || gaveUp) return
+        Prefetch.take(item.url)?.let { head ->
+            checkCount++
+            Report.log("Head start: stream already found while you were browsing")
+            found(head)
+            return
+        }
         checking = true
         checkStartedAt = System.currentTimeMillis()
         checkCount++

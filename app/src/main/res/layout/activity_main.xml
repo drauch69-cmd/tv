@@ -10,6 +10,12 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Second hidden page loader, for "Head start" (looks ahead for the focused event's stream). -->
+    <FrameLayout
+        android:id="@+id/prefetchHolder"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <ScrollView
         android:id="@+id/homeScroll"
         android:layout_width="match_parent"
@@ -311,6 +317,20 @@
                     android:textColor="#FFE8EAED"
                     android:textSize="13sp" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/prefetchToggle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="14dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="8dp"
+                android:textColor="#FFE8EAED"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/updateInfo"
