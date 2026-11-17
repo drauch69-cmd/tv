@@ -993,7 +993,8 @@ class PlayerActivity : Activity() {
         hideOverlayNow()
         val was = cover.visibility == View.VISIBLE
         cover.visibility = View.VISIBLE
-        if (!was) coverCancel.requestFocus()
+        // Not "Cancel" while loading: an impatient OK press must not stop the stream. ("Back" when finished.)
+        if (!was || finished) (if (finished) coverCancel else coverDetails).requestFocus()
     }
 
     private fun hideCover() {

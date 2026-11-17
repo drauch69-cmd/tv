@@ -368,7 +368,8 @@ class WaitingActivity : Activity() {
         col.addView(buttons, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(28) })
         root.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
-        cancel.requestFocus()
+        // Not "Cancel": an impatient second OK press must not stop what was just started.
+        detailsBtn.requestFocus()
     }
 
     private fun button(label: String, onClick: () -> Unit) = text(label, 13f, Ui.TEXT, true).apply {

@@ -438,6 +438,7 @@ class MainActivity : Activity() {
         val alp = LinearLayout.LayoutParams(dp(210), ViewGroup.LayoutParams.MATCH_PARENT)
         listRow.addView(add, alp)
         if (addFocused) focusTarget = add
+        if (focusedId != null && focusTarget == null) focusTarget = listRow.getChildAt(0) // its list was removed
         focusTarget?.requestFocus()
     }
 
@@ -497,6 +498,8 @@ class MainActivity : Activity() {
             liveRow.addView(card, lp)
             if (e.item.url == focusedUrl) focusTarget = card
         }
+        // The focused card left the row (e.g. its event ended): keep focus in the row instead of losing it.
+        if (focusedUrl != null && focusTarget == null) focusTarget = liveRow.getChildAt(0)?.takeIf { it.isFocusable } ?: sendLink
         if (rows.isEmpty()) {
             val msg = when {
                 lists.isEmpty() -> "Nothing to show yet. On the phone page, paste a page that lists events and tap “Add as stream list”."
