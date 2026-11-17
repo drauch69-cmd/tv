@@ -147,12 +147,16 @@ class WaitingActivity : Activity() {
         lastCheckAt = now
         lastResult = why
         logCheck(why)
-        if (!waiting) {
-            if (ListText.shouldWait(item.startMillis, now)) {
+        // No start time (often an always-on channel, not a scheduled event): one quick retry, then the
+        // site's own player instead of re-checking every 45 s for hours.
+        val noTimeGiveUp = item.startMillis == null && checkCount >= NO_TIME_TRIES
+        if (!waiting || noTimeGiveUp) {
+            if (!noTimeGiveUp && ListText.shouldWait(item.startMillis, now)) {
                 waiting = true
                 waitStartedAt = now
             } else {
-                // Started a while ago and still nothing: same as a link sent directly.
+                // Started a while ago (or no time and still nothing): same as a link sent directly.
+                if (noTimeGiveUp) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
                 handedOff = true
                 main.removeCallbacksAndMessages(null)
                 AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
@@ -161,7 +165,7 @@ class WaitingActivity : Activity() {
                 return
             }
         }
-        nextCheckAt = now + CHECK_EVERY_MS
+        nextCheckAt = now + if (item.startMillis == null && checkCount < NO_TIME_TRIES) NO_TIME_RETRY_MS else CHECK_EVERY_MS
         update(now)
     }
 
@@ -375,6 +379,9 @@ class WaitingActivity : Activity() {
 
     companion object {
         const val CHECK_EVERY_MS = 45_000L
+        /** Entries without a start time: this many checks (the second after [NO_TIME_RETRY_MS]), then the site's own player. */
+        const val NO_TIME_TRIES = 2
+        const val NO_TIME_RETRY_MS = 15_000L
         private const val CHECK_WATCHDOG_MS = 90_000L
         private const val NO_TIME = Long.MIN_VALUE
         private const val EXTRA_TITLE = "title"
