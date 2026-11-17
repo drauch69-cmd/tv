@@ -25,7 +25,9 @@ object HomeFeed {
             all.add(Entry(l, i, ListStatus.of(i, now)))
         }
         fun startKey(e: Entry) = e.item.startMillis ?: Long.MAX_VALUE
-        val live = all.filter { it.status == ListStatus.LIVE }.sortedBy { startKey(it) }
+        // Real live events first (earliest start first), always-on channels after them.
+        val live = all.filter { it.status == ListStatus.LIVE }
+            .sortedWith(compareBy({ e -> e.item.startMillis?.let { ListStatus.isAlwaysOn(it, now) } == true }, { startKey(it) }))
         val soon = all.filter { it.status == ListStatus.SOON }.sortedBy { startKey(it) }
         val later = all.filter {
             it.status == ListStatus.UPCOMING && (it.item.startMillis ?: Long.MAX_VALUE) - now <= UPCOMING_WINDOW_MS

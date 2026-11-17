@@ -68,6 +68,12 @@ object ListStatus {
             if (ra != rb) return@Comparator ra.compareTo(rb)
             val sa = a.first.startMillis
             val sb = b.first.startMillis
+            // Real live events before always-on channels.
+            if (a.second == LIVE && sa != null && sb != null) {
+                val aa = isAlwaysOn(sa, nowMillis)
+                val ab = isAlwaysOn(sb, nowMillis)
+                if (aa != ab) return@Comparator if (aa) 1 else -1
+            }
             when (a.second) {
                 LIVE, SOON, UPCOMING -> when {
                     sa == null && sb == null -> 0

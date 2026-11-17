@@ -66,4 +66,10 @@ class HomeFeedTest {
         assertEquals("Always on", HomeFeed.whenLine(item("a", now - 1234 * hour), now, z, Locale.US))
         assertEquals("Always on", HomeFeed.whenLine(item("a", now - 25 * hour), now, z, Locale.US))
     }
+
+    @Test fun realLiveEventsBeforeAlwaysOnChannels() {
+        val a = SavedList("a", "A", "https://a.example")
+        val rows = HomeFeed.liveRow(listOf(a to listOf(item("channel", now - 30 * 24 * hour), item("game", now - 20 * min))), now)
+        assertEquals(listOf("game", "channel"), rows.map { it.item.title })
+    }
 }
