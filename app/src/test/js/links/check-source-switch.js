@@ -51,6 +51,13 @@ const srv = http.createServer((q, r) => {
   r = await run('find');
   eq('g: numbered pointer-cursor spans, active not shown', [r.found, r.count, r.active], [true, 3, -1]);
 
+  // Expanded chat widget pinned to the viewport: it must not be taken for the player.
+  await p.setViewport({ width: 960, height: 540, deviceScaleFactor: 2 });
+  await open('h.html');
+  r = await run('find');
+  eq('h: pinned chat widget is the largest frame, still finds the selector', [r.found, r.count, r.active], [true, 4, 0]);
+  await p.setViewport({ width: 1280, height: 720 });
+
   console.log(fail ? 'FAILED' : 'all passed');
   await br.close(); srv.close(); process.exit(fail ? 1 : 0);
 });

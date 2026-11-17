@@ -34,6 +34,14 @@
       try { vs[i].muted = true; var p = vs[i].play(); if (p && p.catch) p.catch(function () {}); } catch (e) {}
     }
   }
+  /** True when the element or an ancestor (up to body) is pinned to the viewport: fixed or sticky. */
+  function pinned(e) {
+    for (var n = e; n && n !== document.body; n = n.parentElement) {
+      var p = getComputedStyle(n).position;
+      if (p === 'fixed' || p === 'sticky') return true;
+    }
+    return false;
+  }
   /** The player box: the largest visible video; else a large 16:9-ish box holding a video, canvas or
    *  frame; else, inside a frame that fills most of itself with nothing else, the frame itself. */
   function playerBox() {
@@ -41,14 +49,14 @@
     var vs = document.getElementsByTagName('video');
     for (i = 0; i < vs.length; i++) {
       r = rectOf(vs[i]);
-      if (r && r.width * r.height > ba && r.width * r.height >= 20000) { ba = r.width * r.height; best = r; }
+      if (r && !pinned(vs[i]) && r.width * r.height > ba && r.width * r.height >= 20000) { ba = r.width * r.height; best = r; }
     }
     if (best) return best;
     var all = document.querySelectorAll('div,section,figure,main,article');
     var vp = innerWidth * innerHeight;
     for (i = 0; i < all.length && i < 3000; i++) {
       r = rectOf(all[i]);
-      if (!r) continue;
+      if (!r || pinned(all[i])) continue;
       var a = r.width * r.height, ar = r.width / r.height;
       if (a < vp * 0.12 || a < 20000 || ar < 1.3 || ar > 2.4) continue;
       if (!all[i].querySelector('video,canvas,iframe,object,embed')) continue;

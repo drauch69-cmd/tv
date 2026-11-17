@@ -66,11 +66,20 @@
     return false;
   }
 
+  /** True when the element or an ancestor (up to body) is pinned to the viewport: fixed or sticky. */
+  function pinned(e) {
+    for (var n = e; n && n !== document.body; n = n.parentElement) {
+      var p = getComputedStyle(n).position;
+      if (p === 'fixed' || p === 'sticky') return true;
+    }
+    return false;
+  }
+
   function playerBox() {
     var best = null, ba = 0, els = document.querySelectorAll('video,iframe');
     for (var i = 0; i < els.length; i++) {
       var r = visibleRect(els[i]);
-      if (!r) continue;
+      if (!r || pinned(els[i])) continue;
       var a = r.width * r.height;
       if (a >= MIN_PLAYER_AREA && a > ba) { ba = a; best = r; }
     }

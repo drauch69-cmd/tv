@@ -745,6 +745,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
               document.querySelectorAll('video,iframe').forEach(function(e){
                 var r=e.getBoundingClientRect(), cs=getComputedStyle(e);
                 if(cs.visibility==='hidden'||cs.display==='none')return;
+                for(var pn=e;pn&&pn!==document.body;pn=pn.parentElement){var pp=getComputedStyle(pn).position;if(pp==='fixed'||pp==='sticky')return;}
                 var L=Math.max(0,r.left),T=Math.max(0,r.top),R=Math.min(innerWidth,r.right),B=Math.min(innerHeight,r.bottom);
                 var a=(R-L)*(B-T);
                 if(R>L&&B>T&&a>=40000&&a>ba){ba=a;best={x:(L+R)/2,y:(T+B)/2};}
