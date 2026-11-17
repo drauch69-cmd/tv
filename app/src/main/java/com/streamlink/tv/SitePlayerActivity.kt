@@ -552,8 +552,8 @@ class SitePlayerActivity : Activity() {
 
     private fun clickPointer() {
         tapAt(pointerX, pointerY)
-        pointer.pressed = true
-        main.postDelayed({ pointer.pressed = false }, 150)
+        pointer.clicking = true
+        main.postDelayed({ pointer.clicking = false }, 150)
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -639,7 +639,7 @@ class SitePlayerActivity : Activity() {
             lineTo(10f * d, 19f * d); lineTo(7f * d, 12f * d); lineTo(12.5f * d, 12f * d); close()
         }
 
-        var pressed = false
+        var clicking = false
             set(v) { field = v; invalidate() }
 
         init {
@@ -652,7 +652,7 @@ class SitePlayerActivity : Activity() {
             canvas.translate(tipPx, tipPx)
             canvas.drawPath(arrow, fill)
             canvas.drawPath(arrow, line)
-            if (pressed) canvas.drawCircle(0f, 0f, 14f * d, ring)
+            if (clicking) canvas.drawCircle(0f, 0f, 14f * d, ring)
             canvas.restore()
         }
     }
