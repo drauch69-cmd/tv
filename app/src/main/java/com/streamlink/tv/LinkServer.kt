@@ -22,6 +22,18 @@ class LinkServer(
     private val report: () -> String = { "" },
     /** The saved-sample zip for GET /sample, or null if no stream has been loaded yet. */
     private val sample: () -> ByteArray? = { null },
+    /** GET /lists: JSON of the saved stream lists. */
+    private val lists: () -> String = { "{\"lists\":[]}" },
+    /** GET /list?id=: JSON of one list's cached events, or null if there is no such list. */
+    private val list: (String) -> String? = { null },
+    /** POST /lists/add (url, name): null on success, otherwise the reason it was refused. */
+    private val onListAdd: (String, String) -> String? = { _, _ -> "Stream lists are not available" },
+    /** POST /lists/remove (id): false if there is no such list. */
+    private val onListRemove: (String) -> Boolean = { false },
+    /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
+    private val onListRefresh: (String) -> Boolean = { false },
+    /** POST /list/play (id, url, start): plays an event of a list; start is its start time (epoch ms) if known. */
+    private val onListPlay: (String, String, Long?) -> Boolean = { _, _, _ -> false },
 ) {
     private var socket: ServerSocket? = null
     @Volatile private var running = false
@@ -102,7 +114,7 @@ class LinkServer(
 
                 // Links and commands only from our own phone page or a Shortcut, never from another
                 // website (which a browser would label with its own Origin / Sec-Fetch-Site).
-                val changes = path == "/play" || path == "/cmd"
+                val changes = path in CHANGING_PATHS
                 if (changes && method != "POST") {
                     respond(c, 405, "text/plain; charset=utf-8", "Use POST")
                     return
@@ -127,6 +139,7 @@ class LinkServer(
     private fun route(c: Socket, method: String, path: String, query: String, host: String, contentType: String, body: String) {
         val html = "text/html; charset=utf-8"
         val text = "text/plain; charset=utf-8"
+        val json = "application/json; charset=utf-8"
         when {
             method == "GET" && pages.containsKey(path) ->
                 respond(c, 200, html, pages.getValue(path).replace("{{ADDR}}", host))
@@ -168,6 +181,43 @@ class LinkServer(
                 }
             }
 
+            method == "GET" && path == "/lists" -> respond(c, 200, json, lists())
+            method == "GET" && path == "/list" -> {
+                val id = formValue(query, "id")
+                val body1 = if (id.isNullOrEmpty()) null else try { list(id) } catch (_: Exception) { null }
+                if (body1 == null) respond(c, 404, text, "No such list") else respond(c, 200, json, body1)
+            }
+
+            // The routes below only change things; handle() already insists on POST + same origin.
+            method == "POST" && path == "/lists/add" -> {
+                val url = normalize(formValue(body, "url"))
+                if (url == null) {
+                    respond(c, 400, text, "That doesn't look like a web link.")
+                } else {
+                    val problem = try { onListAdd(url, (formValue(body, "name") ?: "").take(200)) } catch (_: Exception) { "Could not save the list" }
+                    if (problem == null) respond(c, 200, text, "Saved as a stream list") else respond(c, 400, text, problem)
+                }
+            }
+            method == "POST" && path == "/lists/remove" -> {
+                val id = formValue(body, "id")
+                if (!id.isNullOrEmpty() && onListRemove(id)) respond(c, 200, text, "Removed") else respond(c, 404, text, "No such list")
+            }
+            method == "POST" && path == "/list/refresh" -> {
+                val id = formValue(body, "id")
+                if (!id.isNullOrEmpty() && onListRefresh(id)) respond(c, 200, text, "Refreshing") else respond(c, 404, text, "No such list")
+            }
+            method == "POST" && path == "/list/play" -> {
+                val id = formValue(body, "id")
+                val url = normalize(formValue(body, "url"))
+                if (id.isNullOrEmpty() || url == null) {
+                    respond(c, 400, text, "Missing list or link")
+                } else if (onListPlay(id, url, formValue(body, "start")?.toLongOrNull())) {
+                    respond(c, 200, text, "Sent to TV")
+                } else {
+                    respond(c, 404, text, "No such list")
+                }
+            }
+
             else -> respond(c, 404, text, "Not found")
         }
     }
@@ -182,6 +232,8 @@ class LinkServer(
         s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
 
     companion object {
+        /** Routes that change something: POST only, and never from another website. */
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/list/refresh", "/list/play")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

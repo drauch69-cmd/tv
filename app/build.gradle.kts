@@ -71,4 +71,6 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("androidx.webkit:webkit:1.12.1")
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM tests (the Android stubs are not usable there).
+    testImplementation("org.json:json:20240303")
 }

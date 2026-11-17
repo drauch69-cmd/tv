@@ -17,6 +17,24 @@ An Android TV app: send a web link from your phone, and the TV finds the video o
 3. On the TV: arrow keys show the controls, OK pauses, Back returns to the link screen.
    Recent links are listed too; press OK to replay one, hold OK to remove it.
 
+### Stream lists
+
+Some sites have an index page that lists one-time events (each with its own page). Save that page once and
+the TV reads it fresh every time you open it.
+
+1. On the phone page, paste the index page's link, optionally type a name, and tap **Add as stream list**.
+2. On the TV home screen the list appears under **Stream lists** (hold OK to remove it). Press OK to open it:
+   you see the events at once (from the last read, with "updated X ago"), then they refresh, and again every 2 minutes.
+   Each event has a badge: LIVE, Starts in 12 min, or its day and time. Finished events are hidden.
+3. Press OK on an event to play it. The phone page also has a **Stream lists** section: tap a list to see its events
+   (with a **Refresh** button) and tap an event to play it on the TV.
+
+**Waiting for it to start:** if an event has no stream yet (it starts later, started less than 30 minutes ago, or has
+no time on the page), the TV shows a waiting screen with the title, start time and a countdown, and looks again every
+45 seconds. When the stream appears the player starts by itself. It gives up 3 hours after the start time (or after
+3 hours of waiting when there is no time). Press Back, or **Stop waiting** on the phone, to cancel. The screen stays
+awake while waiting. Links sent directly with **Play on TV** behave as before.
+
 ### Phone remote
 
 Once something is playing, the phone page turns into a remote: Play/Pause, Jump to live,

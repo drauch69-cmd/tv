@@ -11,6 +11,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 class LinkServerTest {
     private val links = CopyOnWriteArrayList<String>()
     private val commands = CopyOnWriteArrayList<Pair<String, String?>>()
+    private val added = CopyOnWriteArrayList<Pair<String, String>>()
+    private val removed = CopyOnWriteArrayList<String>()
+    private val refreshed = CopyOnWriteArrayList<String>()
+    private val played = CopyOnWriteArrayList<Triple<String, String, Long?>>()
     private lateinit var server: LinkServer
     private var port = 0
 
@@ -23,6 +27,12 @@ class LinkServerTest {
             status = { "Waiting" },
             state = { "{\"mode\":\"idle\"}" },
             report = { "report text" },
+            lists = { "{\"lists\":[{\"id\":\"a1\"}]}" },
+            list = { id -> if (id == "a1") "{\"id\":\"a1\",\"items\":[]}" else null },
+            onListAdd = { url, name -> added.add(url to name); if (url.contains("full")) "Too many lists" else null },
+            onListRemove = { id -> removed.add(id); id == "a1" },
+            onListRefresh = { id -> refreshed.add(id); id == "a1" },
+            onListPlay = { id, url, start -> played.add(Triple(id, url, start)); id == "a1" },
         )
         port = server.start()
     }
@@ -122,5 +132,66 @@ class LinkServerTest {
         post("/cmd", "application/x-www-form-urlencoded", "c=quality&v=2")
         assertEquals("quality" to "2", commands.last())
         assertTrue(post("/cmd", "application/x-www-form-urlencoded", "").startsWith("HTTP/1.1 400"))
+    }
+
+    private val form = "application/x-www-form-urlencoded"
+
+    @Test
+    fun listsAndListAreReadable() {
+        assertTrue(request("GET /lists HTTP/1.1\r\nHost: x\r\n\r\n").contains("\"a1\""))
+        val one = request("GET /list?id=a1 HTTP/1.1\r\nHost: x\r\n\r\n")
+        assertTrue(one.startsWith("HTTP/1.1 200") && one.contains("application/json"))
+        assertTrue(request("GET /list?id=zz HTTP/1.1\r\nHost: x\r\n\r\n").startsWith("HTTP/1.1 404"))
+        assertTrue(request("GET /list HTTP/1.1\r\nHost: x\r\n\r\n").startsWith("HTTP/1.1 404"))
+    }
+
+    @Test
+    fun addListNormalizesAndReportsProblems() {
+        val ok = post("/lists/add", form, "url=https%3A%2F%2Fevents.example%2Findex&name=My%20list")
+        assertTrue(ok.startsWith("HTTP/1.1 200"))
+        assertEquals("https://events.example/index" to "My list", added.last())
+        assertTrue(post("/lists/add", form, "url=events.example&name=").startsWith("HTTP/1.1 200"))
+        assertEquals("https://events.example" to "", added.last())
+        assertTrue(post("/lists/add", form, "url=not%20a%20link").startsWith("HTTP/1.1 400"))
+        assertTrue(post("/lists/add", form, "url=https%3A%2F%2Ffull.example").startsWith("HTTP/1.1 400"))
+        assertEquals(3, added.size)
+    }
+
+    @Test
+    fun removeRefreshAndPlay() {
+        assertTrue(post("/lists/remove", form, "id=a1").startsWith("HTTP/1.1 200"))
+        assertTrue(post("/lists/remove", form, "id=zz").startsWith("HTTP/1.1 404"))
+        assertTrue(post("/list/refresh", form, "id=a1").startsWith("HTTP/1.1 200"))
+        assertTrue(post("/list/refresh", form, "id=zz").startsWith("HTTP/1.1 404"))
+        assertEquals(listOf("a1", "zz"), refreshed.toList())
+        val r = post("/list/play", form, "id=a1&url=https%3A%2F%2Fevents.example%2Fe%2F1&start=1234567890123")
+        assertTrue(r.contains("Sent to TV"))
+        assertEquals(Triple("a1", "https://events.example/e/1", 1234567890123L), played.last())
+        post("/list/play", form, "id=a1&url=https%3A%2F%2Fevents.example%2Fe%2F2")
+        assertEquals(Triple("a1", "https://events.example/e/2", null), played.last())
+        assertTrue(post("/list/play", form, "id=a1&url=nope%20nope").startsWith("HTTP/1.1 400"))
+        assertTrue(post("/list/play", form, "url=https%3A%2F%2Fevents.example").startsWith("HTTP/1.1 400"))
+    }
+
+    @Test
+    fun listChangesAreRefusedFromGetAndFromOtherWebsites() {
+        val routes = listOf("/lists/add" to "url=https%3A%2F%2Fevil.example", "/lists/remove" to "id=a1",
+            "/list/refresh" to "id=a1", "/list/play" to "id=a1&url=https%3A%2F%2Fevil.example")
+        for ((path, body) in routes) {
+            // GET (even with the data in the query) is refused.
+            assertTrue(path, request("GET $path?$body HTTP/1.1\r\nHost: 192.168.1.50:8080\r\n\r\n").startsWith("HTTP/1.1 405"))
+            // Another website's Origin or Sec-Fetch-Site is refused.
+            val withOrigin = request("POST $path HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: https://evil.example\r\n" +
+                "Content-Type: $form\r\nContent-Length: ${body.length}\r\n\r\n$body")
+            assertTrue(path, withOrigin.startsWith("HTTP/1.1 403"))
+            val cross = request("POST $path HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nSec-Fetch-Site: cross-site\r\n" +
+                "Content-Type: $form\r\nContent-Length: ${body.length}\r\n\r\n$body")
+            assertTrue(path, cross.startsWith("HTTP/1.1 403"))
+        }
+        assertTrue(added.isEmpty() && removed.isEmpty() && refreshed.isEmpty() && played.isEmpty())
+        // Our own page is fine.
+        val ok = request("POST /list/refresh HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: http://192.168.1.50:8080\r\n" +
+            "Sec-Fetch-Site: same-origin\r\nContent-Type: $form\r\nContent-Length: 5\r\n\r\nid=a1")
+        assertTrue(ok.startsWith("HTTP/1.1 200"))
     }
 }

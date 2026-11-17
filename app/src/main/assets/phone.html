@@ -30,6 +30,15 @@
   pre{white-space:pre-wrap;word-break:break-all;font-size:12px;line-height:1.45;color:var(--dim);background:var(--bg);border-radius:10px;padding:12px;max-height:50vh;overflow:auto;margin:12px 0}
   .foot{margin-top:26px;font-size:15px;text-align:center}
   a{color:var(--accent);text-decoration:none}
+  .lrow{display:flex;gap:8px;margin-top:8px}
+  .lrow .main,.ev{flex:1;text-align:left;font-weight:600;display:block;width:100%;min-width:0}
+  .lrow .x{flex:none;width:48px;padding:13px 0;color:var(--dim)}
+  .sub{font-size:14px;font-weight:400;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+  .ttl{overflow-wrap:anywhere}
+  .ev{margin-top:8px}
+  .ev .bd{display:inline-block;font-size:12px;font-weight:700;padding:3px 7px;border-radius:6px;background:#4a5470;color:#fff;margin-bottom:6px}
+  .ev .bd.live{background:var(--red)} .ev .bd.soon{background:#e08a1e} .ev .bd.upcoming{background:#3a5fa8}
+  .err{color:#ff8a94;font-size:15px;margin:8px 2px;overflow-wrap:anywhere}
   [hidden]{display:none!important}
 </style>
 </head>
@@ -39,6 +48,8 @@
 <form id="f">
   <input id="u" type="url" inputmode="url" placeholder="Paste a link" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
   <button class="primary" type="submit">Play on TV</button>
+  <input id="lname" type="text" maxlength="60" placeholder="Name for a stream list (optional)" autocomplete="off" style="margin-top:10px">
+  <button class="ghost" type="button" id="addlist" style="margin-top:8px">Add as stream list</button>
 </form>
 
 <div id="status" class="status">Connecting to the TV…</div>
@@ -62,6 +73,24 @@
     <button type="button" class="ghost" id="cleanbtn" data-c="clean">Try the clean browser player</button>
     <button type="button" class="ghost" id="delaybtn">Live delay: Smooth</button>
     <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
+  </div>
+</section>
+
+<section id="waitcard" class="card" hidden>
+  <div class="now"><span id="wtitle"></span></div>
+  <button type="button" class="ghost" data-c="stop">Stop waiting</button>
+</section>
+
+<section id="lists" class="card" hidden>
+  <div id="listsView">
+    <div class="now" style="margin-bottom:0">Stream lists</div>
+    <div id="listItems"></div>
+  </div>
+  <div id="listDetail" hidden>
+    <div class="grid"><button type="button" id="lback">&lsaquo; Back</button><button type="button" id="lrefresh">Refresh</button></div>
+    <div id="lhead" class="status" style="margin:12px 2px 4px"></div>
+    <div id="lerr" class="err" hidden></div>
+    <div id="events"></div>
   </div>
 </section>
 
@@ -100,6 +129,104 @@
       $('status').textContent = 'Could not reach the TV. Is StreamLink open?';
     });
   };
+
+  function el(tag, cls, text){
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text; // never innerHTML: titles come from websites
+    return e;
+  }
+
+  // Add the pasted link as a stream list
+  $('addlist').onclick = function(){
+    var u = $('u').value.trim();
+    if (!u) { $('status').textContent = 'Paste the link of the index page first.'; return; }
+    $('status').textContent = 'Saving…';
+    post('/lists/add', 'url=' + encodeURIComponent(u) + '&name=' + encodeURIComponent($('lname').value.trim())).then(function(r){
+      return r.text().then(function(t){
+        $('status').textContent = t;
+        if (r.ok) { $('u').value = ''; $('lname').value = ''; $('u').blur(); loadLists(); setTimeout(loadLists, 3000); }
+      });
+    }).catch(function(){ $('status').textContent = 'Could not reach the TV. Is StreamLink open?'; });
+  };
+
+  // Stream lists
+  var openId = null, listsKey = '', detailKey = '';
+  function showDetail(on){
+    $('listsView').hidden = on; $('listDetail').hidden = !on;
+    if (!on) { openId = null; detailKey = ''; }
+  }
+  function loadLists(){
+    fetch('/lists', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+      var ls = d.lists || [];
+      $('lists').hidden = ls.length === 0 && !openId;
+      var key = JSON.stringify(ls);
+      if (key === listsKey) return;
+      listsKey = key;
+      var box = $('listItems'); box.textContent = '';
+      ls.forEach(function(l){
+        var row = el('div', 'lrow');
+        var b = el('button', 'main'); b.type = 'button';
+        b.appendChild(el('div', 'ttl', l.name));
+        var sub = l.host + ' · ' + (l.refreshing ? 'refreshing…' : (l.readAt ? 'updated ' + l.ago : 'not read yet'));
+        if (l.count >= 0) sub += ' · ' + l.count + (l.count === 1 ? ' event' : ' events');
+        b.appendChild(el('div', 'sub', sub));
+        b.onclick = function(){ openId = l.id; detailKey = ''; showDetail(true); $('events').textContent = ''; $('lhead').textContent = l.name; loadDetail(); };
+        var x = el('button', 'x', '✕'); x.type = 'button'; x.setAttribute('aria-label', 'Remove ' + l.name);
+        x.onclick = function(){
+          if (!confirm('Remove the stream list “' + l.name + '”?')) return;
+          post('/lists/remove', 'id=' + encodeURIComponent(l.id)).then(function(){ listsKey = ''; loadLists(); });
+        };
+        row.appendChild(b); row.appendChild(x); box.appendChild(row);
+      });
+    }).catch(function(){});
+  }
+  function loadDetail(){
+    var id = openId; if (!id) return;
+    fetch('/list?id=' + encodeURIComponent(id), {cache:'no-store'}).then(function(r){
+      if (r.status === 404) { showDetail(false); listsKey = ''; loadLists(); return null; }
+      return r.json();
+    }).then(function(d){
+      if (!d || id !== openId) return;
+      var key = JSON.stringify(d);
+      $('lrefresh').textContent = d.refreshing ? 'Refreshing…' : 'Refresh';
+      $('lrefresh').disabled = !!d.refreshing;
+      if (key === detailKey) return;
+      detailKey = key;
+      $('lhead').textContent = d.name + ' · ' + (d.readAt ? 'updated ' + d.ago : 'not read yet');
+      $('lerr').hidden = !d.error; $('lerr').textContent = d.error || '';
+      var box = $('events'); box.textContent = '';
+      if (!d.items.length) box.appendChild(el('div', 'status', d.readAt ? 'No upcoming events found.' : 'Not read yet. Tap Refresh.'));
+      d.items.forEach(function(it){
+        var b = el('button', 'ev'); b.type = 'button';
+        b.appendChild(el('span', 'bd ' + (/^[a-z]+$/.test(it.status) ? it.status : ''), it.badge));
+        b.appendChild(el('div', 'ttl', it.title));
+        var meta = [it.subtitle, it.section].filter(function(x){ return x; }).join(' · ');
+        if (meta) b.appendChild(el('div', 'sub', meta));
+        b.onclick = function(){
+          var body = 'id=' + encodeURIComponent(id) + '&url=' + encodeURIComponent(it.url);
+          if (typeof it.start === 'number') body += '&start=' + it.start;
+          $('status').textContent = 'Sending…';
+          post('/list/play', body).then(function(r){ return r.text(); }).then(function(t){ $('status').textContent = t; setTimeout(tick, 400); })
+            .catch(function(){ $('status').textContent = 'Could not reach the TV. Is StreamLink open?'; });
+          window.scrollTo(0, 0);
+        };
+        box.appendChild(b);
+      });
+    }).catch(function(){});
+  }
+  $('lback').onclick = function(){ showDetail(false); listsKey = ''; loadLists(); };
+  $('lrefresh').onclick = function(){
+    if (!openId) return;
+    $('lrefresh').textContent = 'Refreshing…'; $('lrefresh').disabled = true;
+    post('/list/refresh', 'id=' + encodeURIComponent(openId)).then(function(){ setTimeout(loadDetail, 400); });
+  };
+  var beats = 0;
+  function listsTick(){
+    beats++;
+    if (openId) { if (beats % 2 === 0 || $('lrefresh').disabled) loadDetail(); }
+    else if (beats % 3 === 0) loadLists();
+  }
 
   // Remote buttons
   var buttons = document.querySelectorAll('[data-c]');
@@ -141,6 +268,9 @@
     fetch('/state', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
       failures = 0;
       $('status').textContent = s.status || '';
+      var waiting = s.mode === 'waiting';
+      $('waitcard').hidden = !waiting;
+      $('wtitle').textContent = s.title || '';
       var clean = s.mode === 'clean', player = s.mode === 'player' || clean, site = s.mode === 'site';
       $('remote').hidden = !(player || site);
       if (!(player || site)) return;
@@ -203,7 +333,9 @@
   };
 
   tick();
+  loadLists();
   setInterval(tick, 1500);
+  setInterval(listsTick, 1500);
 })();
 </script>
 </body>
