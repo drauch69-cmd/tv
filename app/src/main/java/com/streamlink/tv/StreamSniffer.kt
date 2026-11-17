@@ -308,7 +308,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
 
             override fun blockResource(request: WebResourceRequest): Boolean =
-                linksMode && playlistSeen && isSegmentUrl(request.url.toString())
+                // Once this link's playlist is known, nothing else is needed until the next click: block
+                // all but playlists (also video pieces disguised as pictures, which have no video extension).
+                linksMode && playlistSeen && !isStreamUrl(request.url.toString())
 
             override fun onLoaded() {
                 if (linkState == 2) linkLoadedSinceClick = true
