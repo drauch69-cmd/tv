@@ -67,6 +67,32 @@ object LinkOrder {
     fun sourceLabel(linkLabel: String, host: String, kind: String, responded: Boolean): String =
         (if (linkLabel.isNotBlank()) linkLabel else host) + " · " + kind + (if (responded) "" else " · didn't respond")
 
+    private fun hostOf(url: String): String? = try { java.net.URI(url).host?.lowercase() } catch (_: Exception) { null }
+
+    private fun noFragment(url: String) = url.substringBefore('#')
+
+    /** A frame URL worth recording as a link's player: a real page of a non-ad host, other than [previous]. */
+    fun isNewPlayerFrame(url: String, previous: String): Boolean {
+        if (!(url.startsWith("http://") || url.startsWith("https://"))) return false
+        val host = hostOf(url) ?: return false
+        if (AdBlock.isBlockedHost(host)) return false
+        return previous.isEmpty() || noFragment(url) != noFragment(previous)
+    }
+
+    /** Players of the alternate links still worth opening on their own: no ad hosts, no repeats, not the default's own frame. */
+    fun playersToOpen(defaultPlayer: String, players: List<Pair<String, String>>, max: Int = MAX_LINKS): List<Pair<String, String>> {
+        val seen = HashSet<String>()
+        if (defaultPlayer.isNotEmpty()) seen.add(noFragment(defaultPlayer))
+        val out = ArrayList<Pair<String, String>>()
+        for (p in players) {
+            if (out.size >= max) break
+            if (!isNewPlayerFrame(p.second, "")) continue
+            if (!seen.add(noFragment(p.second))) continue
+            out.add(p)
+        }
+        return out
+    }
+
     /** The next link still to try (lowest index not tried yet), or null when all were. */
     fun nextToTry(count: Int, tried: Set<Int>): Int? = (0 until count).firstOrNull { it !in tried }
 

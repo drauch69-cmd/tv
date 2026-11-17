@@ -990,27 +990,73 @@ class PlayerActivity : Activity() {
         }
         val gen = linkGen
         linkRunning = true
+        linksAdded = 0
         refreshOverlayIfShown()
         sn.sniff(page, collectLinks = true) { found ->
             if (gen != linkGen || isDestroyed) return@sniff
-            linkRunning = false
-            val cur = set ?: return@sniff
-            val merged = LinkOrder.mergeExtra(cur.sources, found.sources)
-            val added = merged.size - cur.sources.size
-            if (added > 0) {
-                // Appended: the playing source keeps its index; "Trying the next source" can now reach these too.
-                val updated = cur.copy(sources = merged)
-                set = updated
-                if (Session.current === cur) Session.current = updated
-                publishSnapshot()
-                Report.log("Links: $added more sources available (→ Source)")
-                Toast.makeText(this, "$added more sources available · OK, then Source", Toast.LENGTH_LONG).show()
+            if (set == null) { linkRunning = false; return@sniff }
+            linksAdded = addLinkSources(found.sources, "")
+            val players = LinkOrder.playersToOpen(found.defaultPlayer, found.linkPlayers)
+            Report.log("Links: ${found.linkPlayers.size} link player(s) seen, ${players.size} to open on their own")
+            if (players.isEmpty()) {
+                finishLinkRun()
+            } else {
+                openLinkPlayer(sn, page, players, 0, gen)
             }
-            refreshOverlayIfShown()
         }
     }
 
+    private var linksAdded = 0
+
+    /** Merges sources found by a link run (dedup by [LinkOrder.mergeExtra]); each is shown under [label] when given. Returns how many were added. */
+    private fun addLinkSources(found: List<Source>, label: String): Int {
+        val cur = set ?: return 0
+        val extra = if (label.isEmpty()) found else found.map { it.copy(label = LinkOrder.sourceLabel(label, Report.host(it.url), "single quality", true), isDefaultLink = false) }
+        val merged = LinkOrder.mergeExtra(cur.sources, extra)
+        val added = merged.size - cur.sources.size
+        if (added > 0) {
+            // Appended: the playing source keeps its index; "Trying the next source" can now reach these too.
+            val updated = cur.copy(sources = merged)
+            set = updated
+            if (Session.current === cur) Session.current = updated
+            publishSnapshot()
+            refreshOverlayIfShown()
+        }
+        return added
+    }
+
+    /** The players the link run saw are opened one at a time, each in a normal (light) sniff in the same hidden holder. */
+    private fun openLinkPlayer(sn: StreamSniffer, page: String, players: List<Pair<String, String>>, i: Int, gen: Int) {
+        if (gen != linkGen || isDestroyed) return
+        if (i >= players.size) { finishLinkRun(); return }
+        val (label, frame) = players[i]
+        Report.log("Links: opening $label's player (${Report.host(frame)})…")
+        sn.sniff(frame, collectLinks = false, referer = page, light = true) { r ->
+            if (gen != linkGen || isDestroyed) return@sniff
+            if (r.sources.isEmpty()) {
+                Report.log("Links: $label: no stream" + if (r.reason.isNotEmpty()) " (${r.reason})" else "")
+            } else {
+                val n = addLinkSources(r.sources, label)
+                Report.log("Links: $label: stream found" + if (n == 0) " (already known)" else "")
+                linksAdded += n
+            }
+            // Next one only after this sniff has fully ended and its page is gone.
+            main.post { openLinkPlayer(sn, page, players, i + 1, gen) }
+        }
+    }
+
+    private fun finishLinkRun() {
+        linkRunning = false
+        val n = linksAdded
+        if (n > 0) {
+            Report.log("Links: $n more sources available (→ Source)")
+            Toast.makeText(this, "$n more sources: Source", Toast.LENGTH_LONG).show()
+        }
+        refreshOverlayIfShown()
+    }
+
     private fun cancelLinkRun() {
+        linkGen++ // also drops a queued "open the next link player"
         main.removeCallbacks(linkCheck)
         linkSniffer?.cancel()
         linkRunScheduled = false

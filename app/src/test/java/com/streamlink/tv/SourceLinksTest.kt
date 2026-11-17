@@ -124,4 +124,28 @@ class SourceLinksTest {
         assertEquals(false, StreamSniffer.isSegmentUrl("https://c.example/v/manifest.mpd?a=seg.ts"))
         assertEquals(false, StreamSniffer.isSegmentUrl("https://c.example/page.html"))
     }
+
+    @Test fun newPlayerFrameNeedsRealNonAdPageDifferentFromPrevious() {
+        assertEquals(true, LinkOrder.isNewPlayerFrame("https://p2.example/embed/2", "https://p1.example/embed/1"))
+        assertEquals(false, LinkOrder.isNewPlayerFrame("https://p1.example/embed/1#x", "https://p1.example/embed/1"))
+        assertEquals(false, LinkOrder.isNewPlayerFrame("about:blank", ""))
+        assertEquals(false, LinkOrder.isNewPlayerFrame("javascript:void(0)", ""))
+        assertEquals(false, LinkOrder.isNewPlayerFrame("https://ads.doubleclick.net/x", ""))
+        assertEquals(false, LinkOrder.isNewPlayerFrame("https://sub.exoclick.com/x", "https://p1.example/a"))
+        assertEquals(true, LinkOrder.isNewPlayerFrame("https://p1.example/a", ""))
+    }
+
+    @Test fun playersToOpenSkipsAdsDuplicatesAndTheDefault() {
+        val players = listOf(
+            "A-1" to "https://p1.example/embed/1",
+            "A-2" to "https://p2.example/embed/2",
+            "A-3" to "https://p2.example/embed/2#again",
+            "A-4" to "https://ads.exoclick.com/f",
+            "A-5" to "about:blank",
+            "A-6" to "https://p3.example/embed/3",
+        )
+        assertEquals(listOf("A-2", "A-6"), LinkOrder.playersToOpen("https://p1.example/embed/1", players).map { it.first })
+        assertEquals(listOf("A-1", "A-2", "A-6"), LinkOrder.playersToOpen("", players).map { it.first })
+        assertEquals(1, LinkOrder.playersToOpen("", players, max = 1).size)
+    }
 }
