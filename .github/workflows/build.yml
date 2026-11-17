@@ -23,6 +23,21 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
+      # hls.js (Apache-2.0) for the clean browser player. Pinned; fetched here instead of being
+      # committed, then bundled into the APK's assets by the build below.
+      - name: Fetch hls.js
+        run: |
+          set -e
+          HLS_VERSION=1.6.13
+          mkdir -p "$RUNNER_TEMP/hls"
+          cd "$RUNNER_TEMP/hls"
+          npm pack "hls.js@$HLS_VERSION" --silent
+          tar -xzf "hls.js-$HLS_VERSION.tgz"
+          cp package/dist/hls.min.js "$GITHUB_WORKSPACE/app/src/main/assets/hls.min.js"
+          cp package/LICENSE "$GITHUB_WORKSPACE/app/src/main/assets/hls.js.LICENSE.txt"
+          echo "$HLS_VERSION" > "$GITHUB_WORKSPACE/app/src/main/assets/hls.js.VERSION.txt"
+          ls -l "$GITHUB_WORKSPACE/app/src/main/assets/"
+
       - name: Build
         run: |
           set -o pipefail

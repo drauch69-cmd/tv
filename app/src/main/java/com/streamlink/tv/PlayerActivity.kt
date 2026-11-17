@@ -518,7 +518,7 @@ class PlayerActivity : Activity() {
             Report.log("Retrying with the TV's software video decoder")
             play()
         } else {
-            openSitePlayer("video arrived but couldn't be played, even with the software decoder")
+            openCleanPlayer("video arrived but couldn't be played, even with the software decoder")
         }
     }
 
@@ -653,7 +653,7 @@ class PlayerActivity : Activity() {
             reconnect(why)
             return
         }
-        openSitePlayer(why)
+        openCleanPlayer(why)
     }
 
     /** Reload the page invisibly to get a fresh stream link (they often expire), then resume at live. */
@@ -674,7 +674,7 @@ class PlayerActivity : Activity() {
                         reconnects++
                         reconnect(why)
                     } else {
-                        openSitePlayer(why)
+                        openCleanPlayer(why)
                     }
                 } else {
                     set = fresh
@@ -705,6 +705,16 @@ class PlayerActivity : Activity() {
                 loadSession()
             }
         }
+    }
+
+    /** Playback failed: next try is the clean browser player (hls.js), which falls back to the site itself. */
+    private fun openCleanPlayer(why: String) {
+        val s = set
+        if (s == null || s.sources.isEmpty()) return openSitePlayer(why)
+        Report.log("Switching to the clean browser player ($why)")
+        release()
+        startActivity(CleanPlayerActivity.intent(this, sourceIndex))
+        finish()
     }
 
     private fun openSitePlayer(why: String, pageUrl: String? = null) {
@@ -744,6 +754,7 @@ class PlayerActivity : Activity() {
             "quality" -> setQuality(v?.toIntOrNull() ?: -1)
             "source" -> v?.toIntOrNull()?.let { switchSource(it) }
             "site" -> openSitePlayer("requested from phone")
+            "clean" -> openCleanPlayer("requested from phone")
             "open" -> v?.let { openLink(it) }
             "tunnel" -> setTunneling(v == "on")
             "delay" -> setSmoothLive(v != "low")
