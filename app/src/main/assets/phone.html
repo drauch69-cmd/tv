@@ -151,6 +151,8 @@
   </div>
   <div class="section" style="margin-top:18px">More</div>
   <div class="card">
+    <button type="button" class="ghost" id="prefbtn">Head start while browsing: On</button>
+    <p class="small" style="margin:8px 0 14px">While an event stays highlighted on the TV for a couple of seconds, the TV looks for its stream in the background, so pressing OK starts faster.</p>
     <a href="/sample" download style="font-weight:600;font-size:16px;display:inline-block;min-height:44px;line-height:44px">Save sample</a>
     <p class="small" style="margin:0">Saves the playlist and first video chunks, plus a snapshot of the last list page read, so a developer can see exactly what the site sends. Contains those pages' addresses — only share it with people you trust.</p>
   </div>
@@ -404,6 +406,10 @@
     post('/cmd', 'c=update').then(function(){ setTimeout(tick, 400); })
       .catch(function(){ $('status').textContent = NOREACH; });
   };
+  var prefOn = true;
+  $('prefbtn').onclick = function(){
+    post('/cmd', 'c=prefetch&v=' + (prefOn ? 'off' : 'on')).then(function(){ setTimeout(tick, 300); });
+  };
   var smoothOn = true;
   $('delaybtn').onclick = function(){
     post('/cmd', 'c=delay&v=' + (smoothOn ? 'low' : 'smooth')).then(function(){ setTimeout(tick, 500); });
@@ -442,6 +448,10 @@
       failures = 0;
       pill(true);
       $('status').textContent = s.status || '';
+      if (typeof s.prefetch === 'boolean') {
+        prefOn = s.prefetch;
+        $('prefbtn').textContent = 'Head start while browsing: ' + (prefOn ? 'On (tap to turn off)' : 'Off (tap to turn on)');
+      }
       var up = s.update;
       $('updatecard').hidden = !up;
       if (up) {

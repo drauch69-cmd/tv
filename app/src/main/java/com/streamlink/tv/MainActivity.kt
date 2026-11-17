@@ -35,6 +35,9 @@ import java.util.TimeZone
 class MainActivity : Activity() {
 
     private lateinit var sniffer: StreamSniffer
+    private lateinit var prefetcher: Prefetcher
+    private lateinit var prefetchToggle: TextView
+    private var liveItems: Map<String, ListItem> = emptyMap()
     private lateinit var server: LinkServer
     private lateinit var statusView: TextView
     private lateinit var recentList: LinearLayout
@@ -94,15 +97,20 @@ class MainActivity : Activity() {
         liveSub = findViewById(R.id.liveSub)
         qrPanel = findViewById(R.id.qrPanel)
         sendLink = findViewById(R.id.sendLink)
+        prefetchToggle = findViewById(R.id.prefetchToggle)
         styleHome()
         updateBanner.setOnClickListener { installUpdate() }
         updateSettings.setOnClickListener { openInstallSettings() }
         checkUpdate.setOnClickListener { Updater.check(this, manual = true) }
+        prefetchToggle.setOnClickListener { setPrefetch(!PrefetchSettings.enabled(this)) }
+        renderPrefetchToggle()
+        Session.prefetchEnabled = { PrefetchSettings.enabled(applicationContext) }
         sendLink.setOnClickListener { showQr(true) }
         findViewById<View>(R.id.qrClose).setOnClickListener { showQr(false) }
         sniffer = StreamSniffer(this, findViewById(R.id.webHolder))
         // Reads index pages when the phone asks for a refresh and no list screen is open.
         reader = IndexReader(this, findViewById(R.id.webHolder))
+        prefetcher = Prefetcher(this, findViewById(R.id.prefetchHolder), "idle")
 
         val pages = mapOf("/" to asset("phone.html"), "/shortcut" to asset("shortcut.html"))
         server = LinkServer(
@@ -141,17 +149,21 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         resumed = false
+        prefetcher.setActive(false)
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         resumed = true
+        prefetcher.setActive(true)
         renderUpdate() // the user may just have allowed installs in Settings
         showAddress()
         renderLists()
         refreshStale()
         if (Session.mode == "idle") statusView.text = lastStatusForScreen()
+        // Back from playing with a "Live now" card still focused: no focus event comes, so start the 2 s again.
+        (liveRow.focusedChild?.tag as? String)?.let { liveItems[it] }?.let { prefetcher.focus(it) }
     }
 
     @Deprecated("Deprecated in Java")
@@ -185,6 +197,7 @@ class MainActivity : Activity() {
         }
         server.stop()
         sniffer.cancel()
+        prefetcher.cancel()
         reader.cancel()
         main.removeCallbacksAndMessages(null)
         readingId?.let { SavedLists.setBusy(it, false) }
@@ -232,6 +245,7 @@ class MainActivity : Activity() {
     private fun play(url: String) {
         // A new link replaces the site's own player right away; the built-in player is replaced
         // once the new stream is ready.
+        prefetcher.cancel()
         if (Session.mode == "site" || Session.mode == "waiting") Session.commandHandler?.invoke("stop", null)
         Recents.add(this, url)
         renderRecents()
@@ -330,6 +344,7 @@ class MainActivity : Activity() {
         val known = SavedLists.cached(this, l.id)?.result?.items?.firstOrNull { it.url == url }
         val item = known ?: ListItem("", "", url, start, "", "", false, null)
         sniffer.cancel() // a direct link still being looked for is replaced
+        prefetcher.cancel()
         val mode = Session.mode
         if (mode == "player" || mode == "clean" || mode == "site" || mode == "waiting") Session.commandHandler?.invoke("stop", null)
         startActivity(WaitingActivity.intent(this, item, l.id, l.name))
@@ -444,6 +459,7 @@ class MainActivity : Activity() {
         var focusTarget: View? = null
         val zone = TimeZone.getDefault()
         val locale = Locale.getDefault()
+        liveItems = rows.associate { it.item.url to it.item }
         for (e in rows) {
             val live = e.status == ListStatus.LIVE
             val card = LinearLayout(this).apply {
@@ -455,6 +471,8 @@ class MainActivity : Activity() {
                 tag = e.item.url
                 if (e.status == ListStatus.UPCOMING) alpha = 0.75f
                 setOnClickListener { playListItem(e.list, e.item.url, e.item.startMillis) }
+                // Head start: set before growOnFocus, which chains to this listener.
+                setOnFocusChangeListener { _, has -> if (has) prefetcher.focus(e.item) else prefetcher.blur() }
             }
             Ui.growOnFocus(card)
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
@@ -529,6 +547,7 @@ class MainActivity : Activity() {
         findViewById<TextView>(R.id.brand).setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
         findViewById<View>(R.id.qrCard).background = Ui.rounded(this, Ui.SURFACE, 16f, Ui.BORDER, 1f)
         checkUpdate.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
+        prefetchToggle.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
         findViewById<View>(R.id.qrClose).background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
         updateSettings.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
         findViewById<TextView>(R.id.versionText).text = "StreamLink ${BuildConfig.VERSION_NAME}" +
@@ -608,7 +627,22 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun renderPrefetchToggle() {
+        prefetchToggle.text = "Head start while browsing: " + if (PrefetchSettings.enabled(this)) "On" else "Off"
+    }
+
+    /** The switch (TV row or phone page): looks up a focused event's stream a little early. */
+    private fun setPrefetch(on: Boolean) {
+        PrefetchSettings.set(this, on)
+        if (!on) prefetcher.cancel()
+        renderPrefetchToggle()
+    }
+
     private fun command(c: String, v: String?) {
+        if (c == "prefetch") {
+            if (v == "on" || v == "off") setPrefetch(v == "on")
+            return
+        }
         if (c == "update") {
             // Only from the home screen: never pop up the install dialog over a stream.
             if (resumed && Session.mode == "idle") installUpdate()
