@@ -289,17 +289,7 @@ class PlayerActivity : Activity() {
 
         // Decoders: hardware first as usual (fast), falling back to another decoder if one fails to
         // start. After a stream "arrives but won't play", software decoders are tried first.
-        AudioSync.load(this, Report.host(s.pageUrl))
-        appliedExtraMs = AudioSync.extraBufferMs(AudioSync.offsetMs)
-        val renderers = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(
-                context: android.content.Context,
-                enableFloatOutput: Boolean,
-                enableAudioTrackPlaybackParams: Boolean,
-            ): androidx.media3.exoplayer.audio.AudioSink? =
-                super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)?.let { AudioSync.Sink(it) }
-        }.setEnableDecoderFallback(true)
-        if (AudioSync.offsetMs != 0) Report.logOnce("sync-${AudioSync.offsetMs}", "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)}")
+        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
         if (preferSoftware) {
             renderers.setMediaCodecSelector { mime, secure, tunneled ->
                 MediaCodecUtil.getDecoderInfos(mime, secure, tunneled).sortedBy { it.hardwareAccelerated }
@@ -320,19 +310,7 @@ class PlayerActivity : Activity() {
         val item = MediaItem.Builder().setUri(src.url).apply {
             if (lower.contains("m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8)
             else if (lower.contains(".mpd")) setMimeType(MimeTypes.APPLICATION_MPD)
-            if (appliedExtraMs > 0) {
-                // The sound on this site runs ahead of the picture: sit further behind live so the
-                // picture can be shown that much further along (see AudioSync).
-                val base = if (smoothLive) 20_000L else 12_000L
-                setLiveConfiguration(
-                    MediaItem.LiveConfiguration.Builder()
-                        .setTargetOffsetMs(base + appliedExtraMs)
-                        .setMinOffsetMs(base - 8_000 + appliedExtraMs)
-                        .setMinPlaybackSpeed(0.97f)
-                        .setMaxPlaybackSpeed(1.0f)
-                        .build()
-                )
-            } else if (smoothLive) {
+            if (smoothLive) {
                 // Play ~20s behind live (a few seconds more than usual) so there's room to buffer, and never speed up to catch up
                 // (that drains the cushion); only slow down imperceptibly to rebuild it.
                 setLiveConfiguration(
@@ -372,7 +350,6 @@ class PlayerActivity : Activity() {
         main.postDelayed(disguiseCheck, 1_000)
         starveSamples.clear()
         main.removeCallbacks(audioStarveCheck)
-        main.removeCallbacks(syncRestart)
         main.postDelayed(audioStarveCheck, 2_000)
         p.prepare()
         p.playWhenReady = true
@@ -808,41 +785,6 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private var appliedExtraMs = 0
-    private val syncRestart = Runnable {
-        if (player != null && Math.abs(AudioSync.extraBufferMs(AudioSync.offsetMs) - appliedExtraMs) >= 1000) {
-            Report.log("Rebuffering for the audio sync (${AudioSync.describe(AudioSync.offsetMs)})")
-            play()
-        }
-    }
-
-    private fun adjustSync(v: String) {
-        val ms = when (v) {
-            "later", "+" -> AudioSync.offsetMs + AudioSync.STEP_MS
-            "earlier", "-" -> AudioSync.offsetMs - AudioSync.STEP_MS
-            "later1" -> AudioSync.offsetMs + AudioSync.BIG_STEP_MS
-            "earlier1" -> AudioSync.offsetMs - AudioSync.BIG_STEP_MS
-            "reset", "0" -> 0
-            else -> v.toIntOrNull() ?: return
-        }
-        AudioSync.set(this, ms)
-        Report.log("Audio sync for this site: ${AudioSync.describe(AudioSync.offsetMs)}")
-        // Sound well ahead of the picture needs more video buffered: restart once the needed cushion
-        // changes by a second or more (small lip-sync tweaks apply instantly).
-        main.removeCallbacks(syncRestart)
-        if (Math.abs(AudioSync.extraBufferMs(AudioSync.offsetMs) - appliedExtraMs) >= 1000) {
-            // Wait for the last press: one restart, not one per step.
-            Toast.makeText(this, "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)} · applies in a moment", Toast.LENGTH_SHORT).show()
-            main.postDelayed(syncRestart, 3_000)
-            return
-        }
-        if (tunnelEngaged() && AudioSync.offsetMs != 0) {
-            Toast.makeText(this, "Audio sync only works with tunneled playback off", Toast.LENGTH_LONG).show()
-        } else {
-            Toast.makeText(this, "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     private fun handleError(error: PlaybackException) {
         val p = player ?: return
         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
@@ -1010,7 +952,6 @@ class PlayerActivity : Activity() {
             "open" -> v?.let { openLink(it) }
             "tunnel" -> setTunneling(v == "on")
             "delay" -> setSmoothLive(v != "low")
-            "sync" -> v?.let { adjustSync(it) }
         }
         publishSnapshot()
     }
@@ -1434,12 +1375,6 @@ class PlayerActivity : Activity() {
         label("Playback")
         row("Tunneled playback: ${if (tunneling) "on" else "off"} (tap to turn ${if (tunneling) "off" else "on"})", false) { setTunneling(!tunneling) }
         row("Live delay: ${if (smoothLive) "smooth (~20 s behind)" else "low delay"} (tap to change)", false) { setSmoothLive(!smoothLive) }
-        label("Audio sync for this site (${AudioSync.describe(AudioSync.offsetMs)})")
-        row("Sound comes before the picture: −1 s", false) { adjustSync("earlier1"); showOptions() }
-        row("Sound comes before the picture: −${AudioSync.STEP_MS} ms", false) { adjustSync("earlier"); showOptions() }
-        row("Sound comes after the picture: +${AudioSync.STEP_MS} ms", false) { adjustSync("later"); showOptions() }
-        row("Sound comes after the picture: +1 s", false) { adjustSync("later1"); showOptions() }
-        if (AudioSync.offsetMs != 0) row("Reset audio sync", false) { adjustSync("reset"); showOptions() }
         row("Reload the stream", false) { reconnects = 1; reconnect("requested from the TV") }
         picker.visibility = View.VISIBLE
         (focusRow ?: pickerList.getChildAt(1) ?: pickerList.getChildAt(0))?.requestFocus()

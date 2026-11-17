@@ -31,9 +31,6 @@ object Session {
     @Volatile var listName: String = ""
     @Volatile var listItemUrl: String? = null
 
-    /** Lip-sync adjustment in ms (see AudioSync), for the phone page. */
-    @Volatile var audioSyncMs: Int = 0
-
     /** The screen currently playing registers here to receive phone remote commands. */
     @Volatile var commandHandler: ((String, String?) -> Unit)? = null
 
@@ -45,7 +42,6 @@ object Session {
         o.put("prefetch", prefetchEnabled())
         o.put("mode", mode)
         o.put("title", title)
-        o.put("audioSync", audioSyncMs)
         o.put("status", AppStatus.text)
         val u = UpdateState.phoneJson()
         if (u == null) o.put("update", JSONObject.NULL)
