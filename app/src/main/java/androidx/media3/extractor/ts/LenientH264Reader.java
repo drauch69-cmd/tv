@@ -16,6 +16,7 @@
 package androidx.media3.extractor.ts;
 
 import static androidx.media3.extractor.ts.TsPayloadReader.FLAG_RANDOM_ACCESS_INDICATOR;
+import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.util.SparseArray;
 import androidx.annotation.Nullable;
@@ -23,7 +24,6 @@ import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
-import androidx.media3.common.util.Assertions;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
@@ -38,10 +38,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/** Parses a continuous H264 byte stream and extracts individual frames. */
-@UnstableApi
 /**
- * StreamLink: a copy of Media3 1.5.1's {@link H264Reader} that can start streams with no keyframes.
+ * StreamLink: a copy of Media3 1.11.1's {@link H264Reader} that can start streams with no keyframes.
  *
  * <p>Some live encoders use "intra refresh": no frame is ever a complete picture, so Media3 never
  * finds a keyframe and never feeds the decoder (it buffers forever). Browsers start anyway and the
@@ -49,6 +47,7 @@ import java.util.List;
  * point" frames, or failing those one frame every {@link #FALLBACK_INTERVAL} frames, as keyframes.
  * Once a real keyframe appears it behaves exactly like the original.
  */
+@UnstableApi
 public final class LenientH264Reader implements ElementaryStreamReader {
 
   /** Without keyframes or recovery points, start from one frame in this many (~1.5s at 30fps). */
@@ -60,6 +59,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
   private final SeiReader seiReader;
   private final boolean allowNonIdrKeyframes;
   private final boolean detectAccessUnits;
+  private final String containerMimeType;
   private final NalUnitTargetBuffer sps;
   private final NalUnitTargetBuffer pps;
   private final NalUnitTargetBuffer sei;
@@ -88,11 +88,17 @@ public final class LenientH264Reader implements ElementaryStreamReader {
    *     synchronization samples (key-frames).
    * @param detectAccessUnits Whether to split the input stream into access units (samples) based on
    *     slice headers. Pass {@code false} if the stream contains access unit delimiters (AUDs).
+   * @param containerMimeType The MIME type of the container holding the stream.
    */
-  public LenientH264Reader(SeiReader seiReader, boolean allowNonIdrKeyframes, boolean detectAccessUnits) {
+  public LenientH264Reader(
+      SeiReader seiReader,
+      boolean allowNonIdrKeyframes,
+      boolean detectAccessUnits,
+      String containerMimeType) {
     this.seiReader = seiReader;
     this.allowNonIdrKeyframes = allowNonIdrKeyframes;
     this.detectAccessUnits = detectAccessUnits;
+    this.containerMimeType = containerMimeType;
     prefixFlags = new boolean[3];
     sps = new NalUnitTargetBuffer(NalUnitUtil.H264_NAL_UNIT_TYPE_SPS, 128);
     pps = new NalUnitTargetBuffer(NalUnitUtil.H264_NAL_UNIT_TYPE_PPS, 128);
@@ -110,7 +116,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
     sps.reset();
     pps.reset();
     sei.reset();
-    seiReader.flush();
+    seiReader.clear();
     if (sampleReader != null) {
       sampleReader.reset();
     }
@@ -156,6 +162,14 @@ public final class LenientH264Reader implements ElementaryStreamReader {
       // We've seen the start of a NAL unit of the following type.
       int nalUnitType = NalUnitUtil.getNalUnitType(dataArray, nalUnitOffset);
 
+      // Case of a 4 byte start code prefix 0x00000001, recoil NAL unit offset by one byte
+      // to avoid previous byte being assigned to the previous access unit.
+      int prefixSize = 3;
+      if (nalUnitOffset > 0 && dataArray[nalUnitOffset - 1] == 0x00) {
+        nalUnitOffset--;
+        prefixSize = 4;
+      }
+
       // This is the number of bytes from the current offset to the start of the next NAL unit.
       // It may be negative if the NAL unit started in the previously consumed data.
       int lengthToNalUnit = nalUnitOffset - offset;
@@ -175,17 +189,18 @@ public final class LenientH264Reader implements ElementaryStreamReader {
       // Indicate the start of the next NAL unit.
       startNalUnit(absolutePosition, nalUnitType, pesTimeUs);
       // Continue scanning the data.
-      offset = nalUnitOffset + 3;
+      offset = nalUnitOffset + prefixSize;
     }
   }
 
   @Override
-  public void packetFinished(boolean isEndOfInput) {
+  public void endOfInputReached() {
     assertTracksCreated();
-    if (isEndOfInput) {
-      seiReader.flush();
-      sampleReader.end(totalBytesWritten);
-    }
+    seiReader.flush();
+    // Simulate end of current NAL unit and start an AUD one to trigger output of current sample
+    endNalUnit(totalBytesWritten, 0, 0, pesTimeUs);
+    startNalUnit(totalBytesWritten, NalUnitUtil.H264_NAL_UNIT_TYPE_AUD, pesTimeUs);
+    endNalUnit(totalBytesWritten, 0, 0, pesTimeUs);
   }
 
   private void startNalUnit(long position, int nalUnitType, long pesTimeUs) {
@@ -225,6 +240,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
           output.format(
               new Format.Builder()
                   .setId(formatId)
+                  .setContainerMimeType(containerMimeType)
                   .setSampleMimeType(MimeTypes.VIDEO_H264)
                   .setCodecs(codecs)
                   .setWidth(spsData.width)
@@ -278,7 +294,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
   }
 
   private void assertTracksCreated() {
-    Assertions.checkStateNotNull(output);
+    checkNotNull(output);
     Util.castNonNull(sampleReader);
   }
 
@@ -335,6 +351,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
     private long samplePosition;
     private long sampleTimeUs;
     private boolean sampleIsKeyframe;
+    private boolean randomAccessIndicator;
 
     // StreamLink: lenient start for streams without keyframes.
     private boolean realKeyframeSeen;
@@ -344,7 +361,6 @@ public final class LenientH264Reader implements ElementaryStreamReader {
     private int recoveryPointsSeen;
     private int fallbackKeyframes;
     private long firstSampleTimeUs = C.TIME_UNSET;
-    private boolean randomAccessIndicator;
 
     public SampleReader(
         TrackOutput output, boolean allowNonIdrKeyframes, boolean detectAccessUnits) {
@@ -545,15 +561,9 @@ public final class LenientH264Reader implements ElementaryStreamReader {
         readingSample = true;
       }
       setSampleIsKeyframe();
+      // Reset NAL unit type to avoid stale state
+      nalUnitType = NalUnitUtil.H264_NAL_UNIT_TYPE_UNSPECIFIED;
       return sampleIsKeyframe;
-    }
-
-    public void end(long position) {
-      setSampleIsKeyframe();
-      // Output a final sample with the NAL units currently held
-      nalUnitStartPosition = position;
-      outputSample(/* offset= */ 0);
-      readingSample = false;
     }
 
     private void setSampleIsKeyframe() {
@@ -586,7 +596,7 @@ public final class LenientH264Reader implements ElementaryStreamReader {
     }
 
     private void outputSample(int offset) {
-      if (sampleTimeUs == C.TIME_UNSET) {
+      if (sampleTimeUs == C.TIME_UNSET || nalUnitStartPosition == samplePosition) {
         return;
       }
       // StreamLink: a stream with neither keyframes nor recovery points still has to start
@@ -702,8 +712,8 @@ public final class LenientH264Reader implements ElementaryStreamReader {
           return true;
         }
         // See ISO 14496-10 subsection 7.4.1.2.4.
-        SpsData spsData = Assertions.checkStateNotNull(this.spsData);
-        SpsData otherSpsData = Assertions.checkStateNotNull(other.spsData);
+        SpsData spsData = checkNotNull(this.spsData);
+        SpsData otherSpsData = checkNotNull(other.spsData);
         return frameNum != other.frameNum
             || picParameterSetId != other.picParameterSetId
             || fieldPicFlag != other.fieldPicFlag

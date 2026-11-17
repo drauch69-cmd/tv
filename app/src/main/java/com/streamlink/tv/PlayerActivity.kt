@@ -62,7 +62,7 @@ class PlayerActivity : Activity() {
         private const val MAX_RECONNECTS = 3
         private const val FIRST_FRAME_MS = 8_000L
 
-        /** Set when tunneled playback misbehaved; stays off until the app restarts. */
+        /** Set when tunneled playback misbehaved; stays off until the app restarts (never saved). */
         @Volatile private var tunnelOffThisRun = false
 
         /** Decoder/audio errors that point at tunneled playback rather than the stream. */
@@ -362,6 +362,14 @@ class PlayerActivity : Activity() {
         override fun onPlayerError(error: PlaybackException) = handleError(error)
 
         override fun onTracksChanged(tracks: Tracks) {
+            // For the report: was tunneling only requested, or did the selected tracks really use it?
+            player?.takeIf { !tracks.isEmpty }?.let {
+                Report.logOnce(
+                    "tunnel-engaged-$tunneling-${it.isTunnelingEnabled}",
+                    "Tunneled playback: requested ${if (tunneling) "on" else "off"}, " +
+                        "engaged: ${if (it.isTunnelingEnabled) "yes" else "no"}",
+                )
+            }
             // For the report: what audio the stream has, and whether this device can play it.
             val audio = tracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }.flatMap { g ->
                 (0 until g.length).map { i ->
@@ -552,12 +560,12 @@ class PlayerActivity : Activity() {
     }
 
     /**
-     * Off unless you turn it on from the phone remote: on the onn box it plays video fine but
-     * can leave the sound silent, which the app can't detect (nothing errors).
+     * On by default. The saved choice only changes from the phone remote; if tunneling misbehaves
+     * the automatic fallback only turns it off until the app is restarted.
      */
     private fun tunnelingAllowed(): Boolean {
         if (tunnelOffThisRun) return false
-        return getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_on", false)
+        return getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_on", true)
     }
 
     /** For the report: is it the connection or the stream? */
@@ -587,18 +595,14 @@ class PlayerActivity : Activity() {
     private fun setTunneling(on: Boolean) {
         tunnelOffThisRun = false
         getSharedPreferences("streamlink", MODE_PRIVATE).edit()
-            .putBoolean("tunnel_on", on).putInt("tunnel_strikes", 0).apply()
+            .putBoolean("tunnel_on", on).remove("tunnel_strikes").apply()
         Report.log("Tunneled playback turned ${if (on) "on" else "off"} from the phone")
         play()
     }
 
     private fun retryWithoutTunneling(why: String) {
+        // Only for this app run: the saved preference is changed only by the phone remote switch.
         tunnelOffThisRun = true
-        val prefs = getSharedPreferences("streamlink", MODE_PRIVATE)
-        val strikes = prefs.getInt("tunnel_strikes", 0) + 1
-        // Twice on separate runs means this box doesn't do it well: keep it off for good.
-        if (strikes >= 2) prefs.edit().putInt("tunnel_strikes", 0).putBoolean("tunnel_on", false).apply()
-        else prefs.edit().putInt("tunnel_strikes", strikes).apply()
         Report.log("Tunneled playback misbehaved ($why); retrying with it off")
         play()
     }

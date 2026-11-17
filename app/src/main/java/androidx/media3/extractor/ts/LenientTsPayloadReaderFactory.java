@@ -2,6 +2,7 @@ package androidx.media3.extractor.ts;
 
 import android.util.SparseArray;
 import androidx.annotation.Nullable;
+import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.UnstableApi;
 import java.util.Collections;
 
@@ -35,20 +36,25 @@ public final class LenientTsPayloadReaderFactory implements TsPayloadReader.Fact
       return new PesReader(
           aligner.wrap(
               new LenientH264Reader(
-                  new SeiReader(Collections.emptyList()),
+                  new SeiReader(Collections.emptyList(), MimeTypes.VIDEO_MP2T),
                   (flags & DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES) != 0,
-                  (flags & DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS) != 0),
+                  (flags & DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS) != 0,
+                  MimeTypes.VIDEO_MP2T),
               /* video= */ true));
     }
     boolean aac = (flags & DefaultTsPayloadReaderFactory.FLAG_IGNORE_AAC_STREAM) == 0;
     if (aac && streamType == TsExtractor.TS_STREAM_TYPE_AAC_ADTS) {
       return new PesReader(
           aligner.wrap(
-              new AdtsReader(false, esInfo.language, esInfo.getRoleFlags()), /* video= */ false));
+              new AdtsReader(
+                  false, esInfo.language, esInfo.getRoleFlags(), MimeTypes.VIDEO_MP2T),
+              /* video= */ false));
     }
     if (aac && streamType == TsExtractor.TS_STREAM_TYPE_AAC_LATM) {
       return new PesReader(
-          aligner.wrap(new LatmReader(esInfo.language, esInfo.getRoleFlags()), /* video= */ false));
+          aligner.wrap(
+              new LatmReader(esInfo.language, esInfo.getRoleFlags(), MimeTypes.VIDEO_MP2T),
+              /* video= */ false));
     }
     return delegate.createPayloadReader(streamType, esInfo);
   }

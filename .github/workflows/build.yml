@@ -21,7 +21,19 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.10.2"
+          gradle-version: "8.13"
+
+      # Branch "test" builds a separate app (StreamLink Test, com.streamlink.tv.test) that installs
+      # next to the normal one. Every other branch builds the normal app.
+      - name: Pick build channel
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/test" ]; then
+            echo "STREAMLINK_CHANNEL=test" >> "$GITHUB_ENV"
+            echo "APK_NAME=StreamLink-Test.apk" >> "$GITHUB_ENV"
+          else
+            echo "STREAMLINK_CHANNEL=main" >> "$GITHUB_ENV"
+            echo "APK_NAME=StreamLink.apk" >> "$GITHUB_ENV"
+          fi
 
       - name: Build
         run: |
@@ -36,12 +48,12 @@ jobs:
           grep -E "BUILD SUCCESSFUL|tests completed" build.log || true
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk StreamLink.apk
+        run: cp app/build/outputs/apk/release/app-release.apk "$APK_NAME"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: StreamLink-apk
-          path: StreamLink.apk
+          name: ${{ env.STREAMLINK_CHANNEL == 'test' && 'StreamLink-Test-apk' || 'StreamLink-apk' }}
+          path: ${{ env.APK_NAME }}
 
       # Also publish it as a "latest" release, so the TV can download it from one fixed link.
       - name: Publish latest release
@@ -51,5 +63,14 @@ jobs:
         run: |
           gh release delete latest --yes --cleanup-tag || true
           gh release create latest StreamLink.apk --title "Latest build" --notes "Build ${{ github.run_number }}"
+
+      # Branch "test" publishes the separate test app to its own fixed link.
+      - name: Publish test release
+        if: github.ref == 'refs/heads/test'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete test-latest --yes --cleanup-tag || true
+          gh release create test-latest StreamLink-Test.apk --title "Test build" --notes "Test build ${{ github.run_number }}"
     permissions:
       contents: write

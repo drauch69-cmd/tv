@@ -119,8 +119,13 @@ public final class AvAligner {
       }
 
       @Override
-      public void packetFinished(boolean isEndOfInput) {
-        reader.packetFinished(isEndOfInput);
+      public void packetFinished() {
+        reader.packetFinished();
+      }
+
+      @Override
+      public void endOfInputReached() {
+        reader.endOfInputReached();
       }
     };
   }

@@ -60,6 +60,16 @@ You normally only see the video in the app's own player.
 ## Building
 
 Every push to `main` builds the APK on GitHub (see the **Actions** tab) and updates the `latest` release.
+Other branches only build and run the tests.
+
+### Test app
+
+Pushes to the `test` branch build a separate **StreamLink Test** app (`com.streamlink.tv.test`) that
+installs next to the normal one, for trying changes safely. In Downloader, enter:
+`https://github.com/drauch69-cmd/tv/releases/download/test-latest/StreamLink-Test.apk`
+
+(Locally: `gradle assembleRelease -Pchannel=test`.) Tunneled playback is on by default; if it
+misbehaves the player turns it off until the app restarts. Only the phone remote switch changes the saved setting.
 
 ---
 

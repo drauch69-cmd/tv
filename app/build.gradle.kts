@@ -3,12 +3,18 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Build channel: "main" (default) or "test". The test channel installs next to the normal app
+// (own applicationId and label). Set with -Pchannel=test or the STREAMLINK_CHANNEL env var.
+val channel = (findProperty("channel") as String?) ?: System.getenv("STREAMLINK_CHANNEL") ?: "main"
+val isTestChannel = channel == "test"
+
 android {
     namespace = "com.streamlink.tv"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.streamlink.tv"
+        applicationId = if (isTestChannel) "com.streamlink.tv.test" else "com.streamlink.tv"
+        manifestPlaceholders["appLabel"] = if (isTestChannel) "StreamLink Test" else "StreamLink"
         minSdk = 26
         targetSdk = 34
         // Each GitHub build gets a higher version number so it installs over the last one.
@@ -37,9 +43,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         buildConfig = true
     }
@@ -51,8 +54,14 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
-    val media3 = "1.5.1"
+    val media3 = "1.11.1"
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
