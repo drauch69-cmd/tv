@@ -145,7 +145,7 @@ class CleanPlayerActivity : Activity() {
         root.addView(cover, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         Session.mode = "clean"
-        Session.title = Report.host(s.pageUrl)
+        if (Session.listId == null || Session.listItemUrl == null || Session.title.isBlank()) Session.title = Report.host(s.pageUrl)
         Session.snapshot = null
         Session.commandHandler = handler
         main.post(snapshotTick)
@@ -160,7 +160,7 @@ class CleanPlayerActivity : Activity() {
         set = s
         sourceIndex = intent.getIntExtra(EXTRA_SOURCE, 0).coerceIn(0, (s.sources.size - 1).coerceAtLeast(0))
         Session.mode = "clean"
-        Session.title = Report.host(s.pageUrl)
+        if (Session.listId == null || Session.listItemUrl == null || Session.title.isBlank()) Session.title = Report.host(s.pageUrl)
         Session.commandHandler = handler
         load()
     }

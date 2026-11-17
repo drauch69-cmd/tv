@@ -6,6 +6,9 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
+import android.widget.ScrollView
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.View
@@ -81,10 +84,35 @@ class PlayerActivity : Activity() {
 
     private val main = Handler(Looper.getMainLooper())
     private lateinit var playerView: PlayerView
-    private lateinit var cover: View
+    private lateinit var root: FrameLayout
+    private lateinit var cover: FrameLayout
+    private lateinit var coverSub: TextView
+    private lateinit var coverTitle: TextView
+    private lateinit var coverSteps: LinearLayout
+    private lateinit var coverHint: TextView
     private lateinit var coverText: TextView
+    private lateinit var coverCancel: TextView
+    private lateinit var coverDetails: TextView
     private lateinit var picker: View
     private lateinit var pickerList: LinearLayout
+    private lateinit var overlay: FrameLayout
+    private lateinit var ovBadge: TextView
+    private lateinit var ovSub: TextView
+    private lateinit var ovTitle: TextView
+    private lateinit var ovTrack: FrameLayout
+    private lateinit var ovFill: View
+    private lateinit var ovStatus: TextView
+    private lateinit var btnLive: TextView
+    private lateinit var btnBack: TextView
+    private lateinit var btnOptions: TextView
+    private lateinit var btnOther: TextView
+    private lateinit var btnPause: TextView
+    private lateinit var hintBox: LinearLayout
+    private lateinit var hintHeader: TextView
+    private lateinit var hintUp: TextView
+    private lateinit var hintDown: TextView
+    private var surfPrev: ListItem? = null
+    private var surfNext: ListItem? = null
     private lateinit var sniffer: StreamSniffer
 
     private var player: ExoPlayer? = null
@@ -119,10 +147,10 @@ class PlayerActivity : Activity() {
         setContentView(R.layout.activity_player)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         playerView = findViewById(R.id.playerView)
-        cover = findViewById(R.id.cover)
-        coverText = findViewById(R.id.coverText)
-        picker = findViewById(R.id.picker)
-        pickerList = findViewById(R.id.pickerList)
+        root = findViewById(R.id.root)
+        buildCover()
+        buildOverlay()
+        buildPicker()
         sniffer = StreamSniffer(this, findViewById<FrameLayout>(R.id.webHolder))
         Session.commandHandler = handler
         loadSession()
@@ -172,9 +200,10 @@ class PlayerActivity : Activity() {
         jumpTried = false
         hidePicker()
         Session.mode = "player"
-        Session.title = Report.host(s.pageUrl)
+        // From a saved list the event title (set by the waiting screen) stays; otherwise show the site.
+        if (Session.listId == null || Session.listItemUrl == null || Session.title.isBlank()) Session.title = Report.host(s.pageUrl)
         if (s.sources.size > 1) {
-            Toast.makeText(this, "${s.sources.size} sources found · press ▲ to switch", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "${s.sources.size} sources found · OK, then Audio & quality to switch", Toast.LENGTH_LONG).show()
         }
         play()
     }
@@ -289,7 +318,7 @@ class PlayerActivity : Activity() {
 
         p.addListener(listener)
         p.addAnalyticsListener(downloads)
-        showCover(if (reconnects == 0) "Loading…" else "Reconnecting…")
+        showCover(if (reconnects == 0) "Loading…" else "Reconnecting…", 2)
         if (lower.contains("m3u8")) {
             // Be as forgiving as a browser with how the stream is put together. Many relayed
             // streams never send the "IDR" keyframe Android's player waits for before starting
@@ -342,7 +371,7 @@ class PlayerActivity : Activity() {
                     } else {
                         Report.log("Video finished")
                         AppStatus.text = "Finished: ${Session.title}"
-                        showCover("Finished\nPress Back for the link screen")
+                        showCover("Finished\nPress Back for the link screen", finished = true)
                     }
                 }
                 else -> {}
@@ -729,7 +758,10 @@ class PlayerActivity : Activity() {
         linkGen++
         release()
         val site = Report.host(url)
-        showCover("Finding the video on $site…")
+        // A direct link arriving now is not part of any saved list.
+        Session.listId = null; Session.listName = ""; Session.listItemUrl = null
+        Session.title = site
+        showCover("Finding the video on $site…", 1)
         AppStatus.text = "Finding the video on $site…"
         sniffer.sniff(url) { found ->
             if (found.sources.isEmpty()) {
@@ -850,42 +882,374 @@ class PlayerActivity : Activity() {
         )
     }
 
-    // ---- Screen ----
 
-    private fun showCover(text: String) {
+    // ---- Screen: loading cover ----
+
+    private fun dp(v: Float) = Ui.dp(this, v)
+
+    private fun button(label: String, primary: Boolean = false, onClick: () -> Unit): TextView =
+        Ui.text(this, label, 12f, if (primary) Ui.ON_ACCENT else Ui.TEXT, bold = true).apply {
+            background = if (primary) Ui.primaryButton(context) else Ui.focusable(context, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+            setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
+            gravity = Gravity.CENTER
+            isFocusable = true
+            isClickable = true
+            setOnClickListener { onClick() }
+            Ui.growOnFocus(this)
+        }
+
+    private fun gap(h: Float) = LinearLayout.LayoutParams(
+        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
+    ).apply { topMargin = dp(h) }
+
+    private fun buildCover() {
+        cover = FrameLayout(this).apply {
+            setBackgroundColor(Ui.BG)
+            visibility = View.GONE
+            isClickable = true
+        }
+        val col = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        coverSub = Ui.text(this, "", 12f, Ui.TEXT_2).apply { gravity = Gravity.CENTER }
+        coverTitle = Ui.text(this, "", 30f, Ui.TEXT, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(40f), 0, dp(40f), 0)
+        }
+        coverSteps = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        coverHint = Ui.text(this, "Usually ready in under 10 seconds", 12f, Ui.TEXT_3)
+        coverText = Ui.text(this, "", 14f, Ui.TEXT_2).apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(40f), 0, dp(40f), 0)
+        }
+        val buttons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        coverCancel = button("Cancel") { finish() }
+        coverDetails = button("Show details") {
+            val show = coverText.visibility != View.VISIBLE
+            coverText.visibility = if (show) View.VISIBLE else View.GONE
+            coverDetails.text = if (show) "Hide details" else "Show details"
+        }
+        buttons.addView(coverCancel)
+        buttons.addView(coverDetails, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(9f) })
+        col.addView(coverSub)
+        col.addView(coverTitle, gap(4f))
+        col.addView(coverSteps, gap(26f))
+        col.addView(coverHint, gap(26f))
+        col.addView(buttons, gap(26f))
+        col.addView(coverText, gap(18f))
+        cover.addView(col, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+        root.addView(cover, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    /** [active] is the step in progress (0 = Opening page, 1 = Finding the stream, 2 = Starting video); earlier ones are checked. */
+    private fun renderSteps(active: Int) {
+        coverSteps.removeAllViews()
+        val names = listOf("Opening page", "Finding the stream", "Starting video")
+        names.forEachIndexed { i, n ->
+            if (i > 0) {
+                coverSteps.addView(
+                    View(this).apply { setBackgroundColor(if (i <= active) Ui.ACCENT else 0xFF2E3A4D.toInt()) },
+                    LinearLayout.LayoutParams(dp(52f), dp(2f)).apply { bottomMargin = dp(22f) },
+                )
+            }
+            val c = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+            val circle = Ui.text(this, if (i < active) "✓" else "", 13f, Ui.ON_ACCENT, bold = true).apply {
+                gravity = Gravity.CENTER
+                background = when {
+                    i < active -> GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Ui.ACCENT) }
+                    i == active -> GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2f), Ui.ACCENT) }
+                    else -> GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2f), 0xFF2E3A4D.toInt()) }
+                }
+            }
+            c.addView(circle, LinearLayout.LayoutParams(dp(25f), dp(25f)))
+            c.addView(Ui.text(this, n, 12f, Ui.TEXT, bold = i == active).apply { gravity = Gravity.CENTER }, gap(7f))
+            coverSteps.addView(c, LinearLayout.LayoutParams(dp(128f), ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+    }
+
+    private fun listLabel(): String {
+        val host = set?.let { Report.host(it.pageUrl) } ?: ""
+        return if (Session.listId != null && Session.listName.isNotBlank()) Session.listName else host
+    }
+
+    /** The technical status text now sits behind "Show details" (coverText). */
+    private fun showCover(text: String, stage: Int = 2, finished: Boolean = false) {
         coverText.text = text
+        coverSub.text = listLabel()
+        coverTitle.text = Session.title.ifBlank { listLabel() }
+        coverSteps.visibility = if (finished) View.GONE else View.VISIBLE
+        coverHint.visibility = if (finished) View.GONE else View.VISIBLE
+        coverDetails.visibility = if (finished) View.GONE else View.VISIBLE
+        if (finished) coverText.visibility = View.VISIBLE
+        coverCancel.text = if (finished) "Back" else "Cancel"
+        if (!finished) renderSteps(stage)
+        hideOverlayNow()
+        val was = cover.visibility == View.VISIBLE
         cover.visibility = View.VISIBLE
+        if (!was) coverCancel.requestFocus()
     }
 
     private fun hideCover() {
+        if (cover.visibility != View.VISIBLE) return
         cover.visibility = View.GONE
+        coverText.visibility = View.GONE
+        coverDetails.text = "Show details"
+        if (picker.visibility != View.VISIBLE) showOverlay()
     }
 
-    private fun showPicker() {
+    // ---- Screen: info overlay ----
+
+    private val hideOverlayRunnable = Runnable { hideOverlayNow() }
+    private val overlayTick = object : Runnable {
+        override fun run() {
+            if (overlay.visibility != View.VISIBLE) return
+            refreshProgress()
+            main.postDelayed(this, 500)
+        }
+    }
+
+    private fun buildOverlay() {
+        overlay = FrameLayout(this).apply { visibility = View.GONE }
+        // darkening gradient behind the text
+        overlay.addView(View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xF50E1116.toInt(), 0x000E1116))
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(195f), Gravity.BOTTOM))
+
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val meta = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        ovBadge = Ui.badge(this, "LIVE", live = true, sp = 10.5f)
+        ovSub = Ui.text(this, "", 12f, 0xFFC9CFD8.toInt())
+        meta.addView(ovBadge)
+        meta.addView(ovSub, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { marginStart = dp(9f) })
+        ovTitle = Ui.text(this, "", 30f, Ui.TEXT, bold = true).apply { maxLines = 2 }
+
+        val progress = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        ovTrack = FrameLayout(this).apply { background = Ui.rounded(context, 0xFF2E3A4D.toInt(), 2f) }
+        ovFill = View(this).apply { background = Ui.rounded(context, Ui.ACCENT, 2f) }
+        ovTrack.addView(ovFill, FrameLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT))
+        ovStatus = Ui.text(this, "", 11.5f, 0xFFC9CFD8.toInt())
+        progress.addView(ovTrack, LinearLayout.LayoutParams(0, dp(4.5f), 1f))
+        progress.addView(ovStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { marginStart = dp(10f) })
+
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        btnLive = button("Jump to live", primary = true) { player?.seekToDefaultPosition(); scheduleHide() }
+        btnBack = button("Back") { backToList() }
+        btnOptions = button("Audio & quality") { showOptions() }
+        btnOther = button("Try another player") { openCleanPlayer("chosen from the player menu") }
+        btnPause = button("Pause") { player?.let { it.playWhenReady = !it.playWhenReady }; refreshProgress(); scheduleHide() }
+        for (b in listOf(btnLive, btnBack, btnOptions, btnOther, btnPause)) {
+            row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { marginEnd = dp(9f) })
+        }
+        col.addView(meta)
+        col.addView(ovTitle, gap(12f))
+        col.addView(progress, gap(12f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
+        col.addView(row, gap(12f))
+        overlay.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
+            .apply { marginStart = dp(42f); marginEnd = dp(42f); bottomMargin = dp(30f) })
+
+        // "UP NEXT LIVE IN <LIST>" box (channel surfing hint)
+        hintBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.rounded(context, 0xE00E1116.toInt(), 10f)
+            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
+            visibility = View.GONE
+        }
+        hintHeader = Ui.text(this, "", 10f, Ui.TEXT_2, bold = true).apply { letterSpacing = 0.08f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        hintUp = Ui.text(this, "", 12f, Ui.TEXT).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        hintDown = Ui.text(this, "", 12f, Ui.TEXT).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        hintBox.addView(hintHeader)
+        hintBox.addView(hintUp, gap(6f))
+        hintBox.addView(hintDown, gap(6f))
+        overlay.addView(hintBox, FrameLayout.LayoutParams(dp(225f), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END)
+            .apply { topMargin = dp(30f); marginEnd = dp(36f) })
+
+        root.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    private fun currentListItem(): ListItem? {
+        val id = Session.listId ?: return null
+        return SavedLists.cached(this, id)?.result?.items?.firstOrNull { it.url == Session.listItemUrl }
+    }
+
+    /** The previous (▲) and next (▼) LIVE event in the playing list, wrapping around; null when there is none other. */
+    private fun computeSurf(): Pair<ListItem?, ListItem?> {
+        val id = Session.listId ?: return null to null
+        val now = System.currentTimeMillis()
+        val items = ListJson.visible(SavedLists.cached(this, id)?.result?.items ?: return null to null, now)
+        val cur = items.indexOfFirst { it.url == Session.listItemUrl }
+        val n = items.size
+        fun find(step: Int): ListItem? {
+            val start = if (cur >= 0) cur else if (step > 0) -1 else n
+            var i = start
+            repeat(n) {
+                i = ((i + step) % n + n) % n
+                val cand = items[i]
+                if (cand.url != Session.listItemUrl && ListStatus.of(cand, now) == ListStatus.LIVE) return cand
+            }
+            return null
+        }
+        if (n == 0) return null to null
+        return find(-1) to find(1)
+    }
+
+    private fun showOverlay() {
+        if (cover.visibility == View.VISIBLE || picker.visibility == View.VISIBLE) return
+        val first = overlay.visibility != View.VISIBLE
+        val live = player?.isCurrentMediaItemLive == true
+        val host = set?.let { Report.host(it.pageUrl) } ?: ""
+        val started = currentListItem()?.startMillis?.let { System.currentTimeMillis() - it }?.takeIf { it > 0 }
+        ovBadge.visibility = if (live) View.VISIBLE else View.GONE
+        ovSub.text = listOfNotNull(listLabel().takeIf { it.isNotBlank() }, started?.let { startedText(it) }).joinToString(" · ")
+        ovTitle.text = Session.title.ifBlank { host }
+        btnLive.visibility = if (live) View.VISIBLE else View.GONE
+        btnBack.text = if (Session.listId != null) "Back to list" else "Back"
+        val (prev, next) = computeSurf()
+        surfPrev = prev; surfNext = next
+        if (prev != null || next != null) {
+            hintHeader.text = "UP NEXT LIVE IN ${Session.listName.ifBlank { "LIST" }}".uppercase()
+            hintUp.text = "▲  " + (prev?.let { ListText.displayTitle(it) } ?: "")
+            hintDown.text = "▼  " + (next?.let { ListText.displayTitle(it) } ?: "")
+            hintUp.visibility = if (prev != null) View.VISIBLE else View.GONE
+            hintDown.visibility = if (next != null) View.VISIBLE else View.GONE
+            hintBox.visibility = View.VISIBLE
+        } else {
+            hintBox.visibility = View.GONE
+        }
+        refreshProgress()
+        overlay.visibility = View.VISIBLE
+        if (first) {
+            (if (live) btnLive else btnBack).requestFocus()
+            main.removeCallbacks(overlayTick)
+            main.post(overlayTick)
+        }
+        scheduleHide()
+    }
+
+    private fun scheduleHide() {
+        main.removeCallbacks(hideOverlayRunnable)
+        main.postDelayed(hideOverlayRunnable, 5_000)
+    }
+
+    private fun hideOverlayNow() {
+        main.removeCallbacks(hideOverlayRunnable)
+        main.removeCallbacks(overlayTick)
+        if (::overlay.isInitialized) overlay.visibility = View.GONE
+    }
+
+    private fun startedText(ms: Long): String {
+        val min = ms / 60_000
+        return when {
+            min < 1 -> "just started"
+            min < 60 -> "started $min min ago"
+            else -> "started ${min / 60} h ${min % 60} min ago"
+        }
+    }
+
+    private fun mmss(ms: Long): String {
+        val t = (ms / 1000).coerceAtLeast(0)
+        return if (t >= 3600) String.format(java.util.Locale.US, "%d:%02d:%02d", t / 3600, t % 3600 / 60, t % 60)
+        else String.format(java.util.Locale.US, "%d:%02d", t / 60, t % 60)
+    }
+
+    private fun refreshProgress() {
+        val p = player
+        btnPause.text = if (p?.playWhenReady == false) "Play" else "Pause"
+        var fraction = 1f
+        if (p == null) {
+            ovStatus.text = ""
+        } else if (p.isCurrentMediaItemLive) {
+            val off = p.currentLiveOffset
+            ovStatus.text = if (off == C.TIME_UNSET) "Live" else if (off < 1000) "At live" else "${off / 1000} s behind live"
+            val dur = p.duration
+            fraction = if (dur != C.TIME_UNSET && dur > 0) (p.currentPosition.toFloat() / dur) else if (off != C.TIME_UNSET) 1f - (off / 600_000f) else 1f
+        } else {
+            val dur = p.duration
+            ovStatus.text = if (dur != C.TIME_UNSET && dur > 0) "${mmss(p.currentPosition)} / ${mmss(dur)}" else mmss(p.currentPosition)
+            fraction = if (dur != C.TIME_UNSET && dur > 0) p.currentPosition.toFloat() / dur else 0f
+        }
+        val w = ovTrack.width
+        ovFill.layoutParams = (ovFill.layoutParams as FrameLayout.LayoutParams).apply {
+            width = (w * fraction.coerceIn(0f, 1f)).toInt()
+        }
+    }
+
+    private fun backToList() {
+        val id = Session.listId
+        release()
+        if (id != null) startActivity(ListActivity.intent(this, id))
+        finish()
+    }
+
+    /** Channel surfing: stop this event and open the other one the same way the home screen does. */
+    private fun surfTo(item: ListItem) {
+        val id = Session.listId ?: return
+        Report.log("Channel surfing to ${Report.short(item.url)}")
+        release()
+        startActivity(WaitingActivity.intent(this, item, id, Session.listName))
+        finish()
+    }
+
+    // ---- Screen: options panel (sources, quality, tunneling, live delay, reload) ----
+
+    private fun buildPicker() {
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.rounded(context, 0xF2171B22.toInt(), 14f, Ui.BORDER, 1f)
+            setPadding(dp(18f), dp(16f), dp(18f), dp(16f))
+            visibility = View.GONE
+        }
+        panel.addView(Ui.text(this, "Audio & quality", 18f, Ui.TEXT, bold = true))
+        pickerList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { isFillViewport = false }
+        scroll.addView(pickerList)
+        panel.addView(scroll, gap(10f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT; height = dp(300f) })
+        picker = panel
+        root.addView(panel, FrameLayout.LayoutParams(dp(390f), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
+    }
+
+    private fun showOptions() {
         val s = set ?: return
+        hideOverlayNow()
         pickerList.removeAllViews()
-        val density = resources.displayMetrics.density
-        s.sources.forEachIndexed { i, src ->
-            val item = TextView(this).apply {
-                text = "${i + 1}. ${src.label}" + if (i == sourceIndex) "   (playing)" else ""
-                setTextColor(0xFFFFFFFF.toInt())
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-                setBackgroundResource(R.drawable.recent_item)
-                val pad = (14 * density).toInt()
-                setPadding(pad, pad, pad, pad)
+        var focusRow: View? = null
+        fun label(t: String) = pickerList.addView(Ui.sectionLabel(this, t), gap(10f))
+        fun row(t: String, current: Boolean, action: () -> Unit): TextView {
+            val v = Ui.text(this, (if (current) "✓  " else "") + t, 13f, Ui.TEXT, bold = current).apply {
+                background = Ui.focusable(context, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+                setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
                 isFocusable = true
                 isClickable = true
-                setOnClickListener {
-                    hidePicker()
-                    switchSource(i)
-                }
+                setOnClickListener { hidePicker(); action() }
             }
-            val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.bottomMargin = (8 * density).toInt()
-            pickerList.addView(item, lp)
+            pickerList.addView(v, gap(5f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
+            if (current && focusRow == null) focusRow = v
+            return v
         }
+        if (s.sources.size > 1) {
+            label("Source")
+            s.sources.forEachIndexed { i, src -> row("${i + 1}. ${src.label}", i == sourceIndex) { switchSource(i) } }
+        }
+        if (qualityOptions.isNotEmpty()) {
+            label("Quality")
+            row("Auto", qualityChoice < 0) { setQuality(-1) }
+            qualityLabels().forEachIndexed { i, l -> row(l, qualityChoice == i) { setQuality(i) } }
+        }
+        label("Playback")
+        row("Tunneled playback: ${if (tunneling) "on" else "off"} (tap to turn ${if (tunneling) "off" else "on"})", false) { setTunneling(!tunneling) }
+        row("Live delay: ${if (smoothLive) "smooth (~20 s behind)" else "low delay"} (tap to change)", false) { setSmoothLive(!smoothLive) }
+        row("Reload the stream", false) { reconnects = 1; reconnect("requested from the TV") }
         picker.visibility = View.VISIBLE
-        pickerList.getChildAt(sourceIndex)?.requestFocus()
+        (focusRow ?: pickerList.getChildAt(1) ?: pickerList.getChildAt(0))?.requestFocus()
     }
 
     private fun hidePicker() {
@@ -893,20 +1257,57 @@ class PlayerActivity : Activity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val k = event.keyCode
+        val up = event.action == KeyEvent.ACTION_UP
         if (picker.visibility == View.VISIBLE) {
-            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-                if (event.action == KeyEvent.ACTION_UP) hidePicker()
+            if (k == KeyEvent.KEYCODE_BACK) {
+                if (up) hidePicker()
                 return true
             }
             return super.dispatchKeyEvent(event)
         }
-        if (event.keyCode == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
-        if (event.keyCode == KeyEvent.KEYCODE_DPAD_UP && (set?.sources?.size ?: 0) > 1 &&
-            !playerView.isControllerFullyVisible
-        ) {
-            if (event.action == KeyEvent.ACTION_UP) showPicker()
+        if (k == KeyEvent.KEYCODE_BACK) return super.dispatchKeyEvent(event)
+        if (cover.visibility == View.VISIBLE) return super.dispatchKeyEvent(event)
+
+        // Media keys always work.
+        val media = when (k) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "toggle"
+            KeyEvent.KEYCODE_MEDIA_PLAY -> "play"
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> "pause"
+            else -> null
+        }
+        if (media != null) {
+            if (up) { onCommand(media, null); showOverlay() }
             return true
         }
-        return playerView.dispatchKeyEvent(event) || super.dispatchKeyEvent(event)
+
+        if (overlay.visibility == View.VISIBLE) {
+            scheduleHide()
+            return super.dispatchKeyEvent(event)
+        }
+
+        // Overlay hidden.
+        when (k) {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                val (prev, next) = computeSurf()
+                val target = if (k == KeyEvent.KEYCODE_DPAD_UP) prev else next
+                if (target != null) {
+                    if (up) surfTo(target)
+                    return true
+                }
+                if (k == KeyEvent.KEYCODE_DPAD_UP && (set?.sources?.size ?: 0) > 1) {
+                    if (up) showOptions()
+                    return true
+                }
+                if (up) showOverlay()
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (up) showOverlay()
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 }
