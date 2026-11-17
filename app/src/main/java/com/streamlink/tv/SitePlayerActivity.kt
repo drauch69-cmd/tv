@@ -182,7 +182,7 @@ class SitePlayerActivity : Activity() {
          *    transparent click catcher (clear background, no text, no icons/buttons/images).
          * Also: a click that lands on a paused video and does not start it gets a play() nudge.
          */
-        private const val OVERLAY_JS = """
+        internal const val OVERLAY_JS = """
             (function(){
               if (window.__slOv) return; window.__slOv = true;
               var done = 0, MAXN = 40;
@@ -305,7 +305,7 @@ class SitePlayerActivity : Activity() {
                   var v = best;
                   setTimeout(function(){
                     try {
-                      if (v.paused) { v.muted = false; var p = v.play(); if (p && p.catch) p.catch(function(){}); }
+                      if (v.paused) { if (!window.__slKeepMuted) v.muted = false; var p = v.play(); if (p && p.catch) p.catch(function(){}); }
                     } catch (x) {}
                   }, 350);
                 } catch (x) {}

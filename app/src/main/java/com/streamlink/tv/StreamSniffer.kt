@@ -9,6 +9,8 @@ import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONArray
 import org.json.JSONTokener
 import java.util.Collections
@@ -117,6 +119,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         clickUnchanged = 0
         timeoutMs = if (ref != null) TIMEOUT_MS + CLICK_EXTRA_MS else TIMEOUT_MS
         nudgeCount = 0
+        playerX = -1f
+        playerY = -1f
         frameUrls.clear()
         candidates.clear()
         onResult = callback
@@ -225,6 +229,18 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         wv.isFocusableInTouchMode = false
         SafeWeb.configure(wv)
         wv.webChromeClient = SafeChromeClient()
+        // In every frame (the player's own frame from another site too): clear invisible ad layers over
+        // the video, and press the player's start button, found by shape and position.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            try {
+                // The hidden loader must stay silent: tells the overlay remover not to unmute on a click.
+                WebViewCompat.addDocumentStartJavaScript(wv, "window.__slKeepMuted=1;", setOf("*"))
+                WebViewCompat.addDocumentStartJavaScript(wv, SitePlayerActivity.OVERLAY_JS, setOf("*"))
+                WebViewCompat.addDocumentStartJavaScript(wv, loadAsset(context, "player-start.js"), setOf("*"))
+            } catch (e: Exception) {
+                Report.log("Start helper not added: ${e.javaClass.simpleName}")
+            }
+        }
         val c = object : SafeWebViewClient(url) {
             override fun onFrame(url: String) {
                 if (!AdBlock.isBlockedHost(Report.host(url))) frameUrls.add(url)
@@ -312,7 +328,14 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         wv.evaluateJavascript(NUDGE_JS) { raw ->
             if (done || verifying || raw == null || raw == "null") return@evaluateJavascript
             try {
-                val arr = JSONArray(JSONTokener(raw).nextValue() as String)
+                val o = org.json.JSONObject(JSONTokener(raw).nextValue() as String)
+                val iw = o.optDouble("iw", 0.0)
+                if (iw > 0 && o.has("px") && wv.width > 0) {
+                    val scale = wv.width / iw.toFloat()
+                    playerX = (o.optDouble("px") * scale).toFloat()
+                    playerY = (o.optDouble("py") * scale).toFloat()
+                }
+                val arr = o.getJSONArray("v")
                 for (i in 0 until arr.length()) {
                     val o = arr.getJSONObject(i)
                     val src = o.optString("src")
@@ -328,9 +351,18 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         // Players inside iframes can't be scripted from here, so tap the middle of the page on
         // every other nudge. Any popup or redirect that tap triggers is blocked.
         // (On a click-only list page that is still showing the list, a tap in the middle would open some other event.)
+        // Aim at the middle of the player when the page shows one (a video or a big frame), else the page.
         val onList = clickRef != null && !pageChanged()
-        if (nudgeCount % 2 == 0 && wv.width > 0 && !onList) tap(wv, wv.width / 2f, wv.height / 2f)
+        if (nudgeCount % 2 == 0 && wv.width > 0 && !onList) {
+            val x = if (playerX > 0) playerX else wv.width / 2f
+            val y = if (playerY > 0) playerY else wv.height / 2f
+            if (nudgeCount == 2) Report.log(if (playerX > 0) "Tapping the middle of the player" else "No player box seen; tapping the middle of the page")
+            tap(wv, x, y)
+        }
     }
+
+    private var playerX = -1f
+    private var playerY = -1f
 
     private fun tap(view: WebView, x: Float, y: Float) {
         val t = SystemClock.uptimeMillis()
@@ -352,6 +384,10 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             "(function(){var b=document.body;if(!b)return '0:0';return b.innerText.length+':'+b.getElementsByTagName('*').length;})()"
 
         @Volatile private var clickScript: String? = null
+        private val assetCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+        private fun loadAsset(context: Context, name: String): String =
+            assetCache.getOrPut(name) { context.applicationContext.assets.open(name).bufferedReader().use { it.readText() } }
 
         private fun loadClickScript(context: Context): String {
             clickScript?.let { return it }
@@ -384,7 +420,17 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
               .forEach(function(sel){
                 document.querySelectorAll(sel).forEach(function(e){ try{e.click();}catch(x){} });
               });
-              return JSON.stringify(out);
+              var best=null, ba=0;
+              document.querySelectorAll('video,iframe').forEach(function(e){
+                var r=e.getBoundingClientRect(), cs=getComputedStyle(e);
+                if(cs.visibility==='hidden'||cs.display==='none')return;
+                var L=Math.max(0,r.left),T=Math.max(0,r.top),R=Math.min(innerWidth,r.right),B=Math.min(innerHeight,r.bottom);
+                var a=(R-L)*(B-T);
+                if(R>L&&B>T&&a>=40000&&a>ba){ba=a;best={x:(L+R)/2,y:(T+B)/2};}
+              });
+              var res={v:out, iw:innerWidth};
+              if(best){res.px=best.x;res.py=best.y;}
+              return JSON.stringify(res);
             })()
         """
     }
