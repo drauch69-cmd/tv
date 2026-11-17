@@ -20,6 +20,8 @@ class LinkServer(
     private val status: () -> String = { "" },
     private val state: () -> String = { "{}" },
     private val report: () -> String = { "" },
+    /** The saved-sample zip for GET /sample, or null if no stream has been loaded yet. */
+    private val sample: () -> ByteArray? = { null },
 ) {
     private var socket: ServerSocket? = null
     @Volatile private var running = false
@@ -132,6 +134,15 @@ class LinkServer(
             method == "GET" && path == "/status" -> respond(c, 200, text, status())
             method == "GET" && path == "/state" -> respond(c, 200, "application/json; charset=utf-8", state())
             method == "GET" && path == "/report" -> respond(c, 200, text, report())
+            method == "GET" && path == "/sample" -> {
+                val zip = try { sample() } catch (_: Exception) { null }
+                if (zip == null) {
+                    respond(c, 404, text, "No stream has been loaded yet")
+                } else {
+                    val name = SampleRecorder.fileName()
+                    respondBytes(c, 200, "application/zip", zip, "Content-Disposition: attachment; filename=$name\r\n")
+                }
+            }
 
             path == "/play" && (method == "GET" || method == "POST") -> {
                 val raw = extractUrl(body, contentType)
@@ -235,10 +246,12 @@ class LinkServer(
         return out.toString("UTF-8")
     }
 
-    private fun respond(c: Socket, code: Int, type: String, body: String) {
-        val bytes = body.toByteArray(Charsets.UTF_8)
+    private fun respond(c: Socket, code: Int, type: String, body: String) =
+        respondBytes(c, code, type, body.toByteArray(Charsets.UTF_8))
+
+    private fun respondBytes(c: Socket, code: Int, type: String, bytes: ByteArray, extraHeaders: String = "") {
         val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 405 -> "Method Not Allowed"; else -> "Not Found" }
-        val head = "HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" +
+        val head = "HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${bytes.size}\r\n" + extraHeaders +
             "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
         val out = c.getOutputStream()
         out.write(head.toByteArray(Charsets.UTF_8))

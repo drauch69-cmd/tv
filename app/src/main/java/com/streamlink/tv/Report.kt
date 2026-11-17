@@ -20,6 +20,7 @@ object Report {
         blockedHosts.clear()
         t0 = System.currentTimeMillis()
         link = url
+        SampleRecorder.reset()
     }
 
     @Synchronized

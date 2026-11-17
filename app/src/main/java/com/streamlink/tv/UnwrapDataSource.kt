@@ -27,6 +27,12 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
     private var bufEnd = 0
     private var cachedUri: Uri? = null
     private var upstreamOpen = false
+    private var tap: SampleRecorder.ChunkTap? = null
+
+    /** Sample recording must never affect playback: any failure in it is swallowed. */
+    private inline fun sample(block: () -> Unit) {
+        try { block() } catch (_: Throwable) {}
+    }
 
     override fun addTransferListener(transferListener: TransferListener) {
         upstream.addTransferListener(transferListener)
@@ -38,6 +44,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         bufEnd = 0
         cachedUri = null
         bufOnly = false
+        tap = null
         head = ByteArray(0)
         n = 0
         eof = false
@@ -51,6 +58,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 cachedUri = Uri.parse(cached.second)
                 Report.logOnce("prefetch", "Player reused the checked playlist")
                 logPlaylist(bytes, bytes.size)
+                sample { SampleRecorder.playlist(dataSpec.uri.toString(), cached.first, cached.first.size, false, "(checked earlier)") }
                 val len = bytes.size.toLong()
                 return if (dataSpec.length == C.LENGTH_UNSET.toLong()) len else minOf(len, dataSpec.length)
             }
@@ -67,6 +75,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             fill(512 * 1024)
             if (looksLikePlaylist(head, n)) {
                 logPlaylist(head, n)
+                sample { SampleRecorder.playlist(dataSpec.uri.toString(), head, n, !eof, contentTypeHeader()) }
                 if (eof) {
                     // Whole playlist in hand: correct known typos before the player reads it.
                     val fixed = fixPlaylist(head.copyOf(n))
@@ -92,6 +101,11 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             }
             return length
         }
+
+        // Sample recording: only copies bytes already read; claims one of the first two chunk slots.
+        val t = try { SampleRecorder.beginChunk(dataSpec.uri.toString()) } catch (_: Throwable) { null }
+        tap = t
+        if (t != null) sample { t.contentType = contentTypeHeader() }
 
         // (If the playlist check above already read some bytes, keep them and read on.)
         if (n == 0) head = ByteArray(PEEK)
@@ -126,6 +140,11 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                     bufPos = at
                     bufEnd = end
                     bufOnly = true
+                    sample {
+                        t?.decision = "video decoded from the picture's pixels (${d.layout}, ${end - at} bytes of video, " +
+                            "${d.bytes.size - end} bytes of padding dropped)"
+                        t?.received(head, 0, n)
+                    }
                     return C.LENGTH_UNSET.toLong()
                 }
             }
@@ -145,6 +164,15 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         buf = head
         bufPos = skip
         bufEnd = n
+        sample {
+            t?.decision = when {
+                skip > 0 && looksLikeMedia(head, n, skip) -> "unwrapped: $skip junk bytes removed from the start"
+                skip > 0 -> "unwrap failed: skipped $skip bytes but no recognisable video after them"
+                looksLikeMedia(head, n, 0) -> "passed through unchanged (already normal video)"
+                else -> "passed through unchanged (format not recognised)"
+            }
+            t?.received(head, 0, n)
+        }
         return if (length == C.LENGTH_UNSET.toLong()) C.LENGTH_UNSET.toLong() else length - skip
     }
 
@@ -231,12 +259,27 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 val count = minOf(length, bufEnd - bufPos)
                 System.arraycopy(b, bufPos, buffer, offset, count)
                 bufPos += count
+                tap?.let { t -> sample { t.delivered(count) } }
                 return count
             }
-            if (cachedUri != null || bufOnly) return C.RESULT_END_OF_INPUT
+            if (cachedUri != null || bufOnly) {
+                tap?.let { t -> t.complete = true }
+                return C.RESULT_END_OF_INPUT
+            }
         }
-        return upstream.read(buffer, offset, length)
+        val r = upstream.read(buffer, offset, length)
+        val t = tap
+        if (t != null) {
+            sample {
+                if (r > 0) { t.received(buffer, offset, r); t.delivered(r) } else if (r == C.RESULT_END_OF_INPUT) t.complete = true
+            }
+        }
+        return r
     }
+
+    private fun contentTypeHeader(): String = try {
+        upstream.responseHeaders.entries.firstOrNull { it.key.equals("Content-Type", true) }?.value?.firstOrNull() ?: "?"
+    } catch (_: Throwable) { "?" }
 
     override fun getUri(): Uri? = cachedUri ?: upstream.uri
 
@@ -244,6 +287,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         if (cachedUri != null) emptyMap() else upstream.responseHeaders
 
     override fun close() {
+        tap = null
         head = ByteArray(0)
         n = 0
         buf = null

@@ -42,6 +42,7 @@ class MainActivity : Activity() {
             status = { AppStatus.text },
             state = { Session.stateJson() },
             report = { Report.text() },
+            sample = { SampleRecorder.zip(Report.text(), BuildConfig.VERSION_NAME) },
         )
         port = try { server.start() } catch (_: Exception) { -1 }
         showAddress()
