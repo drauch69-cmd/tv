@@ -65,6 +65,14 @@ jobs:
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk "$APK_NAME"
 
+      # Machine-readable version of this build; the app's updater reads it from the release.
+      - name: Write version.json
+        run: |
+          SHA=$(sha256sum "$APK_NAME" | cut -d' ' -f1)
+          printf '{"versionCode": %s, "channel": "%s", "apk": "%s", "sha256": "%s"}\n' \
+            "$GITHUB_RUN_NUMBER" "$STREAMLINK_CHANNEL" "$APK_NAME" "$SHA" > version.json
+          cat version.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.STREAMLINK_CHANNEL == 'test' && 'StreamLink-Test-apk' || 'StreamLink-apk' }}
@@ -77,7 +85,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --yes --cleanup-tag || true
-          gh release create latest StreamLink.apk --title "Latest build" --notes "Build ${{ github.run_number }}"
+          gh release create latest StreamLink.apk version.json --title "Latest build" --notes "Build ${{ github.run_number }}"
 
       # Branch "test" publishes the separate test app to its own fixed link.
       - name: Publish test release
@@ -86,6 +94,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete test-latest --yes --cleanup-tag || true
-          gh release create test-latest StreamLink-Test.apk --title "Test build" --notes "Test build ${{ github.run_number }}"
+          gh release create test-latest StreamLink-Test.apk version.json --title "Test build" --notes "Test build ${{ github.run_number }}"
     permissions:
       contents: write

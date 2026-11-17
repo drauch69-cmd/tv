@@ -10,6 +10,22 @@ An Android TV app: send a web link from your phone, and the TV finds the video o
    `https://github.com/drauch69-cmd/tv/releases/download/latest/StreamLink.apk`
 4. Install it. For updates, repeat step 3. It installs over the old version.
 
+## Updates
+
+The app updates itself from its own GitHub release (the normal app from `latest`, the Test app from `test-latest`).
+It checks when it starts and then at most every 12 hours (never while something is playing). The **Check for
+updates** button on the home screen checks right away.
+
+- Each release has a `version.json` next to the APK (`versionCode`, `channel`, `apk`, `sha256`).
+- If the release is newer, the TV downloads it in the background and checks it: the SHA-256 must match, and the APK
+  must be this same app (same package name, same signing certificate as the installed one). Otherwise it is thrown away.
+- Then the home screen shows **Update ready (build N) — press OK to install**. Nothing is ever installed without you
+  pressing OK there (or **Install update on TV** on the phone page, when the TV is on its home screen). Android then
+  shows its own install confirmation.
+- One-time setup: allow StreamLink to install apps: **Settings → Apps → Security & restrictions → Unknown sources →
+  StreamLink**. The home screen explains this and has a button that opens the setting.
+- Builds from before this feature have no updater: install the first updating build by hand (Downloader, as above).
+
 ## Use it
 
 1. Open **StreamLink** on the TV. It shows a QR code and the TV's address.

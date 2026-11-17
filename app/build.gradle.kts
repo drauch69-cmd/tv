@@ -20,6 +20,8 @@ android {
         // Each GitHub build gets a higher version number so it installs over the last one.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
+        // Which release channel this app updates itself from ("main" or "test"); see Updater.kt.
+        buildConfigField("String", "CHANNEL", "\"${if (isTestChannel) "test" else "main"}\"")
     }
 
     // A fixed signing key, so every new build can be installed over the old one.

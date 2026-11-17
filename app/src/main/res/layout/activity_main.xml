@@ -41,6 +41,32 @@
                 android:textSize="18sp" />
 
             <TextView
+                android:id="@+id/checkUpdate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/recent_item"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="14dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="6dp"
+                android:text="Check for updates"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/updateInfo"
+                android:layout_width="260dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center"
+                android:textColor="#FF7F8DAD"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
                 android:layout_width="260dp"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
@@ -64,6 +90,47 @@
                 android:textColor="#FFFFFFFF"
                 android:textSize="36sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/updateBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/recent_item"
+                android:clickable="true"
+                android:focusable="true"
+                android:padding="12dp"
+                android:textColor="#FFFFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/updatePerm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="To install updates, allow StreamLink to install apps: Settings → Apps → Security &amp; restrictions → Unknown sources → StreamLink"
+                android:textColor="#FFFFC66B"
+                android:textSize="15sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/updateSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:background="@drawable/recent_item"
+                android:clickable="true"
+                android:focusable="true"
+                android:paddingStart="14dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="6dp"
+                android:text="Open the install permission settings"
+                android:textColor="#FFFFFFFF"
+                android:textSize="14sp"
+                android:visibility="gone" />
 
             <TextView
                 android:id="@+id/status"

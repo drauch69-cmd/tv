@@ -34,6 +34,9 @@ object Session {
         o.put("mode", mode)
         o.put("title", title)
         o.put("status", AppStatus.text)
+        val u = UpdateState.phoneJson()
+        if (u == null) o.put("update", JSONObject.NULL)
+        else o.put("update", JSONObject().put("build", u.first).put("ready", u.second))
         val s = snapshot
         if ((mode == "player" || mode == "clean") && s != null) {
             o.put("playing", s.playing)

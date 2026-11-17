@@ -54,6 +54,12 @@
 
 <div id="status" class="status">Connecting to the TV…</div>
 
+<section id="updatecard" class="card" hidden>
+  <div class="now" style="margin-bottom:10px"><span id="updtext"></span></div>
+  <button type="button" class="primary" id="updbtn" style="margin-top:0">Install update on TV</button>
+  <div id="updhint" class="sub" hidden>Go back to the TV's home screen to install it.</div>
+</section>
+
 <section id="remote" class="card" hidden>
   <div class="now"><span id="title"></span><span id="live" class="badge" hidden>LIVE</span></div>
   <div class="grid">
@@ -235,6 +241,11 @@
       b.onclick = function(){ post('/cmd', 'c=' + encodeURIComponent(b.getAttribute('data-c'))).then(function(){ setTimeout(tick, 250); }); };
     })(buttons[i]);
   }
+  $('updbtn').onclick = function(){
+    $('status').textContent = 'Asking the TV to install the update…';
+    post('/cmd', 'c=update').then(function(){ setTimeout(tick, 400); })
+      .catch(function(){ $('status').textContent = 'Could not reach the TV. Is StreamLink open?'; });
+  };
   var smoothOn = true;
   $('delaybtn').onclick = function(){
     post('/cmd', 'c=delay&v=' + (smoothOn ? 'low' : 'smooth')).then(function(){ setTimeout(tick, 500); });
@@ -268,6 +279,15 @@
     fetch('/state', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
       failures = 0;
       $('status').textContent = s.status || '';
+      var up = s.update;
+      $('updatecard').hidden = !up;
+      if (up) {
+        var home = s.mode === 'idle';
+        $('updtext').textContent = up.ready ? 'Update ready (build ' + up.build + ')' : 'Updating… (build ' + up.build + ')';
+        $('updbtn').hidden = !up.ready;
+        $('updbtn').disabled = !home;
+        $('updhint').hidden = !(up.ready && !home);
+      }
       var waiting = s.mode === 'waiting';
       $('waitcard').hidden = !waiting;
       $('wtitle').textContent = s.title || '';

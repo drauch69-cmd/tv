@@ -6,6 +6,8 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.Uri
+import android.content.Intent
+import android.provider.Settings
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -36,6 +38,18 @@ class MainActivity : Activity() {
     private var port = -1
     private var shownLink: String? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private var resumed = false
+    private lateinit var updateBanner: TextView
+    private lateinit var updatePerm: TextView
+    private lateinit var updateSettings: TextView
+    private lateinit var checkUpdate: TextView
+    private lateinit var updateInfo: TextView
+    private val updateTick = object : Runnable {
+        override fun run() {
+            Updater.checkIfDue(this@MainActivity) // checks at most every 12 h, and not while something plays
+            main.postDelayed(this, 30 * 60 * 1000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +61,14 @@ class MainActivity : Activity() {
         listRow = findViewById(R.id.listRow)
         listLabel = findViewById(R.id.listLabel)
         listScroll = findViewById(R.id.listScroll)
+        updateBanner = findViewById(R.id.updateBanner)
+        updatePerm = findViewById(R.id.updatePerm)
+        updateSettings = findViewById(R.id.updateSettings)
+        checkUpdate = findViewById(R.id.checkUpdate)
+        updateInfo = findViewById(R.id.updateInfo)
+        updateBanner.setOnClickListener { installUpdate() }
+        updateSettings.setOnClickListener { openInstallSettings() }
+        checkUpdate.setOnClickListener { Updater.check(this, manual = true) }
         sniffer = StreamSniffer(this, findViewById(R.id.webHolder))
         // Reads index pages when the phone asks for a refresh and no list screen is open.
         reader = IndexReader(this, findViewById(R.id.webHolder))
@@ -79,16 +101,27 @@ class MainActivity : Activity() {
         renderRecents()
         watchNetwork()
         (listRow.getChildAt(0) ?: recentList.getChildAt(0))?.requestFocus()
+        Updater.listener = { runOnUiThread { renderUpdate() } }
+        renderUpdate()
+        main.post(updateTick)
+    }
+
+    override fun onPause() {
+        resumed = false
+        super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
+        resumed = true
+        renderUpdate() // the user may just have allowed installs in Settings
         showAddress()
         renderLists()
         if (Session.mode == "idle") statusView.text = lastStatusForScreen()
     }
 
     override fun onDestroy() {
+        Updater.listener = null
         netCallback?.let {
             try { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } catch (_: Exception) {}
         }
@@ -301,7 +334,66 @@ class MainActivity : Activity() {
         d.getButton(AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
     }
 
+    // ---- App updates (see Updater.kt) ----
+
+    private fun renderUpdate() {
+        val phase = UpdateState.phase
+        val canInstall = Updater.canInstall(this)
+        when (phase) {
+            UpdateState.Phase.READY -> {
+                updateBanner.text = "Update ready (build ${UpdateState.build}) — press OK to install"
+                updateBanner.visibility = View.VISIBLE
+                if (currentFocus == null) updateBanner.requestFocus()
+            }
+            UpdateState.Phase.DOWNLOADING -> {
+                val p = UpdateState.percent
+                updateBanner.text = if (p in 0..99) "Updating… $p%" else "Updating…"
+                updateBanner.visibility = View.VISIBLE
+            }
+            UpdateState.Phase.INSTALLING -> {
+                updateBanner.text = "Installing update (build ${UpdateState.build})…"
+                updateBanner.visibility = View.VISIBLE
+            }
+            UpdateState.Phase.NONE -> updateBanner.visibility = View.GONE
+        }
+        // Only a banner you can press needs to be focusable.
+        updateBanner.isFocusable = phase == UpdateState.Phase.READY
+        val needAllow = phase == UpdateState.Phase.READY && !canInstall
+        updatePerm.visibility = if (needAllow) View.VISIBLE else View.GONE
+        updateSettings.visibility = if (needAllow) View.VISIBLE else View.GONE
+        val msg = UpdateState.message
+        updateInfo.text = msg
+        updateInfo.visibility = if (msg.isEmpty()) View.GONE else View.VISIBLE
+        checkUpdate.text = if (UpdateState.checking) "Checking…" else "Check for updates"
+    }
+
+    /** The user pressed OK on the banner (or the phone's button): install, unless installs are not allowed yet. */
+    private fun installUpdate() {
+        if (UpdateState.phase != UpdateState.Phase.READY) return
+        if (!Updater.canInstall(this)) {
+            Toast.makeText(this, "First allow StreamLink to install apps (see below)", Toast.LENGTH_LONG).show()
+            renderUpdate()
+            updateSettings.requestFocus()
+            return
+        }
+        Updater.install(this)
+    }
+
+    private fun openInstallSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+        } catch (_: Exception) {
+            // Not every TV has this screen; the text above says where to find the setting by hand.
+            Toast.makeText(this, "This TV has no shortcut: use Settings → Apps → Security & restrictions → Unknown sources", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun command(c: String, v: String?) {
+        if (c == "update") {
+            // Only from the home screen: never pop up the install dialog over a stream.
+            if (resumed && Session.mode == "idle") installUpdate()
+            return
+        }
         val h = Session.commandHandler
         if (h != null) {
             h(c, v)
