@@ -1250,7 +1250,7 @@ class PlayerActivity : Activity() {
             .apply { marginStart = dp(10f) })
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        btnLive = button("Jump to live", primary = true) { player?.seekToDefaultPosition(); scheduleHide() }
+        btnLive = button("Jump to live") { player?.seekToDefaultPosition(); scheduleHide() }
         btnBack = button("Back") { backToList() }
         btnOptions = button("Audio & quality") { showOptions() }
         btnOther = button("Try another player") { openCleanPlayer("chosen from the player menu") }
