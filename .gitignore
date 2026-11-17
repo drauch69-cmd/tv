@@ -3,3 +3,8 @@ build/
 local.properties
 .idea/
 *.iml
+
+# fetched from npm by CI (see build.yml), not committed
+app/src/main/assets/hls.min.js
+app/src/main/assets/hls.js.LICENSE.txt
+app/src/main/assets/hls.js.VERSION.txt

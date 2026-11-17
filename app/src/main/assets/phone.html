@@ -59,6 +59,7 @@
   </label>
   <div class="after">
     <button type="button" class="ghost" id="sitebtn" data-c="site">Use the site's own player</button>
+    <button type="button" class="ghost" id="cleanbtn" data-c="clean">Try the clean browser player</button>
     <button type="button" class="ghost" id="delaybtn">Live delay: Smooth</button>
     <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
   </div>
@@ -140,7 +141,7 @@
     fetch('/state', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(s){
       failures = 0;
       $('status').textContent = s.status || '';
-      var player = s.mode === 'player', site = s.mode === 'site';
+      var clean = s.mode === 'clean', player = s.mode === 'player' || clean, site = s.mode === 'site';
       $('remote').hidden = !(player || site);
       if (!(player || site)) return;
       $('title').textContent = s.title || '';
@@ -149,10 +150,11 @@
       $('livebtn').hidden = !player;
       $('sitebtn').hidden = !player;
       smoothOn = s.smoothLive !== false;
-      $('delaybtn').hidden = !player;
+      $('cleanbtn').hidden = !player || clean;
+      $('delaybtn').hidden = !player || clean;
       $('delaybtn').textContent = 'Live delay: ' + (smoothOn ? 'Smooth, ~20s behind (tap for low delay)' : 'Low delay (tap for smoother)');
       tunnelOn = !!s.tunneling;
-      $('tunnelbtn').hidden = !player;
+      $('tunnelbtn').hidden = !player || clean;
       $('tunnelbtn').textContent = 'Tunneled playback: ' + (tunnelOn ? 'On (tap to turn off)' : 'Off (tap to try on)');
       var q = s.qualities || [], src = s.sources || [];
       $('qwrap').hidden = !(player && q.length > 1);

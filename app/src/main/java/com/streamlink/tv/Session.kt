@@ -18,7 +18,7 @@ data class PlayerSnapshot(
 
 /**
  * Shared state between the TV screens and the phone page.
- * mode: "idle" (QR screen), "finding", "player" (built-in player) or "site" (site's own player).
+ * mode: "idle" (QR screen), "finding", "player" (built-in player), "clean" (hls.js in a blank browser page) or "site" (site's own player).
  */
 object Session {
     @Volatile var mode = "idle"
@@ -35,7 +35,7 @@ object Session {
         o.put("title", title)
         o.put("status", AppStatus.text)
         val s = snapshot
-        if (mode == "player" && s != null) {
+        if ((mode == "player" || mode == "clean") && s != null) {
             o.put("playing", s.playing)
             o.put("buffering", s.buffering)
             o.put("live", s.live)
