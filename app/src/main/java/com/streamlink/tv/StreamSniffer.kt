@@ -47,16 +47,39 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private val candidates = LinkedHashMap<String, StreamCandidate>()
     private var onResult: ((StreamSet) -> Unit)? = null
 
+    // Click-only list rows ("<page>#sl-click=..."): the page is loaded without the fragment, settled, and the row clicked.
+    private var clickRef: ClickRef? = null
+    private var clickPhase = 0 // 0 = not a click link or not started, 1 = waiting for the list page to settle, 2 = clicked
+    private var clickLoadedAt = 0L
+    private var clickAttempts = 0
+    private var clickSig: String? = null
+    private var clickUnchanged = 0
+    private var clickX = 0f
+    private var clickY = 0f
+    private var timeoutMs = TIMEOUT_MS
+
     private val timeout = Runnable {
         if (done || verifying) return@Runnable
         if (candidates.isEmpty()) {
-            Report.log("No video stream found within ${TIMEOUT_MS / 1000}s")
+            Report.log("No video stream found within ${timeoutMs / 1000}s")
             finish(StreamSet(currentPage(), emptyList()))
         } else {
             verifyAndFinish()
         }
     }
     private val collect = Runnable { verifyAndFinish() }
+    private val settle = object : Runnable {
+        override fun run() {
+            if (done || verifying || clickPhase != 1) return
+            pollSettle()
+        }
+    }
+    private val tapRow = Runnable {
+        val wv = webView ?: return@Runnable
+        if (done || verifying || candidates.isNotEmpty() || pageChanged() || wv.width <= 0) return@Runnable
+        Report.log("The click did not open anything; tapping the row")
+        tap(wv, clickX, clickY)
+    }
     private val nudger = object : Runnable {
         override fun run() {
             if (done || verifying) return
@@ -67,25 +90,33 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     fun sniff(url: String, callback: (StreamSet) -> Unit) {
         cancel()
-        if (isStreamUrl(url) || url.lowercase().substringBefore('?').endsWith(".mp4")) {
+        val ref = ClickRef.parse(url)
+        val target = ref?.pageUrl ?: ClickRef.pagePart(url) // the page itself, without any "#sl-click=" fragment
+        if (isStreamUrl(target) || target.lowercase().substringBefore('?').endsWith(".mp4")) {
             Report.log("Link is a video file itself; playing it directly")
-            callback(StreamSet(url, listOf(Source(url, emptyMap(), listOf(""), Report.host(url)))))
+            callback(StreamSet(target, listOf(Source(target, emptyMap(), listOf(""), Report.host(target)))))
             return
         }
         done = false
         verifying = false
         generation++
-        pageUrl = url
+        pageUrl = target
+        clickRef = ref
+        clickPhase = 0
+        clickAttempts = 0
+        clickSig = null
+        clickUnchanged = 0
+        timeoutMs = if (ref != null) TIMEOUT_MS + CLICK_EXTRA_MS else TIMEOUT_MS
         nudgeCount = 0
         frameUrls.clear()
         candidates.clear()
         onResult = callback
-        val wv = createWebView(url)
+        val wv = createWebView(target)
         webView = wv
         holder.addView(wv, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        Report.log("Loading page")
-        wv.loadUrl(url)
-        main.postDelayed(timeout, TIMEOUT_MS)
+        Report.log(if (ref != null) "Loading the list page (the event has no link of its own, it has to be clicked)" else "Loading page")
+        wv.loadUrl(target)
+        main.postDelayed(timeout, timeoutMs)
         main.postDelayed(nudger, 3000)
     }
 
@@ -97,6 +128,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
+        main.removeCallbacks(settle)
+        main.removeCallbacks(tapRow)
         destroyWebView()
     }
 
@@ -156,6 +189,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
+        main.removeCallbacks(settle)
+        main.removeCallbacks(tapRow)
         val list = candidates.values.toList()
         val page = currentPage()
         val gen = generation
@@ -195,6 +230,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
 
             override fun onLoaded() {
+                if (clickRef != null && clickPhase == 0) {
+                    // list page of a click-only event: let it settle, then click the row (nudging first could tap another row)
+                    clickPhase = 1
+                    clickLoadedAt = System.currentTimeMillis()
+                    main.postDelayed(settle, 1000)
+                    return
+                }
                 nudge()
             }
         }
@@ -203,10 +245,60 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         return wv
     }
 
+    /** True once the web view is no longer on the list page we loaded (the click navigated). */
+    private fun pageChanged(): Boolean {
+        val cur = webView?.url ?: return false
+        return ClickRef.pagePart(cur).trimEnd('/') != pageUrl.trimEnd('/')
+    }
+
+    private fun pollSettle() {
+        val wv = webView ?: return
+        val gen = generation
+        wv.evaluateJavascript(SIGNATURE_JS) { raw ->
+            if (done || verifying || gen != generation || clickPhase != 1) return@evaluateJavascript
+            val sig = (try { MiniJson.parse(raw ?: "null") as? String } catch (_: Exception) { null }) ?: ""
+            if (sig == clickSig) clickUnchanged++ else { clickUnchanged = 0; clickSig = sig }
+            val waited = System.currentTimeMillis() - clickLoadedAt
+            if (clickUnchanged >= 2 || waited >= CLICK_SETTLE_MAX_MS) clickRow() else main.postDelayed(settle, 1000)
+        }
+    }
+
+    /** Finds the row on the (settled) list page and clicks it; retries a few times if the list is not there yet. */
+    private fun clickRow() {
+        val wv = webView ?: return
+        val ref = clickRef ?: return
+        val gen = generation
+        val script = try { loadClickScript(context) } catch (e: Exception) { Report.log("Click script missing"); finish(StreamSet(currentPage(), emptyList())); return }
+        clickAttempts++
+        wv.evaluateJavascript("($script)(${org.json.JSONObject.quote(ClickRef.specJson(ref))})") { raw ->
+            if (done || verifying || gen != generation) return@evaluateJavascript
+            val o = try { MiniJson.parse(MiniJson.parse(raw ?: "null") as? String ?: "") as? Map<*, *> } catch (_: Exception) { null }
+            if (o == null || o["ok"] != true) {
+                val why = (o?.get("why") as? String) ?: "no answer from the page"
+                val waited = System.currentTimeMillis() - clickLoadedAt
+                if (clickAttempts < CLICK_MAX_ATTEMPTS && waited < CLICK_SETTLE_MAX_MS + 10_000) {
+                    main.postDelayed({ if (!done && !verifying && gen == generation && clickPhase == 1) clickRow() }, 2000)
+                } else {
+                    Report.log("Could not find the event's row on the list page ($why)")
+                    finish(StreamSet(currentPage(), emptyList()))
+                }
+                return@evaluateJavascript
+            }
+            clickPhase = 2
+            val iw = (o["iw"] as? Double) ?: 0.0
+            val scale = if (iw > 0 && wv.width > 0) wv.width / iw.toFloat() else wv.resources.displayMetrics.density
+            clickX = ((o["x"] as? Double) ?: 0.0).toFloat() * scale
+            clickY = ((o["y"] as? Double) ?: 0.0).toFloat() * scale
+            Report.log("Opened the event by clicking its row on the list page (matched by ${o["how"]})")
+            main.postDelayed(tapRow, 3000)
+            nudge()
+        }
+    }
+
     /** Try to get the page's player going: muted autoplay, click common play buttons, tap the middle. */
     private fun nudge() {
         val wv = webView ?: return
-        if (done || verifying) return
+        if (done || verifying || clickPhase == 1) return
         nudgeCount++
         wv.evaluateJavascript(NUDGE_JS) { raw ->
             if (done || verifying || raw == null || raw == "null") return@evaluateJavascript
@@ -226,7 +318,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         }
         // Players inside iframes can't be scripted from here, so tap the middle of the page on
         // every other nudge. Any popup or redirect that tap triggers is blocked.
-        if (nudgeCount % 2 == 0 && wv.width > 0) tap(wv, wv.width / 2f, wv.height / 2f)
+        // (On a click-only list page that is still showing the list, a tap in the middle would open some other event.)
+        val onList = clickRef != null && !pageChanged()
+        if (nudgeCount % 2 == 0 && wv.width > 0 && !onList) tap(wv, wv.width / 2f, wv.height / 2f)
     }
 
     private fun tap(view: WebView, x: Float, y: Float) {
@@ -241,6 +335,21 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     companion object {
         const val TIMEOUT_MS = 25_000L
+        /** Extra time for click-only events: the list page has to settle (<= 12s) before the click. */
+        const val CLICK_EXTRA_MS = 15_000L
+        private const val CLICK_SETTLE_MAX_MS = 12_000L
+        private const val CLICK_MAX_ATTEMPTS = 4
+        private const val SIGNATURE_JS =
+            "(function(){var b=document.body;if(!b)return '0:0';return b.innerText.length+':'+b.getElementsByTagName('*').length;})()"
+
+        @Volatile private var clickScript: String? = null
+
+        private fun loadClickScript(context: Context): String {
+            clickScript?.let { return it }
+            val text = context.applicationContext.assets.open("click-row.js").bufferedReader().use { it.readText() }
+            clickScript = text
+            return text
+        }
         private const val COLLECT_MS = 2_500L
         private const val MAX_CANDIDATES = 8
 

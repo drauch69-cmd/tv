@@ -5,7 +5,13 @@
  *     (<this file>)(<recipe JSON string or null>)
  * in the top frame of the loaded index page and gets a JSON string back:
  *   { pageTitle, pageUrl, method: "automatic"|"recipe", debug, noLink,
+ *     textLen, loading, frames: [{ src, w, h, pct, same, vis }], clickRows,
  *     items: [{ title, subtitle, url, timeText, datetime, section, liveHint, imageUrl }] }
+ * Rows that are events but have no URL anywhere in the DOM (JS click handlers) get
+ *     url = <page url> + "#sl-click=" + encodeURIComponent(JSON {t: title, i: index, s: row selector, h: page hash if any})
+ * which StreamSniffer replays with assets/click-row.js.
+ * Same-origin iframes are scanned as extra roots; all iframes are reported in "frames" so the
+ * Kotlin side can follow a big (cross-origin) one.
  * Dates are NOT parsed here (Kotlin DateGuess does that); "datetime" is only a machine-readable
  * value found next to the text (<time datetime>, data-start ...), passed through for DateGuess.
  *
@@ -52,6 +58,25 @@
       try { var x = new URL(u, document.baseURI); x.hash = ''; return x.href.replace(/\/+$/, ''); } catch (e) { return ''; }
     }
     var PAGE_N = normUrl(PAGE);
+
+    // Documents to read: the top one, then same-origin iframes (visible ones, two levels deep).
+    var docs = [document];
+    function collectDocs(doc, depth) {
+      if (depth > 2) return;
+      var fs = doc.querySelectorAll('iframe');
+      for (var i = 0; i < fs.length && docs.length < 8; i++) {
+        try {
+          var f = fs[i], d = f.contentDocument;
+          if (!d || !d.body) continue;
+          var r = f.getBoundingClientRect();
+          if (r.width < 50 || r.height < 50) continue;
+          docs.push(d);
+          collectDocs(d, depth + 1);
+        } catch (e) { /* cross-origin */ }
+      }
+    }
+    try { collectDocs(document, 0); } catch (e) { }
+    function baseOf(el) { try { return el.ownerDocument.baseURI || document.baseURI; } catch (e) { return document.baseURI; } }
 
     function txt(el) {
       var t = el.innerText;
@@ -138,12 +163,12 @@
     var RE_ONCLICK_URL = /(?:location(?:\.href)?|window\.open|location\.assign|location\.replace)\s*(?:=|\()\s*['"]([^'"]+)['"]/;
 
     /** Absolute URL if acceptable as an event link, else ''. strict = must be on the same site. */
-    function okLink(href, strict) {
+    function okLink(href, strict, base) {
       if (!href) return '';
       var h = String(href).trim();
       if (!h || h.charAt(0) === '#' || /^(javascript|mailto|tel|sms|data|blob|about|intent|market):/i.test(h)) return '';
       var x;
-      try { x = new URL(h, document.baseURI); } catch (e) { return ''; }
+      try { x = new URL(h, base || document.baseURI); } catch (e) { return ''; }
       if (x.protocol !== 'http:' && x.protocol !== 'https:') return '';
       if (strict && !sameSite(x.hostname)) return '';
       if (normUrl(x.href) === PAGE_N) return '';
@@ -151,25 +176,25 @@
     }
     function linkFromAttrs(el, strict) {
       for (var i = 0; i < DATA_LINK_ATTRS.length; i++) {
-        var u = okLink(el.getAttribute(DATA_LINK_ATTRS[i]), strict);
+        var u = okLink(el.getAttribute(DATA_LINK_ATTRS[i]), strict, baseOf(el));
         if (u) return u;
       }
       var oc = el.getAttribute && el.getAttribute('onclick');
-      if (oc) { var m = RE_ONCLICK_URL.exec(oc); if (m) { var u2 = okLink(m[1], strict); if (u2) return u2; } }
+      if (oc) { var m = RE_ONCLICK_URL.exec(oc); if (m) { var u2 = okLink(m[1], strict, baseOf(el)); if (u2) return u2; } }
       return '';
     }
     /** The item's own link: itself if an <a>, first usable <a> inside, (optionally the <a> around it), data-href/onclick. */
     function linkOf(el, strict, allowAncestor) {
-      var u;
-      if (el.tagName === 'A') { u = okLink(el.getAttribute('href'), strict); if (u) return u; }
+      var u, base = baseOf(el);
+      if (el.tagName === 'A') { u = okLink(el.getAttribute('href'), strict, base); if (u) return u; }
       var as = el.querySelectorAll('a[href]');
-      for (var i = 0; i < as.length; i++) { u = okLink(as[i].getAttribute('href'), strict); if (u) return u; }
+      for (var i = 0; i < as.length; i++) { u = okLink(as[i].getAttribute('href'), strict, base); if (u) return u; }
       u = linkFromAttrs(el, strict); if (u) return u;
       var ds = el.querySelectorAll('[data-href],[data-url],[data-link],[data-target-url],[data-event-url],[data-permalink],[onclick]');
       for (var j = 0; j < ds.length && j < 40; j++) { u = linkFromAttrs(ds[j], strict); if (u) return u; }
       if (allowAncestor) {
         var anc = el.parentElement && el.parentElement.closest('a[href]');
-        if (anc) { u = okLink(anc.getAttribute('href'), strict); if (u) return u; }
+        if (anc) { u = okLink(anc.getAttribute('href'), strict, base); if (u) return u; }
       }
       return '';
     }
@@ -200,14 +225,22 @@
       if (t.length) s += '.' + t.join('.');
       return s.length > 50 ? s.substring(0, 50) : s;
     }
-    function docOrder(a, b) { return a === b ? 0 : ((a.compareDocumentPosition(b) & 4) ? -1 : 1); }
+    function docOrder(a, b) {
+      if (a === b) return 0;
+      if (a.ownerDocument !== b.ownerDocument) return docs.indexOf(a.ownerDocument) - docs.indexOf(b.ownerDocument);
+      return (a.compareDocumentPosition(b) & 4) ? -1 : 1;
+    }
 
     function buildGroups() {
-      var all = document.body.getElementsByTagName('*');
-      var limit = Math.min(all.length, 15000);
-      var map = {}, list = [];
+      var map = {}, list = [], budget = 15000;
+      for (var di = 0; di < docs.length; di++) {
+      var body = docs[di].body;
+      if (!body) continue;
+      var all = body.getElementsByTagName('*');
+      var limit = Math.min(all.length, budget);
+      budget -= limit;
       for (var i = -1; i < limit; i++) {
-        var p = i < 0 ? document.body : all[i];
+        var p = i < 0 ? body : all[i];
         if (SKIP_PARENT[p.tagName.toUpperCase()]) continue;
         var kids = p.children;
         if (!kids.length) continue;
@@ -235,6 +268,7 @@
           g.parents.push(p);
           for (var q = 0; q < cl.items.length; q++) g.items.push(cl.items[q]);
         }
+      }
       }
       var out = [];
       for (var x = 0; x < list.length; x++) {
@@ -509,7 +543,7 @@
         var src = im.currentSrc || im.getAttribute('src') || im.getAttribute('data-src') || im.getAttribute('data-lazy-src') || '';
         if (!src || /^data:/i.test(src)) continue;
         if (layoutOk) { var r = im.getBoundingClientRect(); if (r.width > 0 && r.width < 20 && r.height < 20) continue; }
-        var u = okAbs(src);
+        var u = okAbs(src, baseOf(item));
         if (u) return u;
       }
       var els = [item], more = item.querySelectorAll('*');
@@ -518,13 +552,13 @@
         var bg = getComputedStyle(els[k]).backgroundImage;
         if (bg && bg !== 'none') {
           var m = /url\((['"]?)(.*?)\1\)/.exec(bg);
-          if (m && m[2] && !/^data:/i.test(m[2])) { var u2 = okAbs(m[2]); if (u2) return u2; }
+          if (m && m[2] && !/^data:/i.test(m[2])) { var u2 = okAbs(m[2], baseOf(item)); if (u2) return u2; }
         }
       }
       return null;
     }
-    function okAbs(u) {
-      try { var x = new URL(u, document.baseURI); if (x.protocol === 'http:' || x.protocol === 'https:') return x.href.substring(0, 500); } catch (e) { }
+    function okAbs(u, base) {
+      try { var x = new URL(u, base || document.baseURI); if (x.protocol === 'http:' || x.protocol === 'https:') return x.href.substring(0, 500); } catch (e) { }
       return '';
     }
 
@@ -573,7 +607,7 @@
       var url = '';
       if (ov.link) {
         var lel = ov.link;
-        url = okLink(lel.getAttribute('href'), strictLinks) || linkOf(lel, strictLinks, true);
+        url = okLink(lel.getAttribute('href'), strictLinks, baseOf(lel)) || linkOf(lel, strictLinks, true);
       }
       if (!url) url = linkOf(item, strictLinks, true);
       var section = typeof ov.section === 'string' ? ov.section : findSection(item, itemSet || {});
@@ -584,6 +618,47 @@
         section: section, liveHint: live, imageUrl: imageOf(item)
       };
     }
+
+    // ---------------------------------------------------------------- rows without any URL (JS click handlers)
+    var CLICK_MARK = '#sl-click=';
+    var clickRows = 0;
+    function cssEsc(x) { try { return CSS.escape(x); } catch (e) { return String(x).replace(/[^a-zA-Z0-9_-]/g, '\\$&'); } }
+    function selPart(el) {
+      var s = el.tagName.toLowerCase(), t = tokens(el).slice(0, 4);
+      for (var i = 0; i < t.length; i++) s += '.' + cssEsc(t[i]);
+      return s;
+    }
+    /** A selector matching the rows of a group: tag + the classes they all share (parent tag/classes if none). */
+    function rowSelector(items) {
+      var common = tokens(items[0]);
+      for (var i = 1; i < items.length && common.length; i++) {
+        var tk = tokens(items[i]);
+        common = common.filter(function (c) { return tk.indexOf(c) >= 0; });
+      }
+      var s = items[0].tagName.toLowerCase();
+      for (var j = 0; j < common.length && j < 4; j++) s += '.' + cssEsc(common[j]);
+      if (!common.length && items[0].parentElement) s = selPart(items[0].parentElement) + ' > ' + s;
+      return s;
+    }
+    function matchesOf(sel) {
+      var out = [];
+      for (var d = 0; d < docs.length; d++) {
+        try {
+          var l = docs[d].querySelectorAll(sel);
+          for (var i = 0; i < l.length; i++) if (visible(l[i])) out.push(l[i]);
+        } catch (e) { return []; }
+      }
+      return out;
+    }
+    /** url for a row that has no link: page url + #sl-click=<json> (see StreamSniffer / click-row.js). */
+    function clickUrl(it, sel, idx) {
+      clickRows++;
+      var spec = { t: it.title, i: idx, s: sel };
+      if (location.hash) spec.h = location.hash; // a '#' can't appear twice in a URL, so the page's own hash rides in the spec
+      return PAGE.replace(/#.*$/, '') + CLICK_MARK + encodeURIComponent(JSON.stringify(spec));
+    }
+    /** Unlinked row in a list where some rows do link: keep it only if it looks like an event (time or live). */
+    function looksLikeEvent(it) { return !!(it.timeText || it.datetime || it.liveHint); }
 
     // ---------------------------------------------------------------- automatic mode
     function automatic() {
@@ -623,17 +698,38 @@
       var all = [], itemSet = {};
       chosen.forEach(function (g) { g.items.forEach(function (it) { all.push(it); itemSet[uid(it)] = 1; }); });
       all.sort(docOrder);
-      var items = [], noLink = 0, seen = {};
-      for (var k = 0; k < all.length && items.length < MAX_ITEMS; k++) {
-        var it = readItem(all[k], null, itemSet, true);
-        if (!it) continue;
-        if (!it.url) { noLink++; continue; }
-        var dk = it.url + '|' + it.title + '|' + it.timeText + '|' + it.section;
+      var selOf = {};
+      chosen.forEach(function (g) { var sl = rowSelector(g.items); g.items.forEach(function (it) { selOf[uid(it)] = sl; }); });
+      var read = [], linked = 0, k;
+      for (k = 0; k < all.length && read.length < MAX_ITEMS * 2; k++) {
+        var rd = readItem(all[k], null, itemSet, true);
+        if (!rd) continue;
+        if (rd.url) linked++;
+        read.push({ it: rd, row: all[k] });
+      }
+      var items = [], noLink = 0, kept = 0, seen = {}, matchCache = {};
+      for (k = 0; k < read.length && items.length < MAX_ITEMS; k++) {
+        var it = read[k].it, row = read[k].row, dk;
+        if (!it.url) {
+          noLink++;
+          if (linked > 0 && !looksLikeEvent(it)) continue;
+          var sel = selOf[uid(row)] || '', idx = -1;
+          if (sel) { var ms = matchCache[sel] || (matchCache[sel] = matchesOf(sel)); idx = ms.indexOf(row); if (idx < 0) sel = ''; }
+          if (idx < 0) idx = all.indexOf(row);
+          dk = 'click|' + it.title + '|' + it.timeText + '|' + it.section;
+          if (seen[dk]) continue;
+          seen[dk] = 1;
+          it.url = clickUrl(it, sel, idx);
+          kept++;
+          items.push(it);
+          continue;
+        }
+        dk = it.url + '|' + it.title + '|' + it.timeText + '|' + it.section;
         if (seen[dk]) continue;
         seen[dk] = 1;
         items.push(it);
       }
-      if (noLink) debug.push(noLink + ' row(s) had no link of their own and were dropped');
+      if (noLink) debug.push(noLink + ' row(s) had no link of their own: ' + kept + ' kept as click rows, ' + (noLink - kept) + ' dropped');
       return { items: items, noLink: noLink };
     }
     function describe0(g) { return describe(g.items[0]) + ' x' + g.n; }
@@ -663,14 +759,57 @@
         if (r.live) { try { ov.live = !!(row.querySelector(r.live) || row.matches(r.live)); } catch (e) { } }
         var it = readItem(row, ov, itemSet, false);
         if (!it) continue;
-        if (!it.url) { noLink++; continue; }
-        var dk = it.url + '|' + it.title + '|' + it.timeText;
+        var dk;
+        if (!it.url) {
+          noLink++;
+          var ri = rows.indexOf(row);
+          dk = 'click|' + it.title + '|' + it.timeText;
+          if (seen[dk]) continue;
+          seen[dk] = 1;
+          var rms = matchesOf(r.item);
+          var rix = rms.indexOf(row);
+          it.url = clickUrl(it, rix >= 0 ? r.item : '', rix >= 0 ? rix : ri);
+          items.push(it);
+          continue;
+        }
+        dk = it.url + '|' + it.title + '|' + it.timeText;
         if (seen[dk]) continue;
         seen[dk] = 1;
         items.push(it);
       }
-      debug.push('recipe ' + (r.host || '') + ': ' + rows.length + ' row(s), ' + items.length + ' event(s)' + (noLink ? ', ' + noLink + ' without link' : ''));
+      debug.push('recipe ' + (r.host || '') + ': ' + rows.length + ' row(s), ' + items.length + ' event(s)' + (noLink ? ', ' + noLink + ' without link (kept as click rows)' : ''));
       return { items: items, noLink: noLink };
+    }
+
+    // ---------------------------------------------------------------- page diagnostics (text size, iframes, loading)
+    function diagnostics() {
+      var out = { textLen: 0, loading: false, frames: [] };
+      try {
+        var d, i;
+        for (d = 0; d < docs.length; d++) { if (docs[d].body) out.textLen += (docs[d].body.innerText || docs[d].body.textContent || '').replace(/\s+/g, ' ').trim().length; }
+        var vw = document.documentElement.clientWidth || window.innerWidth || 1280, vh = window.innerHeight || document.documentElement.clientHeight || 720;
+        var fs = document.querySelectorAll('iframe');
+        for (i = 0; i < fs.length && out.frames.length < 12; i++) {
+          var f = fs[i], r = f.getBoundingClientRect(), cs = getComputedStyle(f);
+          var src = '';
+          try { src = f.src || f.getAttribute('data-src') || f.getAttribute('data-lazy-src') || ''; if (src) src = new URL(src, document.baseURI).href; } catch (e) { src = ''; }
+          var same = false;
+          try { same = !!(f.contentDocument && f.contentDocument.body); } catch (e) { same = false; }
+          var vis = cs.display !== 'none' && cs.visibility !== 'hidden' && r.width >= 100 && r.height >= 100;
+          var pct = Math.round(Math.min(r.width, vw) * Math.min(r.height, vh) / (vw * vh) * 1000) / 10;
+          out.frames.push({ src: src.substring(0, 500), w: Math.round(r.width), h: Math.round(r.height), pct: pct, same: same, vis: vis });
+        }
+        var ld = document.querySelectorAll('[aria-busy="true"],progress,[role=progressbar],[class*="spinner"],[class*="loader"],[class*="loading"],[class*="skeleton"],[id*="loading"],[id*="spinner"]');
+        for (i = 0; i < ld.length && i < 10; i++) { try { if (visible(ld[i])) { out.loading = true; break; } } catch (e) { } }
+        if (!out.loading && out.textLen < 200 && /\bloading\b|please wait/i.test(document.body ? document.body.innerText || '' : '')) out.loading = true;
+        var big = null;
+        out.frames.forEach(function (fr) { if (fr.vis && fr.src && (!big || fr.pct > big.pct)) big = fr; });
+        var host = ''; if (big) { try { host = new URL(big.src).hostname; } catch (e) { host = big.src.substring(0, 40); } }
+        debug.push('text ' + out.textLen + ' chars | iframes ' + out.frames.length + (big ? ' (largest ' + host + ' ' + big.pct + '%' + (big.same ? ' same-origin' : ' cross-origin') + ')' : '') +
+          (docs.length > 1 ? ' | scanned ' + (docs.length - 1) + ' same-origin frame(s)' : '') + (out.loading ? ' | loading indicator' : '') +
+          ' | click fallback ' + (clickRows ? 'used for ' + clickRows + ' row(s)' : 'not used'));
+      } catch (e) { debug.push('diagnostics failed: ' + (e && e.message)); }
+      return out;
     }
 
     // ---------------------------------------------------------------- main
@@ -691,9 +830,10 @@
       }
       if (!result) result = automatic();
     }
+    var dg = diagnostics();
     return JSON.stringify({
       pageTitle: pageTitle.substring(0, 160), pageUrl: String(PAGE), method: method, debug: debug.join(' | '),
-      noLink: result.noLink, items: result.items
+      noLink: result.noLink, textLen: dg.textLen, loading: dg.loading, frames: dg.frames, clickRows: clickRows, items: result.items
     });
   }
 })

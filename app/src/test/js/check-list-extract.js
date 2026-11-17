@@ -3,7 +3,8 @@
 const fs = require('fs'), path = require('path');
 const puppeteer = require('puppeteer-core');
 const http = require('http');
-let server, base;
+let server, base, server2, base2;
+const clickJs = fs.readFileSync(path.join(__dirname, '../../main/assets/click-row.js'), 'utf8');
 const js = fs.readFileSync(path.join(__dirname, '../../main/assets/list-extract.js'), 'utf8');
 let fails = 0;
 function eq(name, got, want) {
@@ -15,11 +16,17 @@ async function run(page, file, recipe) {
   const out = await page.evaluate(`(${js})(${recipe ? JSON.stringify(JSON.stringify(recipe)) : 'null'})`);
   return JSON.parse(out);
 }
+function handler(q, res) {
+  const f = path.join(__dirname, 'fixtures', path.basename(q.url.split('?')[0]));
+  if (fs.existsSync(f)) { res.setHeader('content-type', 'text/html'); res.end(fs.readFileSync(f, 'utf8').replace(/__OTHER__/g, base2)); } else { res.statusCode = 404; res.end('x'); }
+}
+const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')[1]));
 (async () => {
-  server = http.createServer((q, res) => {
-    const f = path.join(__dirname, 'fixtures', path.basename(q.url.split('?')[0]));
-    if (fs.existsSync(f)) { res.setHeader('content-type', 'text/html'); res.end(fs.readFileSync(f)); } else { res.statusCode = 404; res.end('x'); }
-  });
+  // a second server on another port = a different origin (stands in for a cross-origin iframe)
+  server2 = http.createServer(handler);
+  await new Promise(r => server2.listen(0, '127.0.0.1', r));
+  base2 = 'http://127.0.0.1:' + server2.address().port;
+  server = http.createServer(handler);
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   base = 'http://127.0.0.1:' + server.address().port;
   const browser = await puppeteer.launch({ executablePath: process.env.CHROME || '/usr/bin/google-chrome', args: ['--no-sandbox'] });
@@ -51,7 +58,86 @@ async function run(page, file, recipe) {
   eq('recipe fallback', r.method, 'automatic');
   r = await run(page, 'portal.html', { host: 'x', item: '((' });
   eq('bad selector fallback', r.items.length, 3);
-  await browser.close(); server.close();
+
+  // ---- (a) rows with only JS click handlers: kept, with #sl-click URLs carrying the title
+  r = await run(page, 'click.html');
+  console.log(r.debug);
+  eq('click titles', r.items.map(i => i.title), ['Rovers vs Athletic', 'Harriers v City', 'Lions v Wolves']);
+  eq('click urls are absolute page+fragment', r.items.every(i => i.url.startsWith(base + '/click.html#sl-click=')), true);
+  eq('click url titles', r.items.map(i => clickSpec(i.url).t), ['Rovers vs Athletic', 'Harriers v City', 'Lions v Wolves']);
+  eq('click url indexes', r.items.map(i => clickSpec(i.url).i), [0, 1, 2]);
+  eq('click url selector', clickSpec(r.items[0].url).s, 'div.ev');
+  eq('click urls distinct', new Set(r.items.map(i => i.url)).size, 3);
+  eq('click times kept', r.items.map(i => i.timeText), ['Thu, Dec 3 \u2022 7:45 PM', 'Fri, Dec 4 \u2022 8:00 PM', 'Sat, Dec 5 \u2022 12:15 PM']);
+  eq('click rows counted', r.clickRows, 3);
+  eq('click diag line', /click fallback used for 3 row/.test(r.debug) && /text \d+ chars/.test(r.debug) && /iframes 0/.test(r.debug), true);
+  // replay (click-row.js) on a fresh load of the page
+  const replay = async (spec) => JSON.parse(await page.evaluate(`(${clickJs})(${JSON.stringify(JSON.stringify(spec))})`));
+  await page.goto(base + '/click.html');
+  let rp = await replay(clickSpec(r.items[1].url));
+  eq('replay by title ok', [rp.ok, rp.how], [true, 'title']);
+  eq('replay clicked the right row', await page.evaluate('window.__clicked'), 'Harriers v City');
+  eq('replay SPA url change seen', new URL(page.url()).pathname, '/watch/2');
+  eq('replay reports row centre', rp.x > 0 && rp.y > 0 && rp.iw === 1280, true);
+  await page.goto(base + '/click.html');
+  rp = await replay({ t: 'Not there', i: 2, s: 'div.ev' });
+  eq('replay falls back to index', [rp.ok, rp.how, await page.evaluate('window.__clicked')], [true, 'index', 'Lions v Wolves']);
+  await page.goto(base + '/click.html');
+  rp = await replay({ t: 'Lions v Wolves', i: -1, s: '' });
+  eq('replay without selector finds text', [rp.ok, rp.how, await page.evaluate('window.__clicked')], [true, 'text', 'Lions v Wolves']);
+  await page.goto(base + '/click.html');
+  rp = await replay({ t: 'Nothing like it', i: 9, s: 'div.nope' });
+  eq('replay reports not found', rp.ok, false);
+  r = await run(page, 'mixed.html');
+  console.log(r.debug);
+  eq('mixed: unlinked rows with a time kept, other junk dropped', r.items.map(i => i.title), ['Alpha Cup', 'Beta Cup', 'Gamma Cup', 'Delta Cup']);
+  eq('mixed: only the unlinked event is a click row', r.items.map(i => i.url.indexOf('#sl-click=') >= 0), [false, false, true, false]);
+  eq('mixed replay clicks it', await (async () => {
+    await page.goto(base + '/mixed.html');
+    const rr = await replay(clickSpec(r.items[2].url));
+    return [rr.ok, (await page.evaluate('window.__clicked')).indexOf('Gamma Cup') >= 0];
+  })(), [true, true]);
+  // recipe rows without links become click rows too
+  r = await run(page, 'click.html', { host: 'x', item: 'div.ev', title: 'h3' });
+  eq('recipe click rows', [r.method, r.items.length, clickSpec(r.items[1].url).i], ['recipe', 3, 1]);
+
+  // ---- (b) the list is inside a same-origin iframe: read as an extra root
+  r = await run(page, 'iframe-same.html');
+  console.log(r.debug);
+  eq('same-origin iframe titles', r.items.map(i => i.title), ['Spring Concert', 'Book Club', 'Night Market']);
+  eq('same-origin iframe urls resolve against the frame', r.items.map(i => i.url), [base + '/ev/201', base + '/ev/202', base + '/ev/203']);
+  eq('same-origin iframe reported', [r.frames.length, r.frames[0].same, r.frames[0].pct >= 35], [1, true, true]);
+  r = await run(page, 'iframe-same-click.html');
+  eq('same-origin iframe click rows', [r.items.length, r.items.map(i => clickSpec(i.url).t)], [3, ['Spring Concert', 'Book Club', 'Night Market']]);
+  await page.goto(base + '/iframe-same-click.html');
+  rp = await replay(clickSpec(r.items[1].url));
+  const inner = page.frames().find(f => f.url().endsWith('iframe-inner-click.html'));
+  eq('replay clicks inside the iframe', [rp.ok, await inner.evaluate('window.__clicked')], [true, 'Book Club']);
+  eq('replay iframe row position is in top-window coordinates', rp.x > 0 && rp.x < 1280 && rp.y > 100, true);
+
+  // ---- (c) the list is in a cross-origin iframe: nothing readable, but the big frame is reported
+  r = await run(page, 'iframe-cross.html');
+  console.log(r.debug);
+  eq('cross-origin: no items', r.items.length, 0);
+  eq('cross-origin: frame reported', [r.frames.length, r.frames[0].src, r.frames[0].same, r.frames[0].vis, r.frames[0].pct >= 35], [1, base2 + '/iframe-inner.html', false, true, true]);
+  eq('cross-origin diag line', /iframes 1 \(largest 127\.0\.0\.1 \d+(\.\d)?% cross-origin\)/.test(r.debug), true);
+  // following it: the frame's own address read as the index page
+  r = await run(page, 'iframe-cross.html');
+  await page.goto(r.frames[0].src);
+  const followed = JSON.parse(await page.evaluate(`(${js})(null)`));
+  eq('cross-origin: frame read directly', followed.items.map(i => i.title), ['Spring Concert', 'Book Club', 'Night Market']);
+  eq('cross-origin: links resolve against the frame', followed.items[0].url, base2 + '/ev/201');
+
+  // ---- (d) list rendered late (setTimeout 4s)
+  r = await run(page, 'late.html');
+  console.log(r.debug);
+  eq('late: nothing at first', r.items.length, 0);
+  eq('late: loading seen and text short', [r.loading, r.textLen < 1500], [true, true]);
+  await new Promise(res => setTimeout(res, 4500));
+  r = JSON.parse(await page.evaluate(`(${js})(null)`));
+  eq('late: found after the wait', r.items.map(i => i.title), ['Late Night Jam', 'Sunday Brunch Show', 'Quiz Final']);
+
+  await browser.close(); server.close(); server2.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');
   process.exit(fails ? 1 : 0);
 })();

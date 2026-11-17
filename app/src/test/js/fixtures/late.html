@@ -1,0 +1,9 @@
+<!doctype html><html><head><title>Late list</title><style>.row{display:flex;justify-content:space-between;padding:14px;border:1px solid #ddd;margin:6px 0;text-decoration:none;color:#000}.t{font-weight:700;font-size:17px}</style></head><body>
+<header><a href="/">Home</a><a href="/news">News</a></header>
+<main><h1>Events</h1><div id="root"><div class="spinner">Loading...</div></div></main>
+<script>setTimeout(function(){
+  document.getElementById('root').innerHTML =
+   '<a class="row" href="/e/1"><span class="t">Late Night Jam</span><span>Fri, Dec 4 &bull; 8:00 PM</span></a>' +
+   '<a class="row" href="/e/2"><span class="t">Sunday Brunch Show</span><span>Sun, Dec 6 &bull; 11:00 AM</span></a>' +
+   '<a class="row" href="/e/3"><span class="t">Quiz Final</span><span>Mon, Dec 7 &bull; 7:00 PM</span></a>';
+}, 4000);</script></body></html>
