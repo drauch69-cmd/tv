@@ -121,7 +121,27 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             skip = searchFrom(1) ?: 0
         }
 
-        // Nothing after the picture: the video may be hidden in the picture's pixels.
+        // Nothing after the picture: the video may be hidden in the picture's text notes.
+        if (image != null && !looksLikeMedia(head, n, skip)) {
+            fill(MAX_PEEK)
+            val d = PngText.decode(head, n) { bytes, len -> looksLikeMedia(bytes, len, 0) }
+            if (d != null) {
+                val end = if (d.bytes.isNotEmpty() && d.bytes[0] == SYNC) tsEnd(d.bytes, 0) else d.bytes.size
+                Report.logOnce("pngtext", "Decoded video hidden in the picture's text notes " +
+                    "(${d.notes} notes, ${d.encoding}, ${end} bytes of video)")
+                buf = d.bytes
+                bufPos = 0
+                bufEnd = end
+                bufOnly = true
+                sample {
+                    t?.decision = "video decoded from the picture's text notes (${d.notes} notes, ${d.encoding}, $end bytes)"
+                    t?.received(head, 0, n)
+                }
+                return C.LENGTH_UNSET.toLong()
+            }
+        }
+
+        // Still nothing: the video may be hidden in the picture's pixels.
         if (image != null && !looksLikeMedia(head, n, skip)) {
             fill(MAX_PEEK)
             // Try the packing that worked last time first, so most chunks decode exactly once.
