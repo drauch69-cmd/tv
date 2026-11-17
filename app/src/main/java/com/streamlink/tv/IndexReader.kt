@@ -277,7 +277,9 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         val recipe = recipes?.let { ListRecipes.match(it, pageHost) ?: ListRecipes.match(it, reqHost) }
         val script = try { loadScript(context) } catch (e: Exception) { finish(fail("Reader script missing")); return }
         val arg = if (recipe != null) JSONObject.quote(recipe.toJson()) else "null"
-        wv.evaluateJavascript("($script)($arg)") { raw ->
+        val shapes = (LearnedShapes.forHost(context, pageHost) + LearnedShapes.forHost(context, reqHost)).distinct()
+        val learnedArg = if (shapes.isEmpty()) "null" else JSONObject.quote(org.json.JSONArray(shapes).toString())
+        wv.evaluateJavascript("($script)($arg, $learnedArg)") { raw ->
             if (done || gen != generation) return@evaluateJavascript
             val ex = try {
                 parseExtraction(MiniJson.parse(raw ?: "null") as? String ?: "", currentPage(), recipe?.host)
@@ -330,6 +332,11 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                     parsed.items.size, Report.host(parsed.pageUrl), if (parsed.method.startsWith("recipe")) "recipe" else "automatic", secs)
             )
             if (ex.debug.isNotEmpty()) Report.log("List: ${ex.debug}")
+            // A real list (2+ rows) on this site: remember its row shape for sibling pages with a single event.
+            if (ex.shape.isNotEmpty() && parsed.items.size >= 2 && !parsed.method.startsWith("recipe")) {
+                LearnedShapes.remember(context, Uri.parse(currentPage()).host, ex.shape)
+                if (reqHost != Uri.parse(currentPage()).host) LearnedShapes.remember(context, reqHost, ex.shape)
+            }
             val shown = followedFrom?.let { parsed.copy(pageUrl = it) } ?: parsed // keep the list page's own URL for display
             val result = if (shown.items.isEmpty()) shown.copy(error = "No events found on this page") else shown
             finish(result)
@@ -454,6 +461,7 @@ return out.slice(0,1500000);
                 loading = root["loading"] == true,
                 frames = frames,
                 clickRows = items.count { ClickRef.isClickUrl(it.url) },
+                shape = (root["shape"] as? String).orEmpty().take(300),
             )
         }
 
@@ -464,6 +472,7 @@ return out.slice(0,1500000);
             val loading: Boolean = false,
             val frames: List<FramePick.Frame> = emptyList(),
             val clickRows: Int = 0,
+            val shape: String = "",
         )
     }
 }

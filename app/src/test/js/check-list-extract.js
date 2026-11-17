@@ -11,9 +11,9 @@ function eq(name, got, want) {
   const ok = JSON.stringify(got) === JSON.stringify(want);
   if (!ok) { fails++; console.log('FAIL', name, '\n  got ', JSON.stringify(got), '\n  want', JSON.stringify(want)); } else console.log('ok  ', name);
 }
-async function run(page, file, recipe) {
+async function run(page, file, recipe, learned) {
   await page.goto(base + '/' + file);
-  const out = await page.evaluate(`(${js})(${recipe ? JSON.stringify(JSON.stringify(recipe)) : 'null'})`);
+  const out = await page.evaluate(`(${js})(${recipe ? JSON.stringify(JSON.stringify(recipe)) : 'null'}, ${learned ? JSON.stringify(JSON.stringify(learned)) : 'null'})`);
   return JSON.parse(out);
 }
 function handler(q, res) {
@@ -136,6 +136,28 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   await new Promise(res => setTimeout(res, 4500));
   r = JSON.parse(await page.evaluate(`(${js})(null)`));
   eq('late: found after the wait', r.items.map(i => i.title), ['Late Night Jam', 'Sunday Brunch Show', 'Quiz Final']);
+
+  // ---- (e) one event only, stragglers, learned shapes, nothing to find
+  r = await run(page, 'single.html');
+  console.log(r.debug);
+  eq('single: lone event', r.items.map(i => [i.title, i.timeText, i.url.replace(/^.*\/w\//, '')]), [['Comets vs Rockets', 'Tue 9:30 PM', '77']]);
+  r = await run(page, 'lead.html');
+  console.log(r.debug);
+  eq('lead: stragglers before the list', r.items.map(i => i.title), ['Owls vs Hawks', 'Bears vs Lions', 'Ducks vs Geese', 'Foxes vs Wolves', 'Seals vs Orcas']);
+  eq('lead: shape reported', r.shape, 'ul.rest > li.it');
+  r = await run(page, 'click.html');
+  const learned = r.shape;
+  console.log('click shape', learned);
+  r = await run(page, 'single-click.html', null, ['div.grid > div.card.ev']);
+  console.log(r.debug);
+  eq('learned: single click row', [r.items.length, r.items[0] && r.items[0].title, r.items[0] && r.items[0].url.includes('#sl-click=')], [1, 'Scheduled Thing', true]);
+  r = await run(page, 'single-click.html');
+  eq('single click row without learning: nothing', r.items.length, 0);
+  r = await run(page, 'empty.html');
+  console.log(r.debug);
+  eq('empty page stays empty', r.items.length, 0);
+  r = await run(page, 'portal.html', null, ['div.nothing > a.x']);
+  eq('learned shape ignored when a list is found', r.items.length, 3);
 
   await browser.close(); server.close(); server2.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');

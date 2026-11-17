@@ -10,6 +10,8 @@
  * Rows that are events but have no URL anywhere in the DOM (JS click handlers) get
  *     url = <page url> + "#sl-click=" + encodeURIComponent(JSON {t: title, i: index, s: row selector, h: page hash if any})
  * which StreamSniffer replays with assets/click-row.js.
+ * Second argument: JSON array of "learned" row selectors for this site (from earlier good reads), or null.
+ * The result also carries "shape": the row selector of the list found here, for the app to remember.
  * Same-origin iframes are scanned as extra roots; all iframes are reported in "frames" so the
  * Kotlin side can follow a big (cross-origin) one.
  * Dates are NOT parsed here (Kotlin DateGuess does that); "datetime" is only a machine-readable
@@ -25,7 +27,7 @@
  *  3. Take the best group (plus equally good ones), read each row: title (most prominent line),
  *     subtitle (next line), time line, link, section heading above it, live hint, image.
  */
-(function (recipeJson) {
+(function (recipeJson, learnedJson) {
   'use strict';
   var debug = [];
   try {
@@ -687,7 +689,10 @@
       for (var d = 0; d < top.length && d < 5; d++) shown.push(desc(top[d]));
       debug.push('groups considered ' + groups.length + ' [' + shown.join('; ') + ']');
       var best = top[0];
-      if (!best || best.score < MIN_SCORE) { debug.push('no group scored >= ' + MIN_SCORE); return { items: [], noLink: 0 }; }
+      if (!best || best.score < MIN_SCORE) {
+        debug.push('no group scored >= ' + MIN_SCORE);
+        return learnedRows() || looseRows() || { items: [], noLink: 0 };
+      }
       var chosen = [best];
       for (var c = 1; c < top.length; c++) {
         var g = top[c], ok = g.score >= best.score * 0.75 && g.timeFrac >= 0.5;
@@ -697,9 +702,20 @@
       debug.push('chosen ' + chosen.length + ' group(s): ' + chosen.map(describe0).join(' + '));
       var all = [], itemSet = {};
       chosen.forEach(function (g) { g.items.forEach(function (it) { all.push(it); itemSet[uid(it)] = 1; }); });
-      all.sort(docOrder);
       var selOf = {};
       chosen.forEach(function (g) { var sl = rowSelector(g.items); g.items.forEach(function (it) { selOf[uid(it)] = sl; }); });
+      shape = shapeOf(best.items);
+      var extra = stragglers(best, itemSet);
+      if (extra.length) {
+        debug.push(extra.length + ' event-like row(s) next to the list added');
+        extra.forEach(function (el) { all.push(el); itemSet[uid(el)] = 1; });
+      }
+      all.sort(docOrder);
+      return emit(all, selOf, itemSet, true);
+    }
+
+    /** Reads rows into items: dedupes, keeps unlinked rows as click rows when they look like events. */
+    function emit(all, selOf, itemSet, requireEventIfSomeLinked) {
       var read = [], linked = 0, k;
       for (k = 0; k < all.length && read.length < MAX_ITEMS * 2; k++) {
         var rd = readItem(all[k], null, itemSet, true);
@@ -712,7 +728,7 @@
         var it = read[k].it, row = read[k].row, dk;
         if (!it.url) {
           noLink++;
-          if (linked > 0 && !looksLikeEvent(it)) continue;
+          if (requireEventIfSomeLinked && linked > 0 && !looksLikeEvent(it)) continue;
           var sel = selOf[uid(row)] || '', idx = -1;
           if (sel) { var ms = matchCache[sel] || (matchCache[sel] = matchesOf(sel)); idx = ms.indexOf(row); if (idx < 0) sel = ''; }
           if (idx < 0) idx = all.indexOf(row);
@@ -731,6 +747,132 @@
       }
       if (noLink) debug.push(noLink + ' row(s) had no link of their own: ' + kept + ' kept as click rows, ' + (noLink - kept) + ' dropped');
       return { items: items, noLink: noLink };
+    }
+
+    // ---------------------------------------------------------------- learned shapes, lone events, stragglers
+    var shape = '';
+    /** A row selector anchored at its container, specific enough to recognise the same rows on sibling pages. */
+    function shapeOf(items) {
+      var s = rowSelector(items);
+      var p = items[0].parentElement;
+      if (s.indexOf('>') < 0 && p && p !== items[0].ownerDocument.body && tokens(p).length) s = selPart(p) + ' > ' + s;
+      return s;
+    }
+    function distinctLinks(el, cap) {
+      var as = el.tagName === 'A' ? [el] : [];
+      var inner = el.querySelectorAll('a[href]');
+      for (var i = 0; i < inner.length && i < 60; i++) as.push(inner[i]);
+      var seen = {}, n = 0, base = baseOf(el);
+      for (var j = 0; j < as.length; j++) {
+        var u = okLink(as[j].getAttribute('href'), true, base);
+        if (!u) continue;
+        var nu = normUrl(u);
+        if (nu === PAGE_N || seen[nu]) continue;
+        seen[nu] = 1; n++;
+        if (n >= cap) break;
+      }
+      return n;
+    }
+    /** From a link, the largest surrounding element that still holds only this one link (and stays inside [stop]). */
+    function rowAround(a, stop, avoid) {
+      var row = a, cap = Math.max(120, txt(a).length * 3);
+      for (var guard = 0; guard < 8; guard++) {
+        var p = row.parentElement;
+        if (!p || p === stop || p === document.body || p === document.documentElement || p === p.ownerDocument.body) break;
+        if (avoid && avoid(p)) break;
+        if (distinctLinks(p, 2) > 1) break;
+        if (txt(p).length > Math.min(600, cap)) break;
+        if (p.querySelector('h1') || /^(MAIN|BODY)$/.test(p.tagName)) break;
+        row = p;
+      }
+      return row;
+    }
+    function keepLone(el, it) {
+      return it && it.title && (it.url || it.liveHint) && looksLikeEvent(it) && !chromeOf(el) && txt(el).length <= 600;
+    }
+    /** Rows matching a shape learned on this site's other pages (a page with a single event has nothing that repeats). */
+    function learnedRows() {
+      var list = [];
+      try { if (learnedJson) list = JSON.parse(learnedJson) || []; } catch (e) { list = []; }
+      for (var i = 0; i < list.length && i < 6; i++) {
+        var sel = String(list[i] || '');
+        if (!sel) continue;
+        var rows = matchesOf(sel).filter(function (el) { return !chromeOf(el); });
+        if (!rows.length || rows.length > MAX_ITEMS) continue;
+        var itemSet = {}, selOf = {};
+        rows.forEach(function (el) { itemSet[uid(el)] = 1; selOf[uid(el)] = sel; });
+        var res = emit(rows, selOf, itemSet, false);
+        if (res.items.length) { debug.push('used the row shape learned on this site: ' + sel + ' (' + res.items.length + ')'); return res; }
+      }
+      if (list.length) debug.push('learned row shape(s) matched nothing');
+      return null;
+    }
+    /** No list at all: a few lone rows that link within the site and show a time or a live badge. */
+    function looseRows() {
+      var rows = [], seenRow = {}, seenUrl = {};
+      for (var d = 0; d < docs.length; d++) {
+        var as = docs[d].querySelectorAll('a[href]');
+        for (var i = 0; i < as.length && i < 400; i++) {
+          var a = as[i];
+          var u = okLink(a.getAttribute('href'), true, baseOf(a));
+          if (!u) continue;
+          var nu = normUrl(u);
+          if (nu === PAGE_N || seenUrl[nu]) continue;
+          if (chromeOf(a) || !visible(a)) continue;
+          seenUrl[nu] = 1;
+          var row = rowAround(a, null, null);
+          if (seenRow[uid(row)]) continue;
+          var it = readItem(row, null, {}, true);
+          if (!keepLone(row, it)) continue;
+          seenRow[uid(row)] = 1;
+          rows.push(row);
+        }
+      }
+      if (!rows.length || rows.length > 6) return null;
+      var itemSet = {};
+      rows.forEach(function (el) { itemSet[uid(el)] = 1; });
+      var res = emit(rows, {}, itemSet, false);
+      if (res.items.length) { debug.push('no list; ' + res.items.length + ' lone event row(s)'); return res; }
+      return null;
+    }
+    /** Event-like rows near the list but styled differently (a "live now" pair above it, say). */
+    function stragglers(best, itemSet) {
+      var items = best.items, p = items[0].parentElement, out = [];
+      if (!p) return out;
+      var area = p;
+      for (var up = 0; up < 2; up++) {
+        var q = area.parentElement;
+        if (!q || q === q.ownerDocument.body || q === q.ownerDocument.documentElement || chromeOf(q)) break;
+        area = q;
+      }
+      var maxLen = 0, urls = {};
+      items.slice(0, 60).forEach(function (el) {
+        maxLen = Math.max(maxLen, txt(el).length);
+        var u = linkOf(el, true, true); if (u) urls[normUrl(u)] = 1;
+      });
+      function inList(el) {
+        for (var e = el; e && e !== area; e = e.parentElement) if (itemSet[uid(e)]) return true;
+        return false;
+      }
+      function holdsList(el) { for (var i = 0; i < items.length && i < 40; i++) if (el.contains(items[i])) return true; return false; }
+      var as = area.querySelectorAll('a[href]'), seenRow = {};
+      for (var i = 0; i < as.length && i < 300 && out.length < 20; i++) {
+        var a = as[i];
+        if (inList(a) || !visible(a)) continue;
+        var u = okLink(a.getAttribute('href'), true, baseOf(a));
+        if (!u) continue;
+        var nu = normUrl(u);
+        if (nu === PAGE_N || urls[nu]) continue;
+        var row = rowAround(a, area, holdsList);
+        if (seenRow[uid(row)] || holdsList(row)) continue;
+        if (txt(row).length > Math.max(200, maxLen * 3)) continue;
+        var it = readItem(row, null, itemSet, true);
+        if (!keepLone(row, it)) continue;
+        seenRow[uid(row)] = 1;
+        urls[nu] = 1;
+        out.push(row);
+      }
+      return out;
     }
     function describe0(g) { return describe(g.items[0]) + ' x' + g.n; }
 
@@ -833,7 +975,7 @@
     var dg = diagnostics();
     return JSON.stringify({
       pageTitle: pageTitle.substring(0, 160), pageUrl: String(PAGE), method: method, debug: debug.join(' | '),
-      noLink: result.noLink, textLen: dg.textLen, loading: dg.loading, frames: dg.frames, clickRows: clickRows, items: result.items
+      noLink: result.noLink, shape: shape, textLen: dg.textLen, loading: dg.loading, frames: dg.frames, clickRows: clickRows, items: result.items
     });
   }
 })
