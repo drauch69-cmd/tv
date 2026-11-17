@@ -116,6 +116,10 @@ class PlayerActivity : Activity() {
     private var surfPrev: ListItem? = null
     private var surfNext: ListItem? = null
     private lateinit var sniffer: StreamSniffer
+    /** Second page loader, behind the picture: finds the page's alternate links while the stream plays. */
+    private var linkSniffer: StreamSniffer? = null
+    private var linkRunScheduled = false
+    private var linkRunStartedAt = 0L
 
     private var player: ExoPlayer? = null
     private var set: StreamSet? = null
@@ -172,6 +176,7 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         sniffer.cancel()
+        cancelLinkRun()
         release()
         finish()
     }
@@ -179,6 +184,8 @@ class PlayerActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         sniffer.cancel()
+        cancelLinkRun()
+        linkSniffer = null
         release()
         if (Session.commandHandler === handler) {
             Session.commandHandler = null
@@ -192,6 +199,7 @@ class PlayerActivity : Activity() {
     private fun loadSession() {
         val s = Session.current ?: return finish()
         linkGen++
+        cancelLinkRun()
         set = s
         countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
         smoothThisRun = false
@@ -372,6 +380,7 @@ class PlayerActivity : Activity() {
                     if (playingSince == 0L) {
                         playingSince = System.currentTimeMillis()
                         Report.log("Playback started")
+                        scheduleLinkRun()
                     }
                     AppStatus.text = "Playing ${Session.title}"
                 }
@@ -881,6 +890,7 @@ class PlayerActivity : Activity() {
      */
     private fun openLink(url: String) {
         linkGen++
+        cancelLinkRun()
         release()
         val site = Report.host(url)
         // A direct link arriving now is not part of any saved list.
@@ -929,6 +939,62 @@ class PlayerActivity : Activity() {
         player?.removeAnalyticsListener(downloads)
         player?.release()
         player = null
+    }
+
+    // ---- Alternate links, gathered in the background while the stream plays ----
+
+    private val linkCheck = Runnable { checkLinkRun() }
+
+    /** Once per stream, 10 s into playback: only for streams that came from a page and have no alternatives yet. */
+    private fun scheduleLinkRun() {
+        val s = set ?: return
+        if (linkRunScheduled || !LinkOrder.wantsLinkRun(s.pageUrl, s.sources.size)) return
+        linkRunScheduled = true
+        linkRunStartedAt = android.os.SystemClock.uptimeMillis()
+        main.removeCallbacks(linkCheck)
+        main.postDelayed(linkCheck, LinkOrder.LINKS_FIRST_CHECK_MS)
+    }
+
+    private fun checkLinkRun() {
+        val p = player ?: return
+        val s = set ?: return
+        val ahead = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0)
+        when (LinkOrder.gate(android.os.SystemClock.uptimeMillis() - linkRunStartedAt, ahead)) {
+            LinkOrder.Gate.START -> startLinkRun(s.pageUrl)
+            LinkOrder.Gate.WAIT -> main.postDelayed(linkCheck, LinkOrder.LINKS_RECHECK_MS)
+            LinkOrder.Gate.GIVE_UP -> {}
+        }
+    }
+
+    private fun startLinkRun(page: String) {
+        val sn = linkSniffer ?: run {
+            // Behind the picture (index 0), full size so the page lays out like a real screen; the PlayerView covers it.
+            val holder = FrameLayout(this)
+            root.addView(holder, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            StreamSniffer(this, holder).also { linkSniffer = it }
+        }
+        val gen = linkGen
+        sn.sniff(page, collectLinks = true) { found ->
+            if (gen != linkGen || isDestroyed) return@sniff
+            val cur = set ?: return@sniff
+            val merged = LinkOrder.mergeExtra(cur.sources, found.sources)
+            val added = merged.size - cur.sources.size
+            if (added > 0) {
+                // Appended: the playing source keeps its index; "Trying the next source" can now reach these too.
+                val updated = cur.copy(sources = merged)
+                set = updated
+                if (Session.current === cur) Session.current = updated
+                publishSnapshot()
+                Report.log("Links: $added more sources available (Audio & quality → Source)")
+                Toast.makeText(this, "$added more sources available · OK, then Audio & quality", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun cancelLinkRun() {
+        main.removeCallbacks(linkCheck)
+        linkSniffer?.cancel()
+        linkRunScheduled = false
     }
 
     // ---- Phone remote ----

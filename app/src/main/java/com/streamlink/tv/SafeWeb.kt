@@ -85,6 +85,8 @@ open class SafeWebViewClient(
 
     open fun onFrame(url: String) {}
     open fun onResource(request: WebResourceRequest) {}
+    /** True to answer this request with an empty 204 (the background link finder skips media segments). */
+    open fun blockResource(request: WebResourceRequest): Boolean = false
     open fun onLoaded() {}
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -139,6 +141,7 @@ open class SafeWebViewClient(
         val accept = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value ?: ""
         if (!request.isForMainFrame && accept.contains("text/html") && u.startsWith("http")) onFrame(u)
         onResource(request)
+        if (blockResource(request)) return WebResourceResponse("application/octet-stream", "utf-8", 204, "No Content", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         return null
     }
 

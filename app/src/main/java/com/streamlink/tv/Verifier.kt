@@ -59,12 +59,12 @@ object Verifier {
 
     private val adWords = listOf("/ads/", "/ad/", "vast", "preroll", "pre-roll", "advert", "doubleclick", "imasdk")
 
-    fun rank(cands: List<StreamCandidate>): List<Source> {
+    fun rank(cands: List<StreamCandidate>, log: (String) -> Unit = { log(it) }): List<Source> {
         // Check all candidates at once, with a hard overall time limit, so a slow site can't keep
         // the TV on "Finding the video…" for minutes.
         val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 12))
         val futures = try {
-            pool.invokeAll(cands.map { c -> Callable { check(c) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
+            pool.invokeAll(cands.map { c -> Callable { check(c, log) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
         } finally {
             pool.shutdownNow()
         }
@@ -72,13 +72,13 @@ object Verifier {
             val f = futures[i]
             try {
                 if (f.isCancelled) {
-                    Report.log("✗ ${Report.short(c.url)}: too slow to answer")
+                    log("✗ ${Report.short(c.url)}: too slow to answer")
                     unchecked(c)
                 } else {
                     f.get()
                 }
             } catch (e: Exception) {
-                Report.log("✗ ${Report.short(c.url)}: ${(e.cause ?: e).javaClass.simpleName}")
+                log("✗ ${Report.short(c.url)}: ${(e.cause ?: e).javaClass.simpleName}")
                 unchecked(c)
             }
         }
@@ -107,15 +107,15 @@ object Verifier {
             val refs = if (c.workingReferer != null) {
                 listOf(c.workingReferer) + c.cand.referers.filter { it != c.workingReferer }
             } else c.cand.referers
-            Source(c.cand.url, c.cand.headers, refs, labels[i])
+            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault)
         }
     }
 
-    private fun check(c: StreamCandidate): Checked {
+    private fun check(c: StreamCandidate, log: (String) -> Unit): Checked {
         val refs = (c.referers.take(3) + "").distinct()
         var note = "no response"
         for (ref in refs) {
-            val r = fetch(c.url, c.headers, ref) ?: continue
+            val r = fetch(c.url, c.headers, ref, log) ?: continue
             if (r.code !in 200..299) {
                 note = "server said ${r.code}"
                 continue
@@ -142,11 +142,11 @@ object Verifier {
                 else -> "single quality"
             }
             val refText = if (ref.isEmpty()) "none" else Report.short(ref)
-            Report.log("✓ ${Report.short(c.url)}: $kind, ${if (live) "live" else "recorded"} (referer: $refText)" +
+            log("✓ ${Report.short(c.url)}: $kind, ${if (live) "live" else "recorded"} (referer: $refText)" +
                 if (adLike) " — looks like an ad" else "")
             return Checked(c, true, master, isDash, live, adLike, ref, variants)
         }
-        Report.log("✗ ${Report.short(c.url)}: $note")
+        log("✗ ${Report.short(c.url)}: $note")
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList())
     }
 
@@ -173,7 +173,7 @@ object Verifier {
         return out
     }
 
-    private fun fetch(url: String, headers: Map<String, String>, referer: String): Resp? {
+    private fun fetch(url: String, headers: Map<String, String>, referer: String, log: (String) -> Unit): Resp? {
         var conn: HttpURLConnection? = null
         return try {
             conn = ChromeNet.open(url)
@@ -193,7 +193,7 @@ object Verifier {
             val body = stream?.use { readUpTo(it, 512 * 1024) } ?: ByteArray(0)
             Resp(code, body, conn.url.toString())
         } catch (e: Exception) {
-            Report.log("  ${Report.short(url)}: ${e.javaClass.simpleName}")
+            log("  ${Report.short(url)}: ${e.javaClass.simpleName}")
             null
         } finally {
             conn?.disconnect()

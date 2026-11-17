@@ -70,4 +70,46 @@ object LinkOrder {
             }
         }
     }
+
+    /**
+     * Adds sources found by the background link run to the ones already there: the stream the player has
+     * (same URL, or same host and path; or the run's own copy of the default link) is dropped, the rest is
+     * appended after the existing ones, so the playing source's index never changes.
+     */
+    fun mergeExtra(existing: List<Source>, extra: List<Source>, max: Int = 8): List<Source> {
+        val seen = HashSet<String>()
+        existing.forEach { seen.add(it.url); seen.add(hostPath(it.url)) }
+        val out = ArrayList(existing)
+        for (e in extra) {
+            if (out.size >= max) break
+            if (e.isDefaultLink || e.url in seen || hostPath(e.url) in seen) continue
+            seen.add(e.url); seen.add(hostPath(e.url))
+            out.add(e.copy(isDefaultLink = false))
+        }
+        return out
+    }
+
+    private fun hostPath(url: String): String {
+        val u = url.substringBefore('#').substringBefore('?')
+        return u.substringAfter("://").lowercase()
+    }
+
+    enum class Gate { START, WAIT, GIVE_UP }
+
+    const val LINKS_FIRST_CHECK_MS = 10_000L
+    const val LINKS_RECHECK_MS = 3_000L
+    const val LINKS_GIVE_UP_MS = 60_000L
+    const val LINKS_MIN_AHEAD_MS = 8_000L
+
+    /** Background run gate: [sinceStartMs] since "Playback started", [aheadMs] buffered ahead of the playhead. */
+    fun gate(sinceStartMs: Long, aheadMs: Long): Gate = when {
+        sinceStartMs < LINKS_FIRST_CHECK_MS -> Gate.WAIT
+        aheadMs >= LINKS_MIN_AHEAD_MS -> Gate.START
+        sinceStartMs >= LINKS_FIRST_CHECK_MS + LINKS_GIVE_UP_MS -> Gate.GIVE_UP
+        else -> Gate.WAIT
+    }
+
+    /** Only a stream that came from a web page, and that has no alternatives yet, gets the background run. */
+    fun wantsLinkRun(pageUrl: String, sourceCount: Int): Boolean =
+        (pageUrl.startsWith("http://") || pageUrl.startsWith("https://")) && sourceCount < 2
 }
