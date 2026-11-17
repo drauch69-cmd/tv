@@ -59,6 +59,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var clickX = 0f
     private var clickY = 0f
     private var timeoutMs = TIMEOUT_MS
+    private var siteHost = ""
 
     private val timeout = Runnable {
         if (done || verifying) return@Runnable
@@ -117,7 +118,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         clickAttempts = 0
         clickSig = null
         clickUnchanged = 0
-        timeoutMs = if (ref != null) TIMEOUT_MS + CLICK_EXTRA_MS else TIMEOUT_MS
+        siteHost = Report.host(target)
+        val base = if (SiteMemory.shouldShorten(context, siteHost)) {
+            Report.log("The stream wasn't found on this site the last ${SiteMemory.fails(context, siteHost)} times; looking for ${SiteMemory.SHORT_TIMEOUT_MS / 1000} s only")
+            SiteMemory.SHORT_TIMEOUT_MS
+        } else TIMEOUT_MS
+        timeoutMs = if (ref != null) base + CLICK_EXTRA_MS else base
         nudgeCount = 0
         playerX = -1f
         playerY = -1f
@@ -130,7 +136,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         Report.log(if (ref != null) "Loading the list page (the event has no link of its own, it has to be clicked)" else "Loading page")
         wv.loadUrl(target)
         main.postDelayed(timeout, timeoutMs)
-        main.postDelayed(nudger, 3000)
+        main.postDelayed(nudger, FIRST_NUDGE_MS)
     }
 
     fun cancel() {
@@ -150,6 +156,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private fun finish(result: StreamSet) {
         if (done) return
+        SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
         val cb = onResult
         cancel()
         cb?.invoke(result)
@@ -395,7 +402,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             clickScript = text
             return text
         }
-        private const val COLLECT_MS = 2_500L
+        /** After the first stream is seen, how long to wait for more before checking them. */
+        private const val COLLECT_MS = 1_200L
+        private const val FIRST_NUDGE_MS = 1_500L
         private const val MAX_CANDIDATES = 8
 
         fun isStreamUrl(url: String): Boolean {
