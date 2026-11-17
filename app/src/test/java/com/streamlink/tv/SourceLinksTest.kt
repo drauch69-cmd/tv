@@ -29,6 +29,17 @@ class SourceLinksTest {
         assertNull(LinkOrder.parseFind("""{"found":true,"labels":["only one"]}"""))
     }
 
+    @Test fun noLinksLineSaysWhetherPlayerBoxWasSeen() {
+        assertEquals("no link buttons found next to the player (player box: no; no player box)",
+            LinkOrder.noLinksLine("""{"found":false,"why":"no player box"}"""))
+        assertEquals("no link buttons found next to the player (player box: yes; fewer than 2 clickable elements near the player)",
+            LinkOrder.noLinksLine("""{"found":false,"why":"fewer than 2 clickable elements near the player"}"""))
+        assertEquals("no link buttons found next to the player (player box: yes; 1 items, need 2 to 8)",
+            LinkOrder.noLinksLine("""{"found":true,"labels":["only"]}"""))
+        assertEquals("no link buttons found next to the player (player box: unknown; no answer from the page)",
+            LinkOrder.noLinksLine(null))
+    }
+
     @Test fun unknownActiveIsMinusOne() {
         val s = LinkOrder.parseFind("""{"found":true,"active":-1,"labels":["a","b"]}""")!!
         assertEquals(-1, s.active)

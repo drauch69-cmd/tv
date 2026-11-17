@@ -38,6 +38,25 @@ object LinkOrder {
         return Switcher(n, active, labels, xs, ys, (o["iw"] as? Double)?.toFloat() ?: 0f)
     }
 
+    /** Log line for a "find" answer with no usable row of links: whether the player box was seen, and the page's reason. */
+    internal fun noLinksLine(raw: String?): String {
+        val o: Map<*, *>? = try {
+            val first = MiniJson.parse(raw ?: "null")
+            (if (first is String) MiniJson.parse(first) else first) as? Map<*, *>
+        } catch (_: Exception) {
+            null
+        }
+        if (o == null) return "no link buttons found next to the player (player box: unknown; no answer from the page)"
+        val why = o["why"] as? String ?: ""
+        val box = if (why == "no player box") "no" else "yes"
+        val reason = when {
+            o["found"] == true -> "${(o["labels"] as? List<*>)?.size ?: 0} items, need 2 to $MAX_LINKS"
+            why.isNotEmpty() -> why
+            else -> "no reason given"
+        }
+        return "no link buttons found next to the player (player box: $box; $reason)"
+    }
+
     /** Text from the page for display only: whitespace collapsed, shortened. */
     fun cleanLabel(raw: String): String {
         val t = raw.replace(Regex("\\s+"), " ").trim()

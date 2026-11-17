@@ -378,7 +378,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         private const val SETTLE_MAX_MS = 15_000L
         private const val OVERALL_MS = 25_000L
         /** The page's structure without scripts/styles, plus open shadow roots, capped at 1.5 MB. */
-        private const val SNAP_JS = """(function(){try{
+        internal const val SNAP_JS = """(function(){try{
 var c=document.documentElement.cloneNode(true);
 c.querySelectorAll('script,style,noscript,link[rel=stylesheet],template').forEach(function(e){e.remove();});
 c.querySelectorAll('svg').forEach(function(e){e.innerHTML='';});

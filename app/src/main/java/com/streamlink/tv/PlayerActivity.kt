@@ -952,7 +952,12 @@ class PlayerActivity : Activity() {
     /** Once per stream, 10 s into playback: only for streams that came from a page and have no alternatives yet. */
     private fun scheduleLinkRun() {
         val s = set ?: return
-        if (linkRunScheduled || !LinkOrder.wantsLinkRun(s.pageUrl, s.sources.size)) return
+        if (linkRunScheduled) return
+        if (!LinkOrder.wantsLinkRun(s.pageUrl, s.sources.size)) {
+            val isWeb = s.pageUrl.startsWith("http://") || s.pageUrl.startsWith("https://")
+            Report.logOnce("links-skipped", "Links: skipped (" + if (!isWeb) "the page address is not http or https)" else "already ${s.sources.size} sources)")
+            return
+        }
         linkRunScheduled = true
         linkRunStartedAt = android.os.SystemClock.uptimeMillis()
         lastStallAt = 0L

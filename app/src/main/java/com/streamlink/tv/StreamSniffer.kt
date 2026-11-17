@@ -91,11 +91,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var linkGot = 0
     private var curLabel = ""
     private var curDefault = true
+    private var runStartedAt = 0L
+    /** Page HTML for the stream-page snapshot (see [beginLinks]); null until the snapshot script answers. */
+    private var streamHtml: String? = null
 
     private val timeout = Runnable {
         if (done || verifying) return@Runnable
         if (candidates.isEmpty()) {
-            log("No video stream found within ${timeoutMs / 1000}s")
+            if (linksMode) linkLog("the page showed no stream within ${timeoutMs / 1000}s")
+            else log("No video stream found within ${timeoutMs / 1000}s")
             finish(StreamSet(currentPage(), emptyList()))
         } else {
             verifyAndFinish()
@@ -142,11 +146,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     fun sniff(url: String, collectLinks: Boolean = false, callback: (StreamSet) -> Unit) {
         cancel()
         linksMode = collectLinks
+        runStartedAt = SystemClock.uptimeMillis()
         playlistSeen = false
         val ref = ClickRef.parse(url)
         val target = ref?.pageUrl ?: ClickRef.pagePart(url) // the page itself, without any "#sl-click=" fragment
         if (isStreamUrl(target) || target.lowercase().substringBefore('?').endsWith(".mp4")) {
             log("Link is a video file itself; playing it directly")
+            if (linksMode) linkLog("done in ${runSecs()}s")
             callback(StreamSet(target, listOf(Source(target, emptyMap(), listOf(""), Report.host(target)))))
             return
         }
@@ -197,9 +203,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private fun currentPage(): String = client?.siteUrl ?: pageUrl
 
+    private fun runSecs(): String = String.format(java.util.Locale.US, "%.1f", (SystemClock.uptimeMillis() - runStartedAt) / 1000.0)
+
     private fun finish(result: StreamSet) {
         if (done) return
         if (!linksMode) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
+        if (linksMode) linkLog("done in ${runSecs()}s")
         val cb = onResult
         cancel()
         cb?.invoke(result)
@@ -445,18 +454,59 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { finishEmpty(); return }
         linkState = 1
         val gen = generation
+        // The page snapshot for "Save sample" is queued before "find", so its answer is in by the time "find" answers.
+        streamHtml = null
+        try {
+            wv.evaluateJavascript(IndexReader.SNAP_JS) { raw ->
+                if (gen != generation) return@evaluateJavascript
+                streamHtml = try { if (raw == null || raw == "null") "" else org.json.JSONTokener(raw).nextValue() as? String ?: "" } catch (_: Exception) { "" }
+            }
+        } catch (_: Exception) {
+        }
         wv.evaluateJavascript("($script)('find')") { raw ->
             if (done || verifying || gen != generation) return@evaluateJavascript
             val sw = LinkOrder.parseFind(raw)
-            if (sw == null) { linkState = 3; finishEmpty(); return@evaluateJavascript }
+            streamSnapshot(wv, if (sw != null) "${sw.count} links" else "no link buttons")
+            if (sw == null) {
+                linkState = 3
+                linkLog(LinkOrder.noLinksLine(raw))
+                finishEmpty()
+                return@evaluateJavascript
+            }
             startLinks(sw)
         }
+    }
+
+    /** Keeps the stream page for "Save sample": picture now, HTML from [streamHtml]. Never blocks the link phase. */
+    private fun streamSnapshot(wv: WebView, note: String) {
+        try {
+            val image = try { picture(wv) } catch (_: Throwable) { null }
+            SampleRecorder.streamPage(currentPage(), streamHtml ?: "", image, note)
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** Draws the WebView (1280x720) into a small JPEG; same as IndexReader.picture. */
+    private fun picture(wv: WebView): ByteArray? {
+        val w = wv.width
+        val h = wv.height
+        if (w <= 0 || h <= 0) return null
+        val scale = 640f / w
+        val bmp = android.graphics.Bitmap.createBitmap(640, (h * scale).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.RGB_565)
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.scale(scale, scale)
+        wv.draw(canvas)
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        bmp.recycle()
+        return out.toByteArray()
     }
 
     private fun startLinks(sw: Switcher) {
         switcher = sw
         linkState = 2
-        linkLog("Found ${sw.count} stream links on the page")
+        val active = if (sw.active >= 0) (sw.active + 1).toString() else "unknown"
+        linkLog("Found ${sw.count} stream links on the page (active: $active): " + sw.labels.joinToString(" | ") { it.take(30) })
         if (sw.active >= 0) {
             linkTried.add(sw.active)
             val activeLabel = sw.labels[sw.active]
