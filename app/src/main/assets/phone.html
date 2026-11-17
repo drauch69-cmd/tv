@@ -147,6 +147,12 @@
       <button type="button" class="ghost" id="cleanbtn" data-c="clean">Try the clean browser player</button>
       <button type="button" class="ghost" id="delaybtn">Live delay: Smooth</button>
       <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
+      <div id="syncwrap" hidden>
+        <p class="small" id="synctext" style="margin:6px 0">Audio sync</p>
+        <button type="button" class="ghost" id="synclater">Sound comes after the picture (+50 ms)</button>
+        <button type="button" class="ghost" id="syncearlier">Sound comes before the picture (−50 ms)</button>
+        <button type="button" class="ghost" id="syncreset">Reset audio sync</button>
+      </div>
     </div>
   </div>
   <div class="section" style="margin-top:18px">More</div>
@@ -414,6 +420,9 @@
   $('delaybtn').onclick = function(){
     post('/cmd', 'c=delay&v=' + (smoothOn ? 'low' : 'smooth')).then(function(){ setTimeout(tick, 500); });
   };
+  ['later','earlier','reset'].forEach(function(k){
+    $('sync' + k).onclick = function(){ post('/cmd', 'c=sync&v=' + k).then(function(){ setTimeout(tick, 300); }); };
+  });
   var tunnelOn = false;
   $('tunnelbtn').onclick = function(){
     post('/cmd', 'c=tunnel&v=' + (tunnelOn ? 'off' : 'on')).then(function(){ setTimeout(tick, 500); });
@@ -480,6 +489,11 @@
       tunnelOn = !!s.tunneling;
       $('tunnelbtn').hidden = !player || clean;
       $('tunnelbtn').textContent = 'Tunneled playback: ' + (tunnelOn ? 'On (tap to turn off)' : 'Off (tap to try on)');
+      var sync = Number(s.audioSync) || 0;
+      $('syncwrap').hidden = !player || clean;
+      $('synctext').textContent = 'Audio sync: ' + (sync > 0 ? 'picture waits ' + sync + ' ms for the sound' : sync < 0 ? 'sound waits ' + (-sync) + ' ms for the picture' : 'no adjustment') +
+        (tunnelOn && sync !== 0 ? ' (only works with tunneled playback off)' : '');
+      $('syncreset').hidden = sync === 0;
       var q = s.qualities || [], src = s.sources || [];
       $('qwrap').hidden = !(player && q.length > 1);
       $('swrap').hidden = !(player && src.length > 1);

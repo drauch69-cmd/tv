@@ -69,6 +69,8 @@ class PlayerActivity : Activity() {
         @Volatile private var tunnelOffThisRun = false
 
         /** Decoder/audio errors that point at tunneled playback rather than the stream. */
+        const val TUNNEL_STRIKES = 2
+
         private val tunnelSuspects = setOf(
             PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
             PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
@@ -125,6 +127,9 @@ class PlayerActivity : Activity() {
     private var qualityChoice = -1
     private var tunneling = false
     private var smoothLive = true
+    /** Low delay kept running dry: smooth delay for the rest of this play. */
+    private var smoothThisRun = false
+    private val emptyStallTimes = ArrayList<Long>()
     private var stalls = 0
     /** Chrome's network engine for this link; turned off if a stream never starts with it. */
     private var useChromeNet = true
@@ -188,6 +193,9 @@ class PlayerActivity : Activity() {
         val s = Session.current ?: return finish()
         linkGen++
         set = s
+        countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
+        smoothThisRun = false
+        emptyStallTimes.clear()
         sourceIndex = 0
         refererIndex = 0
         reconnects = 0
@@ -276,12 +284,21 @@ class PlayerActivity : Activity() {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(30_000, 60_000, 2_500, 8_000)
             .build()
-        smoothLive = smoothLiveAllowed()
+        smoothLive = smoothLiveAllowed() || smoothThisRun
         Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~20s behind live)" else "low delay"}")
 
         // Decoders: hardware first as usual (fast), falling back to another decoder if one fails to
         // start. After a stream "arrives but won't play", software decoders are tried first.
-        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+        AudioSync.load(this)
+        val renderers = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean,
+            ): androidx.media3.exoplayer.audio.AudioSink? =
+                super.buildAudioSink(context, enableFloatOutput, enableAudioTrackPlaybackParams)?.let { AudioSync.Sink(it) }
+        }.setEnableDecoderFallback(true)
+        if (AudioSync.offsetMs != 0) Report.logOnce("sync-${AudioSync.offsetMs}", "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)}")
         if (preferSoftware) {
             renderers.setMediaCodecSelector { mime, secure, tunneled ->
                 MediaCodecUtil.getDecoderInfos(mime, secure, tunneled).sortedBy { it.hardwareAccelerated }
@@ -340,6 +357,9 @@ class PlayerActivity : Activity() {
         disguiseChecks = 0
         main.removeCallbacks(disguiseCheck)
         main.postDelayed(disguiseCheck, 1_000)
+        starveSamples.clear()
+        main.removeCallbacks(audioStarveCheck)
+        main.postDelayed(audioStarveCheck, 2_000)
         p.prepare()
         p.playWhenReady = true
     }
@@ -369,6 +389,7 @@ class PlayerActivity : Activity() {
                     if (playingSince != 0L) {
                         logStall()
                         tunnelStallCheck()
+                        lowDelayCheck()
                     }
                 }
                 Player.STATE_ENDED -> {
@@ -705,10 +726,88 @@ class PlayerActivity : Activity() {
     }
 
     private fun retryWithoutTunneling(why: String) {
-        // Only for this app run: the saved preference is changed only by the phone remote switch.
         tunnelOffThisRun = true
+        main.removeCallbacks(audioStarveCheck)
         Report.log("Tunneled playback misbehaved ($why); retrying with it off")
+        // Twice in separate plays: this TV and tunneling don't get along. Save it as off (the phone
+        // or the TV's Audio & quality panel turns it back on).
+        val prefs = getSharedPreferences("streamlink", MODE_PRIVATE)
+        if (!countedStrikeThisPlay) {
+            countedStrikeThisPlay = true
+            val strikes = prefs.getInt("tunnel_strikes", 0) + 1
+            if (strikes >= TUNNEL_STRIKES && prefs.getBoolean("tunnel_on", true)) {
+                prefs.edit().putBoolean("tunnel_on", false).putInt("tunnel_strikes", 0).apply()
+                Report.log("Tunneled playback caused problems in $strikes plays: turned off for good (turn it back on from the phone)")
+                Toast.makeText(this, "Tunneled playback turned off: it caused problems on this TV", Toast.LENGTH_LONG).show()
+            } else {
+                prefs.edit().putInt("tunnel_strikes", strikes).apply()
+            }
+        }
         play()
+    }
+
+    private var countedStrikeThisPlay = false
+
+    /**
+     * Tunneled playback's failure on this box, caught early: video keeps arriving but the audio stops
+     * (and the picture then waits for the frozen audio clock). Checked every 2 s; over the last 4 s,
+     * 40+ new video frames and at most 2 audio frames means tunneling, not the stream.
+     */
+    private val starveSamples = ArrayList<LongArray>()
+    private val audioStarveCheck = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (!tunnelEngaged()) return
+            val v = p.videoDecoderCounters
+            val a = p.audioDecoderCounters
+            if (v != null && a != null && p.playWhenReady) {
+                v.ensureUpdated(); a.ensureUpdated()
+                val now = System.currentTimeMillis()
+                starveSamples.add(longArrayOf(now, v.queuedInputBufferCount.toLong(), a.queuedInputBufferCount.toLong()))
+                starveSamples.removeAll { now - it[0] > 4_500 }
+                val first = starveSamples.first()
+                if (now - first[0] >= 3_500 && starveSamples.last()[1] - first[1] >= 40 && starveSamples.last()[2] - first[2] <= 2 &&
+                    p.isCurrentMediaItemLive
+                ) {
+                    starveSamples.clear()
+                    retryWithoutTunneling("the audio stopped while the video kept coming")
+                    return
+                }
+            }
+            main.postDelayed(this, 2_000)
+        }
+    }
+
+    /** Low delay running dry (6 s pieces that take seconds to download): smooth delay for this play. */
+    private fun lowDelayCheck() {
+        if (smoothLive) return
+        val p = player ?: return
+        if ((p.bufferedPosition - p.currentPosition) > 1_000) return
+        val now = System.currentTimeMillis()
+        emptyStallTimes.add(now)
+        emptyStallTimes.removeAll { now - it > 60_000 }
+        if (emptyStallTimes.size >= 2) {
+            emptyStallTimes.clear()
+            smoothThisRun = true
+            Report.log("Low delay keeps running out of video; using the smooth delay for this stream")
+            play()
+        }
+    }
+
+    private fun adjustSync(v: String) {
+        val ms = when (v) {
+            "later", "+" -> AudioSync.offsetMs + AudioSync.STEP_MS
+            "earlier", "-" -> AudioSync.offsetMs - AudioSync.STEP_MS
+            "reset", "0" -> 0
+            else -> v.toIntOrNull() ?: return
+        }
+        AudioSync.set(this, ms)
+        Report.log("Audio sync: ${AudioSync.describe(AudioSync.offsetMs)}")
+        if (tunnelEngaged() && AudioSync.offsetMs != 0) {
+            Toast.makeText(this, "Audio sync only works with tunneled playback off", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun handleError(error: PlaybackException) {
@@ -723,7 +822,9 @@ class PlayerActivity : Activity() {
         // low sample rates) even after the picture started. Retry this same source with tunneling off.
         val audioOut = error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
             error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
-        if (tunneling && (!firstFrame || audioOut) && error.errorCode in tunnelSuspects) {
+        // "Stuck playing with no progress": on this box, tunneled playback whose audio clock froze.
+        val stuck = error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT && tunnelEngaged()
+        if (stuck || (tunneling && (!firstFrame || audioOut) && error.errorCode in tunnelSuspects)) {
             Report.log("Playback error: ${error.errorCodeName}")
             retryWithoutTunneling(error.errorCodeName)
             return
@@ -843,6 +944,7 @@ class PlayerActivity : Activity() {
     private fun release() {
         main.removeCallbacks(earlyDecoderCheck)
         main.removeCallbacks(disguiseCheck)
+        main.removeCallbacks(audioStarveCheck)
         main.removeCallbacks(audioBackOn)
         main.removeCallbacks(startCheck)
         main.removeCallbacks(stallCheck)
@@ -875,6 +977,7 @@ class PlayerActivity : Activity() {
             "open" -> v?.let { openLink(it) }
             "tunnel" -> setTunneling(v == "on")
             "delay" -> setSmoothLive(v != "low")
+            "sync" -> v?.let { adjustSync(it) }
         }
         publishSnapshot()
     }
@@ -1298,6 +1401,10 @@ class PlayerActivity : Activity() {
         label("Playback")
         row("Tunneled playback: ${if (tunneling) "on" else "off"} (tap to turn ${if (tunneling) "off" else "on"})", false) { setTunneling(!tunneling) }
         row("Live delay: ${if (smoothLive) "smooth (~20 s behind)" else "low delay"} (tap to change)", false) { setSmoothLive(!smoothLive) }
+        label("Audio sync (${AudioSync.describe(AudioSync.offsetMs)})")
+        row("Sound comes after the picture: +${AudioSync.STEP_MS} ms", false) { adjustSync("later"); showOptions() }
+        row("Sound comes before the picture: −${AudioSync.STEP_MS} ms", false) { adjustSync("earlier"); showOptions() }
+        if (AudioSync.offsetMs != 0) row("Reset audio sync", false) { adjustSync("reset"); showOptions() }
         row("Reload the stream", false) { reconnects = 1; reconnect("requested from the TV") }
         picker.visibility = View.VISIBLE
         (focusRow ?: pickerList.getChildAt(1) ?: pickerList.getChildAt(0))?.requestFocus()
