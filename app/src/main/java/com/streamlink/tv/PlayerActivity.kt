@@ -120,6 +120,9 @@ class PlayerActivity : Activity() {
     private var linkSniffer: StreamSniffer? = null
     private var linkRunScheduled = false
     private var linkRunStartedAt = 0L
+    private var lastStallAt = 0L
+    private var linkRunning = false
+    private lateinit var btnSource: TextView
 
     private var player: ExoPlayer? = null
     private var set: StreamSet? = null
@@ -219,7 +222,7 @@ class PlayerActivity : Activity() {
         // From a saved list the event title (set by the waiting screen) stays; otherwise show the site.
         if (Session.listId == null || Session.listItemUrl == null || Session.title.isBlank()) Session.title = Report.host(s.pageUrl)
         if (s.sources.size > 1) {
-            Toast.makeText(this, "${s.sources.size} sources found · OK, then Audio & quality to switch", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "${s.sources.size} sources found · OK, then Source to switch", Toast.LENGTH_LONG).show()
         }
         play()
     }
@@ -387,6 +390,7 @@ class PlayerActivity : Activity() {
                 Player.STATE_BUFFERING -> {
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                     if (playingSince != 0L) {
+                        lastStallAt = android.os.SystemClock.uptimeMillis()
                         logStall()
                         tunnelStallCheck()
                         lowDelayCheck()
@@ -951,6 +955,7 @@ class PlayerActivity : Activity() {
         if (linkRunScheduled || !LinkOrder.wantsLinkRun(s.pageUrl, s.sources.size)) return
         linkRunScheduled = true
         linkRunStartedAt = android.os.SystemClock.uptimeMillis()
+        lastStallAt = 0L
         main.removeCallbacks(linkCheck)
         main.postDelayed(linkCheck, LinkOrder.LINKS_FIRST_CHECK_MS)
     }
@@ -958,11 +963,16 @@ class PlayerActivity : Activity() {
     private fun checkLinkRun() {
         val p = player ?: return
         val s = set ?: return
-        val ahead = (p.bufferedPosition - p.currentPosition).coerceAtLeast(0)
-        when (LinkOrder.gate(android.os.SystemClock.uptimeMillis() - linkRunStartedAt, ahead)) {
-            LinkOrder.Gate.START -> startLinkRun(s.pageUrl)
+        val now = android.os.SystemClock.uptimeMillis()
+        val sinceStall = if (lastStallAt == 0L && p.playbackState != Player.STATE_BUFFERING) null
+            else if (p.playbackState == Player.STATE_BUFFERING) 0L else now - lastStallAt
+        when (LinkOrder.gate(now - linkRunStartedAt, sinceStall)) {
+            LinkOrder.Gate.START -> {
+                Report.log("Links: looking for other links on the page in the background…")
+                startLinkRun(s.pageUrl)
+            }
             LinkOrder.Gate.WAIT -> main.postDelayed(linkCheck, LinkOrder.LINKS_RECHECK_MS)
-            LinkOrder.Gate.GIVE_UP -> {}
+            LinkOrder.Gate.GIVE_UP -> Report.log("Links: didn't look for other links (playback never settled)")
         }
     }
 
@@ -974,8 +984,11 @@ class PlayerActivity : Activity() {
             StreamSniffer(this, holder).also { linkSniffer = it }
         }
         val gen = linkGen
+        linkRunning = true
+        refreshOverlayIfShown()
         sn.sniff(page, collectLinks = true) { found ->
             if (gen != linkGen || isDestroyed) return@sniff
+            linkRunning = false
             val cur = set ?: return@sniff
             val merged = LinkOrder.mergeExtra(cur.sources, found.sources)
             val added = merged.size - cur.sources.size
@@ -985,9 +998,10 @@ class PlayerActivity : Activity() {
                 set = updated
                 if (Session.current === cur) Session.current = updated
                 publishSnapshot()
-                Report.log("Links: $added more sources available (Audio & quality → Source)")
-                Toast.makeText(this, "$added more sources available · OK, then Audio & quality", Toast.LENGTH_LONG).show()
+                Report.log("Links: $added more sources available (→ Source)")
+                Toast.makeText(this, "$added more sources available · OK, then Source", Toast.LENGTH_LONG).show()
             }
+            refreshOverlayIfShown()
         }
     }
 
@@ -995,6 +1009,7 @@ class PlayerActivity : Activity() {
         main.removeCallbacks(linkCheck)
         linkSniffer?.cancel()
         linkRunScheduled = false
+        linkRunning = false
     }
 
     // ---- Phone remote ----
@@ -1240,7 +1255,8 @@ class PlayerActivity : Activity() {
         btnOptions = button("Audio & quality") { showOptions() }
         btnOther = button("Try another player") { openCleanPlayer("chosen from the player menu") }
         btnPause = button("Pause") { player?.let { it.playWhenReady = !it.playWhenReady }; refreshProgress(); scheduleHide() }
-        for (b in listOf(btnLive, btnBack, btnOptions, btnOther, btnPause)) {
+        btnSource = button("Source") { showSource() }
+        for (b in listOf(btnPause, btnLive, btnSource, btnBack, btnOptions, btnOther)) {
             row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { marginEnd = dp(9f) })
         }
@@ -1307,6 +1323,7 @@ class PlayerActivity : Activity() {
         ovTitle.text = Session.title.ifBlank { host }
         btnLive.visibility = if (live) View.VISIBLE else View.GONE
         btnBack.text = if (Session.listId != null) "Back to list" else "Back"
+        btnSource.visibility = if (sourceButtonVisible()) View.VISIBLE else View.GONE
         val (prev, next) = computeSurf()
         surfPrev = prev; surfNext = next
         if (prev != null || next != null) {
@@ -1322,11 +1339,18 @@ class PlayerActivity : Activity() {
         refreshProgress()
         overlay.visibility = View.VISIBLE
         if (first) {
-            (if (live) btnLive else btnBack).requestFocus()
+            btnPause.requestFocus()
             main.removeCallbacks(overlayTick)
             main.post(overlayTick)
         }
         scheduleHide()
+    }
+
+    private fun sourceButtonVisible() = (set?.sources?.size ?: 0) > 1 || linkRunning
+
+    /** Re-evaluate the overlay (e.g. the Source button) when the background link search changes things. */
+    private fun refreshOverlayIfShown() {
+        if (::overlay.isInitialized && overlay.visibility == View.VISIBLE) showOverlay()
     }
 
     private fun scheduleHide() {
@@ -1402,7 +1426,7 @@ class PlayerActivity : Activity() {
             setPadding(dp(18f), dp(16f), dp(18f), dp(16f))
             visibility = View.GONE
         }
-        panel.addView(Ui.text(this, "Audio & quality", 18f, Ui.TEXT, bold = true))
+        panel.addView(Ui.text(this, "Audio & quality", 18f, Ui.TEXT, bold = true).apply { tag = "pickerTitle" })
         pickerList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { isFillViewport = false }
         scroll.addView(pickerList)
@@ -1415,6 +1439,7 @@ class PlayerActivity : Activity() {
         val s = set ?: return
         hideOverlayNow()
         pickerList.removeAllViews()
+        picker.findViewWithTag<TextView>("pickerTitle")?.text = "Audio & quality"
         var focusRow: View? = null
         fun label(t: String) = pickerList.addView(Ui.sectionLabel(this, t), gap(10f))
         fun row(t: String, current: Boolean, action: () -> Unit): TextView {
@@ -1429,10 +1454,6 @@ class PlayerActivity : Activity() {
             if (current && focusRow == null) focusRow = v
             return v
         }
-        if (s.sources.size > 1) {
-            label("Source")
-            s.sources.forEachIndexed { i, src -> row("${i + 1}. ${src.label}", i == sourceIndex) { switchSource(i) } }
-        }
         if (qualityOptions.isNotEmpty()) {
             label("Quality")
             row("Auto", qualityChoice < 0) { setQuality(-1) }
@@ -1444,6 +1465,33 @@ class PlayerActivity : Activity() {
         row("Reload the stream", false) { reconnects = 1; reconnect("requested from the TV") }
         picker.visibility = View.VISIBLE
         (focusRow ?: pickerList.getChildAt(1) ?: pickerList.getChildAt(0))?.requestFocus()
+    }
+
+    /** The Source panel: all sources by label (✓ on the playing one); same look as Audio & quality. */
+    private fun showSource() {
+        val s = set ?: return
+        hideOverlayNow()
+        pickerList.removeAllViews()
+        picker.findViewWithTag<TextView>("pickerTitle")?.text = "Source"
+        var focusRow: View? = null
+        s.sources.forEachIndexed { i, src ->
+            val current = i == sourceIndex
+            val v = Ui.text(this, (if (current) "✓  " else "") + "${i + 1}. ${src.label}", 13f, Ui.TEXT, bold = current).apply {
+                background = Ui.focusable(context, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+                setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
+                isFocusable = true
+                isClickable = true
+                setOnClickListener { hidePicker(); switchSource(i) }
+            }
+            pickerList.addView(v, gap(5f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
+            if (current && focusRow == null) focusRow = v
+        }
+        if (linkRunning) {
+            pickerList.addView(Ui.text(this, "Looking for other links…", 12f, Ui.TEXT_2),
+                gap(10f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
+        }
+        picker.visibility = View.VISIBLE
+        (focusRow ?: pickerList.getChildAt(0))?.requestFocus()
     }
 
     private fun hidePicker() {
@@ -1490,7 +1538,7 @@ class PlayerActivity : Activity() {
                     return true
                 }
                 if (k == KeyEvent.KEYCODE_DPAD_UP && (set?.sources?.size ?: 0) > 1) {
-                    if (up) showOptions()
+                    if (up) showSource()
                     return true
                 }
                 if (up) showOverlay()

@@ -98,14 +98,16 @@ object LinkOrder {
 
     const val LINKS_FIRST_CHECK_MS = 10_000L
     const val LINKS_RECHECK_MS = 3_000L
-    const val LINKS_GIVE_UP_MS = 60_000L
-    const val LINKS_MIN_AHEAD_MS = 8_000L
+    const val LINKS_GIVE_UP_MS = 90_000L
+    const val LINKS_QUIET_MS = 10_000L
 
-    /** Background run gate: [sinceStartMs] since "Playback started", [aheadMs] buffered ahead of the playhead. */
-    fun gate(sinceStartMs: Long, aheadMs: Long): Gate = when {
-        sinceStartMs < LINKS_FIRST_CHECK_MS -> Gate.WAIT
-        aheadMs >= LINKS_MIN_AHEAD_MS -> Gate.START
-        sinceStartMs >= LINKS_FIRST_CHECK_MS + LINKS_GIVE_UP_MS -> Gate.GIVE_UP
+    /**
+     * Background run gate: [sinceStartMs] since "Playback started", [sinceStallMs] since the last stall
+     * (null = none). Starts once playback is 10 s old and has had no stall for 10 s; buffer level is irrelevant.
+     */
+    fun gate(sinceStartMs: Long, sinceStallMs: Long?): Gate = when {
+        sinceStartMs >= LINKS_FIRST_CHECK_MS && (sinceStallMs == null || sinceStallMs >= LINKS_QUIET_MS) -> Gate.START
+        sinceStartMs >= LINKS_GIVE_UP_MS -> Gate.GIVE_UP
         else -> Gate.WAIT
     }
 

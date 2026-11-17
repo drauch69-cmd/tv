@@ -89,13 +89,14 @@ class SourceLinksTest {
         assertEquals(8, LinkOrder.mergeExtra(listOf(src("https://z.example/a.m3u8")), extra).size)
     }
 
-    @Test fun gateWaitsTenSecondsThenNeedsBuffer() {
-        assertEquals(LinkOrder.Gate.WAIT, LinkOrder.gate(5_000, 30_000))
-        assertEquals(LinkOrder.Gate.START, LinkOrder.gate(10_000, 8_000))
-        assertEquals(LinkOrder.Gate.WAIT, LinkOrder.gate(12_000, 7_999))
-        assertEquals(LinkOrder.Gate.WAIT, LinkOrder.gate(69_000, 1_000))
-        assertEquals(LinkOrder.Gate.GIVE_UP, LinkOrder.gate(70_000, 1_000))
-        assertEquals(LinkOrder.Gate.START, LinkOrder.gate(70_000, 9_000))
+    @Test fun gateWaitsTenSecondsThenNeedsNoRecentStall() {
+        assertEquals(LinkOrder.Gate.WAIT, LinkOrder.gate(5_000, null))
+        assertEquals(LinkOrder.Gate.START, LinkOrder.gate(10_000, null))
+        assertEquals(LinkOrder.Gate.WAIT, LinkOrder.gate(12_000, 9_999))
+        assertEquals(LinkOrder.Gate.START, LinkOrder.gate(12_000, 10_000))
+        assertEquals(LinkOrder.Gate.WAIT, LinkOrder.gate(89_000, 1_000))
+        assertEquals(LinkOrder.Gate.GIVE_UP, LinkOrder.gate(90_000, 1_000))
+        assertEquals(LinkOrder.Gate.START, LinkOrder.gate(90_000, 20_000))
     }
 
     @Test fun onlyPageStreamsWithoutAlternativesGetARun() {
