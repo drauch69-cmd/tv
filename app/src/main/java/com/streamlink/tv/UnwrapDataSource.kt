@@ -149,6 +149,7 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 }
             }
             Report.logOnce("pixels-fail", "The picture's pixels didn't contain recognisable video either")
+            undecodable.incrementAndGet()
         }
 
         Report.logOnce("chunk-head", describeChunk(dataSpec, head, n, skip))
@@ -346,6 +347,12 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
     }
 
     companion object {
+        /**
+         * Picture-disguised chunks seen since the player started that could not be unpacked by any
+         * known trick. The player switches to the site's own player when this reaches 2.
+         */
+        val undecodable = java.util.concurrent.atomic.AtomicInteger(0)
+
         /** Tags some sites write as "#TAG=value" instead of "#TAG:value". */
         private val MISSPELLED_TAG = Regex(
             "^(#EXT-X-(?:MEDIA-SEQUENCE|DISCONTINUITY-SEQUENCE|TARGETDURATION|VERSION|PLAYLIST-TYPE|PROGRAM-DATE-TIME))\\s*=\\s*",

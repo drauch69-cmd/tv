@@ -336,6 +336,10 @@ class PlayerActivity : Activity() {
         }
         main.postDelayed(startCheck, 12_000)
         main.postDelayed(earlyDecoderCheck, 6_000)
+        UnwrapDataSource.undecodable.set(0)
+        disguiseChecks = 0
+        main.removeCallbacks(disguiseCheck)
+        main.postDelayed(disguiseCheck, 1_000)
         p.prepare()
         p.playWhenReady = true
     }
@@ -491,6 +495,24 @@ class PlayerActivity : Activity() {
             Report.log("Early check: frames reach the video decoder but no picture comes out")
             main.removeCallbacks(startCheck)
             decodeProblem()
+        }
+    }
+
+    /**
+     * The video pieces are pictures hiding the video in a way the app can't unpack: waiting for stalls
+     * only wastes time, and the clean player uses the same unpacking. Go to the site's own player,
+     * whose page knows how to read its pieces.
+     */
+    private var disguiseChecks = 0
+    private val disguiseCheck = object : Runnable {
+        override fun run() {
+            if (player == null || playingSince != 0L) return
+            if (UnwrapDataSource.undecodable.get() >= 2) {
+                Report.log("The video pieces are disguised as pictures in a way the app can't unpack yet")
+                openSitePlayer("disguised video the app can't read")
+                return
+            }
+            if (++disguiseChecks < 40) main.postDelayed(this, 1_000)
         }
     }
 
@@ -793,6 +815,7 @@ class PlayerActivity : Activity() {
 
     private fun release() {
         main.removeCallbacks(earlyDecoderCheck)
+        main.removeCallbacks(disguiseCheck)
         main.removeCallbacks(audioBackOn)
         main.removeCallbacks(startCheck)
         main.removeCallbacks(stallCheck)
