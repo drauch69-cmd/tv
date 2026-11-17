@@ -1,0 +1,9 @@
+<!doctype html><html><head><title>Embedded list</title><style>
+body{font-family:sans-serif;margin:0} .ev{display:flex;justify-content:space-between;padding:14px;border:1px solid #ddd;margin:6px 0;cursor:pointer}
+.ev h3{margin:0;font-size:17px}.tm{padding:4px 10px;background:#def}
+</style></head><body>
+<div class="ev"><h3>Spring Concert</h3><div class="tm">Sat, Nov 21 &bull; 9:00 AM</div></div>
+<div class="ev"><h3>Book Club</h3><div class="tm">Tue, Nov 24 &bull; 6:30 PM</div></div>
+<div class="ev"><h3>Night Market</h3><div class="tm">Fri, Nov 27 &bull; 7:00 PM</div></div>
+<script>document.querySelectorAll('.ev').forEach(function(el){el.addEventListener('click',function(){window.__clicked=el.querySelector('h3').textContent;});});</script>
+</body></html>

@@ -36,12 +36,15 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private var polling = false
     private var extracting = false
     private var retried = false
+    private var slowRetried = false
+    private var followedFrom: String? = null // the list page's own URL once we moved on to an embedded frame
+    private var deadlineAt = 0L
     private var recipes: List<ListRecipes.Recipe>? = null // null while still being fetched
 
     private val overallTimeout = Runnable {
         if (done) return@Runnable
         if (firstLoadedAt != 0L && !extracting) {
-            Report.log("List: page still changing after ${OVERALL_MS / 1000}s; reading what is there")
+            Report.log("List: page still changing after ${(System.currentTimeMillis() - startedAt) / 1000}s; reading what is there")
             extract(allowRetry = false)
             main.postDelayed(hardStop, 4000)
         } else if (!extracting) {
@@ -78,6 +81,8 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         polling = false
         extracting = false
         retried = false
+        slowRetried = false
+        followedFrom = null
         recipes = null
         val wv = createWebView(url)
         webView = wv
@@ -85,6 +90,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         holder.addView(wv, ViewGroup.LayoutParams(1280, 720))
         Report.log("List: loading ${Report.host(url)}")
         wv.loadUrl(url)
+        deadlineAt = startedAt + OVERALL_MS
         main.postDelayed(overallTimeout, OVERALL_MS)
         thread {
             val loaded = ListRecipes.load(context)
@@ -114,6 +120,22 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
     private fun currentPage(): String = client?.siteUrl ?: requestUrl
 
+    /** Pushes the overall deadline out to at least [atLeastMs] after [startedAt] (never pulls it in). */
+    private fun extendDeadline(atLeastMs: Long) {
+        val target = startedAt + atLeastMs
+        if (done || target <= deadlineAt) return
+        deadlineAt = target
+        main.removeCallbacks(overallTimeout)
+        main.postDelayed(overallTimeout, maxOf(target - System.currentTimeMillis(), 1000L))
+    }
+
+    /** Result when the page we moved on to (an embedded frame) could not be loaded: the list page just has no events we can read. */
+    private fun noEventsOnOriginal(): ListResult {
+        val page = followedFrom ?: currentPage()
+        Report.log("List: the embedded frame could not be read")
+        return ListResult(page, "", emptyList(), "automatic", "No events found on this page")
+    }
+
     private fun fail(msg: String): ListResult {
         Report.log("List: $msg")
         return ListResult(currentPage(), "", emptyList(), "automatic", msg)
@@ -139,14 +161,14 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 if (request?.isForMainFrame == true && !done && firstLoadedAt == 0L) {
-                    main.post { finish(fail("Could not open the page (${error?.description ?: "network error"})")) }
+                    main.post { finish(if (followedFrom != null) noEventsOnOriginal() else fail("Could not open the page (${error?.description ?: "network error"})")) }
                 }
             }
 
             override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: android.webkit.WebResourceResponse?) {
                 val code = errorResponse?.statusCode ?: return
                 if (request?.isForMainFrame == true && code >= 400 && !done && firstLoadedAt == 0L) {
-                    main.post { finish(fail("The page answered HTTP $code")) }
+                    main.post { finish(if (followedFrom != null) noEventsOnOriginal() else fail("The page answered HTTP $code")) }
                 }
             }
 
@@ -217,16 +239,40 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                 finish(fail("The page could not be read"))
                 return@evaluateJavascript
             }
-            if (parsed.items.isEmpty() && allowRetry && !retried) {
-                // some lists load more when scrolled; scroll once and look again
-                retried = true
-                extracting = false
-                Report.log("List: nothing found; scrolling once and retrying")
-                wv.evaluateJavascript("window.scrollTo(0, document.body ? document.body.scrollHeight : 0)", null)
-                lastSignature = null
-                unchanged = 0
-                main.postDelayed({ if (!done && gen == generation) extract(allowRetry = true) }, 2500)
-                return@evaluateJavascript
+            if (parsed.items.isEmpty() && allowRetry) {
+                val pick = if (followedFrom == null) FramePick.pick(ex.frames, currentPage()) else null
+                // 1. a big embedded frame holds the page's content: read that instead
+                if (pick != null && pick.strong) {
+                    follow(pick.url, ex.debug)
+                    return@evaluateJavascript
+                }
+                // 2. some lists load more when scrolled; scroll once and look again
+                if (!retried) {
+                    retried = true
+                    extracting = false
+                    Report.log("List: nothing found; scrolling once and retrying")
+                    wv.evaluateJavascript("window.scrollTo(0, document.body ? document.body.scrollHeight : 0)", null)
+                    lastSignature = null
+                    unchanged = 0
+                    main.postDelayed({ if (!done && gen == generation) extract(allowRetry = true) }, 2500)
+                    return@evaluateJavascript
+                }
+                // 3. a nearly empty page or one still showing a loading indicator: give it more time
+                if (!slowRetried && (ex.textLen < SHORT_TEXT || ex.loading)) {
+                    slowRetried = true
+                    extracting = false
+                    Report.log("List: page looks slow (${ex.textLen} chars of text${if (ex.loading) ", loading indicator" else ""}); waiting ${SLOW_WAIT_MS / 1000}s and retrying")
+                    extendDeadline(SLOW_OVERALL_MS)
+                    lastSignature = null
+                    unchanged = 0
+                    main.postDelayed({ if (!done && gen == generation) extract(allowRetry = true) }, SLOW_WAIT_MS)
+                    return@evaluateJavascript
+                }
+                // 4. still nothing: the largest embedded frame is the best remaining guess
+                if (pick != null) {
+                    follow(pick.url, ex.debug)
+                    return@evaluateJavascript
+                }
             }
             val secs = (System.currentTimeMillis() - startedAt) / 1000.0
             Report.log(
@@ -234,12 +280,37 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                     parsed.items.size, Report.host(parsed.pageUrl), if (parsed.method.startsWith("recipe")) "recipe" else "automatic", secs)
             )
             if (ex.debug.isNotEmpty()) Report.log("List: ${ex.debug}")
-            val result = if (parsed.items.isEmpty()) parsed.copy(error = "No events found on this page") else parsed
+            val shown = followedFrom?.let { parsed.copy(pageUrl = it) } ?: parsed // keep the list page's own URL for display
+            val result = if (shown.items.isEmpty()) shown.copy(error = "No events found on this page") else shown
             finish(result)
         }
     }
 
+    /** Loads the embedded frame's own address in this web view and reads the events from there (done at most once per read). */
+    private fun follow(frameUrl: String, debugOfPage: String) {
+        val wv = webView ?: return
+        if (debugOfPage.isNotEmpty()) Report.log("List: $debugOfPage")
+        Report.log("List: the events seem to be inside an embedded frame; reading ${Report.host(frameUrl)} directly")
+        followedFrom = currentPage()
+        client?.siteUrl = frameUrl
+        client?.firstPageLoaded = false
+        extracting = false
+        polling = false
+        retried = false
+        slowRetried = false
+        firstLoadedAt = 0L
+        lastSignature = null
+        unchanged = 0
+        main.removeCallbacks(poll)
+        extendDeadline(System.currentTimeMillis() - startedAt + FOLLOW_MS)
+        wv.loadUrl(frameUrl)
+    }
+
     companion object {
+        private const val SHORT_TEXT = 1500
+        private const val SLOW_WAIT_MS = 6_000L
+        private const val SLOW_OVERALL_MS = 35_000L
+        private const val FOLLOW_MS = 18_000L
         private const val POLL_MS = 1000L
         private const val SETTLE_MAX_MS = 15_000L
         private const val OVERALL_MS = 25_000L
@@ -302,10 +373,35 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                 method = method,
                 error = null,
             )
-            return Extraction(result, (root["debug"] as? String).orEmpty())
+            val frames = ArrayList<FramePick.Frame>()
+            for (o in (root["frames"] as? List<*>) ?: emptyList<Any?>()) {
+                val m = o as? Map<*, *> ?: continue
+                frames.add(
+                    FramePick.Frame(
+                        src = (m["src"] as? String).orEmpty(),
+                        pct = (m["pct"] as? Double) ?: 0.0,
+                        sameOrigin = m["same"] == true,
+                        visible = m["vis"] == true,
+                    )
+                )
+            }
+            return Extraction(
+                result, (root["debug"] as? String).orEmpty(),
+                textLen = (root["textLen"] as? Double)?.toInt() ?: 0,
+                loading = root["loading"] == true,
+                frames = frames,
+                clickRows = items.count { ClickRef.isClickUrl(it.url) },
+            )
         }
 
-        internal class Extraction(val result: ListResult, val debug: String)
+        internal class Extraction(
+            val result: ListResult,
+            val debug: String,
+            val textLen: Int = 0,
+            val loading: Boolean = false,
+            val frames: List<FramePick.Frame> = emptyList(),
+            val clickRows: Int = 0,
+        )
     }
 }
 
@@ -483,14 +579,23 @@ object ListRecipes {
         val at = prefs.getLong(KEY_AT, 0L)
         val now = System.currentTimeMillis()
         if (cached != null && now - at in 0 until REFRESH_MS) return parse(cached)
-        val fresh = try { download() } catch (_: Exception) { null }
+        var why = ""
+        val fresh = try { download() } catch (e: Exception) { why = describeFailure(e); null }
         if (fresh != null) {
             prefs.edit().putString(KEY, fresh).putLong(KEY_AT, now).apply()
             return parse(fresh)
         }
-        Report.logOnce("recipes-fail", "List: could not refresh recipes; using ${if (cached != null) "the saved copy" else "none"}")
+        Report.logOnce("recipes-fail", "List: could not refresh recipes ($why); using ${if (cached != null) "the saved copy" else "none"}")
         return if (cached != null) parse(cached) else emptyList()
     }
+
+    /** Short reason for the log: "HTTP 404", or the exception's class and message. */
+    internal fun describeFailure(e: Exception): String {
+        val m = e.message?.take(80)
+        return if (e is RecipesHttpException) m ?: "HTTP error" else e.javaClass.simpleName + (if (m.isNullOrBlank()) "" else ": $m")
+    }
+
+    internal class RecipesHttpException(msg: String) : java.io.IOException(msg)
 
     private fun download(): String? {
         val c = URL(URL).openConnection() as HttpURLConnection
@@ -498,12 +603,14 @@ object ListRecipes {
             c.connectTimeout = 5000
             c.readTimeout = 5000
             c.instanceFollowRedirects = true
-            if (c.responseCode != 200) return null
-            val bytes = c.inputStream.use { it.readNBytesLimited(MAX_BYTES) } ?: return null
+            val code = c.responseCode
+            if (code != 200) throw RecipesHttpException("HTTP $code")
+            val bytes = c.inputStream.use { it.readNBytesLimited(MAX_BYTES) } ?: throw RecipesHttpException("file too large")
             val text = String(bytes, Charsets.UTF_8)
             // only keep text that is valid JSON with a "sites" list
-            val root = MiniJson.parse(text) as? Map<*, *> ?: return null
-            return if (root["sites"] is List<*>) text else null
+            val root = MiniJson.parse(text) as? Map<*, *> ?: throw RecipesHttpException("not a recipes file")
+            if (root["sites"] !is List<*>) throw RecipesHttpException("no \"sites\" list in the file")
+            return text
         } finally {
             c.disconnect()
         }

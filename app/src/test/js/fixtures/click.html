@@ -1,0 +1,25 @@
+<!doctype html><html><head><title>Match Centre</title><style>
+body{font-family:sans-serif} .ev{display:flex;justify-content:space-between;padding:14px;border:1px solid #ddd;margin:6px 0;cursor:pointer}
+.ev h3{margin:0;font-size:17px}.ev .o{font-size:13px;color:#666}.ev .tm{padding:4px 10px;background:#def}
+header a{margin-right:14px}
+</style></head><body>
+<header><a href="/">Home</a><a href="/fixtures">Fixtures</a><a href="/news">News</a><a href="/about">About</a></header>
+<main>
+<h1>Upcoming events</h1>
+<div id="list">
+ <div class="ev"><div><h3>Rovers vs Athletic</h3><div class="o">League</div></div><div class="tm">Thu, Dec 3 &bull; 7:45 PM</div></div>
+ <div class="ev"><div><h3>Harriers v City</h3><div class="o">League Cup</div></div><div class="tm">Fri, Dec 4 &bull; 8:00 PM</div></div>
+ <div class="ev"><div><h3>Lions v Wolves</h3><div class="o">Friendly</div></div><div class="tm">Sat, Dec 5 &bull; 12:15 PM</div></div>
+</div>
+</main>
+<footer><a href="/privacy">Privacy</a><a href="/terms">Terms</a></footer>
+<script>
+// no URL anywhere in the DOM: rows only have JS click handlers (single-page app style)
+document.querySelectorAll('.ev').forEach(function (el, n) {
+  el.addEventListener('click', function () {
+    window.__clicked = el.querySelector('h3').textContent;
+    history.pushState({}, '', '/watch/' + (n + 1));
+  });
+});
+</script>
+</body></html>
