@@ -366,7 +366,10 @@ class PlayerActivity : Activity() {
                 }
                 Player.STATE_BUFFERING -> {
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
-                    if (playingSince != 0L) logStall()
+                    if (playingSince != 0L) {
+                        logStall()
+                        tunnelStallCheck()
+                    }
                 }
                 Player.STATE_ENDED -> {
                     if (player?.isCurrentMediaItemLive == true) {
@@ -681,6 +684,26 @@ class PlayerActivity : Activity() {
         play()
     }
 
+    /**
+     * Tunneled playback that keeps "buffering" with plenty of video buffered: on this box the audio clock
+     * stalls (audio frames stop arriving while video keeps coming) and the picture waits for it.
+     * Two such stalls within 30 s, each with >= 6 s buffered, and it's tunneling, not the network.
+     */
+    private var bufferedStallTimes = ArrayList<Long>()
+    private fun tunnelStallCheck() {
+        if (!tunnelEngaged()) return
+        val p = player ?: return
+        val ahead = (p.bufferedPosition - p.currentPosition) / 1000.0
+        if (ahead < 6.0) return
+        val now = System.currentTimeMillis()
+        bufferedStallTimes.add(now)
+        bufferedStallTimes.removeAll { now - it > 30_000 }
+        if (bufferedStallTimes.size >= 2) {
+            bufferedStallTimes.clear()
+            retryWithoutTunneling(String.format(java.util.Locale.US, "keeps stalling with %.0fs buffered", ahead))
+        }
+    }
+
     private fun retryWithoutTunneling(why: String) {
         // Only for this app run: the saved preference is changed only by the phone remote switch.
         tunnelOffThisRun = true
@@ -696,7 +719,11 @@ class PlayerActivity : Activity() {
             p.prepare()
             return
         }
-        if (tunneling && !firstFrame && error.errorCode in tunnelSuspects) {
+        // Audio output errors under tunneling: the box's tunneled audio path refuses some streams (e.g.
+        // low sample rates) even after the picture started. Retry this same source with tunneling off.
+        val audioOut = error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+            error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+        if (tunneling && (!firstFrame || audioOut) && error.errorCode in tunnelSuspects) {
             Report.log("Playback error: ${error.errorCodeName}")
             retryWithoutTunneling(error.errorCodeName)
             return
