@@ -78,7 +78,8 @@ class SampleRecorderTest {
 
     @Test
     fun sizesAreCapped() {
-        val big = ByteArray(SampleRecorder.MAX_PLAYLIST + 5000) { 'a'.code.toByte() }
+        val head = "#EXTM3U\n#EXTINF:4,\n".toByteArray()
+        val big = head + ByteArray(SampleRecorder.MAX_PLAYLIST + 5000) { 'a'.code.toByte() }
         SampleRecorder.playlist("https://x/m.m3u8", big, big.size, false, "t")
         val c = SampleRecorder.beginChunk("https://x/c.ts")!!
         val piece = ByteArray(1024 * 1024)
