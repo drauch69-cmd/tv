@@ -458,7 +458,7 @@ class PlayerActivity : Activity() {
     private val startCheck = Runnable {
         val p = player ?: return@Runnable
         val buffered = (p.bufferedPosition - p.currentPosition) / 1000.0
-        if (playingSince == 0L && !tunneling && buffered >= 8.0) {
+        if (playingSince == 0L && !tunnelEngaged() && buffered >= 8.0) {
             logStall()
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
@@ -498,6 +498,20 @@ class PlayerActivity : Activity() {
     private fun decodeProblem() {
         Report.log(decoderStats())
         val p = player
+        // Read the decoder counters first: they say which remedy fits, so we don't walk the
+        // whole list of experiments (which can take over a minute).
+        if (decoderStuck()) {
+            if (tunnelEngaged()) {
+                retryWithoutTunneling("the video decoder takes frames but shows none")
+            } else if (!preferSoftware) {
+                preferSoftware = true
+                Report.log("Diagnosis: the video decoder takes frames but shows none; switching to the software video decoder")
+                play()
+            } else {
+                openCleanPlayer("even the software video decoder shows no picture")
+            }
+            return
+        }
         if (!jumpTried && p != null && p.bufferedPosition - p.currentPosition > 4_000) {
             // The player may be waiting at a moment the downloaded video doesn't cover (the
             // playlist's timing disagrees with the video's own). Browsers jump to the video.
@@ -521,20 +535,26 @@ class PlayerActivity : Activity() {
         }
         if (audioOff) Report.log("Experiment result: still stuck with the audio off, so the audio isn't the blocker")
         audioOff = false
-        if (!preferSoftware) {
-            preferSoftware = true
-            Report.log("Retrying with the TV's software video decoder")
-            play()
-        } else {
-            openCleanPlayer("video arrived but couldn't be played, even with the software decoder")
-        }
+        // No frames ever reached the decoder, so a different decoder can't help; the browser's
+        // more forgiving player usually can.
+        openCleanPlayer("video arrived but never reached the decoder")
     }
+
+    /** Frames go into the video decoder but no picture ever comes out. */
+    private fun decoderStuck(): Boolean {
+        val v = player?.videoDecoderCounters ?: return false
+        v.ensureUpdated()
+        return v.queuedInputBufferCount >= 5 && v.renderedOutputBufferCount == 0
+    }
+
+    /** Tunneling was requested AND the player actually uses it for the current tracks. */
+    private fun tunnelEngaged(): Boolean = tunneling && player?.isTunnelingEnabled == true
 
     private val stallCheck = Runnable {
         Report.log("Stalled for ${STALL_MS / 1000}s")
         logStall()
         val buffered = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
-        if (tunneling && !firstFrame) {
+        if (tunnelEngaged() && !firstFrame) {
             retryWithoutTunneling("stalled before the first picture")
         } else if (playingSince == 0L && buffered >= 8.0) {
             // Plenty of video arrived but it never started: the stream's format (or a quirk in it)
