@@ -149,8 +149,10 @@
       <button type="button" class="ghost" id="tunnelbtn">Tunneled playback: Off</button>
       <div id="syncwrap" hidden>
         <p class="small" id="synctext" style="margin:6px 0">Audio sync</p>
-        <button type="button" class="ghost" id="synclater">Sound comes after the picture (+50 ms)</button>
+        <button type="button" class="ghost" id="syncearlier1">Sound comes before the picture (−1 s)</button>
         <button type="button" class="ghost" id="syncearlier">Sound comes before the picture (−50 ms)</button>
+        <button type="button" class="ghost" id="synclater">Sound comes after the picture (+50 ms)</button>
+        <button type="button" class="ghost" id="synclater1">Sound comes after the picture (+1 s)</button>
         <button type="button" class="ghost" id="syncreset">Reset audio sync</button>
       </div>
     </div>
@@ -420,7 +422,7 @@
   $('delaybtn').onclick = function(){
     post('/cmd', 'c=delay&v=' + (smoothOn ? 'low' : 'smooth')).then(function(){ setTimeout(tick, 500); });
   };
-  ['later','earlier','reset'].forEach(function(k){
+  ['later','earlier','later1','earlier1','reset'].forEach(function(k){
     $('sync' + k).onclick = function(){ post('/cmd', 'c=sync&v=' + k).then(function(){ setTimeout(tick, 300); }); };
   });
   var tunnelOn = false;
@@ -491,7 +493,8 @@
       $('tunnelbtn').textContent = 'Tunneled playback: ' + (tunnelOn ? 'On (tap to turn off)' : 'Off (tap to try on)');
       var sync = Number(s.audioSync) || 0;
       $('syncwrap').hidden = !player || clean;
-      $('synctext').textContent = 'Audio sync: ' + (sync > 0 ? 'picture waits ' + sync + ' ms for the sound' : sync < 0 ? 'sound waits ' + (-sync) + ' ms for the picture' : 'no adjustment') +
+      var amt = function(ms){ return ms < 1000 ? ms + ' ms' : (Math.round(ms / 10) / 100) + ' s'; };
+      $('synctext').textContent = 'Audio sync for this site: ' + (sync > 0 ? 'picture waits ' + amt(sync) + ' for the sound' : sync < 0 ? 'sound waits ' + amt(-sync) + ' for the picture' : 'no adjustment') +
         (tunnelOn && sync !== 0 ? ' (only works with tunneled playback off)' : '');
       $('syncreset').hidden = sync === 0;
       var q = s.qualities || [], src = s.sources || [];

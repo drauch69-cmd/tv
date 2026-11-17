@@ -12,8 +12,8 @@ class AudioSyncTest {
     }
 
     @Test fun clampAndSteps() {
-        assertEquals(1000, AudioSync.clamp(1300))
-        assertEquals(-1000, AudioSync.clamp(-5000))
+        assertEquals(30_000, AudioSync.clamp(45_000))
+        assertEquals(-17_000, AudioSync.clamp(-17_000))
         assertEquals(150, AudioSync.clamp(170))
     }
 
@@ -21,5 +21,9 @@ class AudioSyncTest {
         assertEquals("no adjustment", AudioSync.describe(0))
         assertEquals("picture waits 150 ms for the sound", AudioSync.describe(150))
         assertEquals("sound waits 100 ms for the picture", AudioSync.describe(-100))
+        assertEquals("sound waits 17 s for the picture", AudioSync.describe(-17_000))
+        assertEquals("picture waits 1.25 s for the sound", AudioSync.describe(1_250))
+        assertEquals(17_000, AudioSync.extraBufferMs(-17_000))
+        assertEquals(0, AudioSync.extraBufferMs(300))
     }
 }
