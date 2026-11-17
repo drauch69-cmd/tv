@@ -1,0 +1,699 @@
+/*
+ * StreamLink "stream lists": reads the events off an index page.
+ *
+ * This file is ONE function expression. IndexReader.kt evaluates it as
+ *     (<this file>)(<recipe JSON string or null>)
+ * in the top frame of the loaded index page and gets a JSON string back:
+ *   { pageTitle, pageUrl, method: "automatic"|"recipe", debug, noLink,
+ *     items: [{ title, subtitle, url, timeText, datetime, section, liveHint, imageUrl }] }
+ * Dates are NOT parsed here (Kotlin DateGuess does that); "datetime" is only a machine-readable
+ * value found next to the text (<time datetime>, data-start ...), passed through for DateGuess.
+ *
+ * How the automatic mode works, in short:
+ *  1. Find "groups": elements of the same tag and similar classes that are siblings (rows of a
+ *     list). Groups whose parents are same-looking siblings are merged (a list split by day
+ *     headings is still one group).
+ *  2. Score each group: time text in the rows and a different same-site link per row are good;
+ *     living in nav/header/footer/aside, very short text, "18"-style counts, and rows with
+ *     neither a time nor their own link are bad.
+ *  3. Take the best group (plus equally good ones), read each row: title (most prominent line),
+ *     subtitle (next line), time line, link, section heading above it, live hint, image.
+ */
+(function (recipeJson) {
+  'use strict';
+  var debug = [];
+  try {
+    return run();
+  } catch (e) {
+    return JSON.stringify({
+      pageTitle: safeTitle(), pageUrl: String(location.href), method: 'automatic', items: [], noLink: 0,
+      debug: 'extractor error: ' + (e && e.message ? e.message : e), error: 'extractor error'
+    });
+  }
+
+  function safeTitle() { try { return String(document.title || '').trim(); } catch (e) { return ''; } }
+
+  function run() {
+    var PAGE = location.href;
+    var MIN_SCORE = 25;
+    var MAX_ITEMS = 300;
+
+    // ---------------------------------------------------------------- small helpers
+    var TWO_PART = { 'co.uk': 1, 'com.au': 1, 'co.nz': 1, 'com.br': 1, 'co.jp': 1, 'co.in': 1, 'com.mx': 1 };
+    function baseDomain(h) {
+      var p = String(h || '').toLowerCase().replace(/\.$/, '').split('.');
+      if (p.length <= 2) return p.join('.');
+      var l2 = p.slice(-2).join('.');
+      return TWO_PART[l2] ? p.slice(-3).join('.') : l2;
+    }
+    function sameSite(host) { return baseDomain(host) === baseDomain(location.hostname); }
+
+    function normUrl(u) {
+      try { var x = new URL(u, document.baseURI); x.hash = ''; return x.href.replace(/\/+$/, ''); } catch (e) { return ''; }
+    }
+    var PAGE_N = normUrl(PAGE);
+
+    function txt(el) {
+      var t = el.innerText;
+      if (t == null) t = el.textContent;
+      return String(t || '').replace(/ /g, ' ').replace(/[ \t\r\f\v]+/g, ' ').replace(/ ?\n ?/g, '\n').trim();
+    }
+    function oneLine(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
+
+    var uidCounter = 0;
+    function uid(el) { if (!el.__lxid) el.__lxid = ++uidCounter; return el.__lxid; }
+
+    var layoutOk = false;
+    try { layoutOk = document.documentElement.clientWidth > 0; } catch (e) { layoutOk = false; }
+    function visible(el) {
+      if (el.hidden) return false;
+      var cs = getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      if (layoutOk && cs.display !== 'contents' && !el.getClientRects().length) return false;
+      return true;
+    }
+
+    // ---------------------------------------------------------------- date / time look-alikes
+    // (only to recognise "this text is a date/time"; Kotlin does the real parsing)
+    var MONTHS = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
+    var RE_MONTH_DAY = new RegExp('\\b' + MONTHS + '\\.?\\s+\\d{1,2}(?!\\d)', 'i');
+    var RE_DAY_MONTH = new RegExp('\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?' + MONTHS + '\\b', 'i');
+    var RE_NUM_DATE = /\b\d{1,4}[\/.\-]\d{1,2}[\/.\-]\d{1,4}\b/;
+    var RE_TIME12 = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*[ap]\.?m\.?(?![a-z])/i;
+    var RE_TIME24 = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/;
+    var RE_REL_DAY = /\b(?:today|tonight|tomorrow)\b/i;
+    var RE_REL_IN = /\bin\s+(?:about\s+)?(?:\d+|an?|half an)\s*(?:min|mins|minutes?|hours?|hrs?|h)\b/i;
+    var RE_NOISE = new RegExp(
+      '\\b' + MONTHS + '\\b\\.?|\\b\\d{1,4}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{1,4}\\b|\\b(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\\b\\.?|' +
+      '\\b(?:[01]?\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?\\b|\\b\\d{1,2}(?::\\d{2})?\\s*[ap]\\.?m\\.?(?![a-z])|\\b\\d{1,4}(?:st|nd|rd|th)?\\b|' +
+      '\\b(?:today|tonight|tomorrow|start|starts|starting|time|date|when|at|on|from|to|until|till|in|about|of|utc|gmt|[a-z]{1,2}t)\\b|[T:,.\\-\\u2013\\u2022\\u00b7|/@()]', 'gi');
+
+    function kinds(t) {
+      var date = RE_MONTH_DAY.test(t) || RE_DAY_MONTH.test(t) || RE_NUM_DATE.test(t) || RE_REL_DAY.test(t);
+      var time = RE_TIME12.test(t) || RE_TIME24.test(t) || RE_REL_IN.test(t);
+      return { date: date, time: time };
+    }
+    /** How much of this line is something other than date/time words (a title that merely contains a time is not a time line). */
+    function remainder(t) { return oneLine(t.replace(RE_NOISE, ' ')).length; }
+    function timeLineRank(t) {
+      if (t.length > 80) return 0;
+      var k = kinds(t);
+      if (!k.date && !k.time) return 0;
+      if (RE_REL_DAY.test(t) && !k.time && !RE_MONTH_DAY.test(t) && t.length > 40) return 0;
+      if (remainder(t) > 20) return 0;
+      return k.date && k.time ? 3 : (k.time ? 2 : 1);
+    }
+    function extractSub(t) {
+      var res = [RE_MONTH_DAY, RE_DAY_MONTH, RE_NUM_DATE, RE_TIME12, RE_TIME24, RE_REL_DAY, RE_REL_IN];
+      var lo = -1, hi = -1;
+      for (var i = 0; i < res.length; i++) {
+        var m = res[i].exec(t);
+        if (!m) continue;
+        if (lo < 0 || m.index < lo) lo = m.index;
+        if (m.index + m[0].length > hi) hi = m.index + m[0].length;
+      }
+      if (lo < 0) return '';
+      return t.substring(lo, Math.min(hi, lo + 60)).trim();
+    }
+
+    var EPOCH_RE = /^\d{10}(\d{3})?$/;
+    function dtValue(v) {
+      v = String(v || '').trim();
+      if (!v) return '';
+      if (EPOCH_RE.test(v)) { var n = Number(v); if (v.length === 10) n *= 1000; try { return new Date(n).toISOString(); } catch (e) { return ''; } }
+      if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v;
+      return '';
+    }
+    var DATA_ATTRS = ['datetime', 'data-datetime', 'data-start', 'data-start-time', 'data-starttime', 'data-timestamp', 'data-time', 'data-date', 'data-event-start'];
+    function dtAttr(el) {
+      for (var i = 0; i < DATA_ATTRS.length; i++) {
+        var v = dtValue(el.getAttribute(DATA_ATTRS[i]));
+        if (v) return v;
+      }
+      return '';
+    }
+
+    // ---------------------------------------------------------------- links
+    var DATA_LINK_ATTRS = ['data-href', 'data-url', 'data-link', 'data-target-url', 'data-event-url', 'data-permalink'];
+    var RE_ONCLICK_URL = /(?:location(?:\.href)?|window\.open|location\.assign|location\.replace)\s*(?:=|\()\s*['"]([^'"]+)['"]/;
+
+    /** Absolute URL if acceptable as an event link, else ''. strict = must be on the same site. */
+    function okLink(href, strict) {
+      if (!href) return '';
+      var h = String(href).trim();
+      if (!h || h.charAt(0) === '#' || /^(javascript|mailto|tel|sms|data|blob|about|intent|market):/i.test(h)) return '';
+      var x;
+      try { x = new URL(h, document.baseURI); } catch (e) { return ''; }
+      if (x.protocol !== 'http:' && x.protocol !== 'https:') return '';
+      if (strict && !sameSite(x.hostname)) return '';
+      if (normUrl(x.href) === PAGE_N) return '';
+      return x.href;
+    }
+    function linkFromAttrs(el, strict) {
+      for (var i = 0; i < DATA_LINK_ATTRS.length; i++) {
+        var u = okLink(el.getAttribute(DATA_LINK_ATTRS[i]), strict);
+        if (u) return u;
+      }
+      var oc = el.getAttribute && el.getAttribute('onclick');
+      if (oc) { var m = RE_ONCLICK_URL.exec(oc); if (m) { var u2 = okLink(m[1], strict); if (u2) return u2; } }
+      return '';
+    }
+    /** The item's own link: itself if an <a>, first usable <a> inside, (optionally the <a> around it), data-href/onclick. */
+    function linkOf(el, strict, allowAncestor) {
+      var u;
+      if (el.tagName === 'A') { u = okLink(el.getAttribute('href'), strict); if (u) return u; }
+      var as = el.querySelectorAll('a[href]');
+      for (var i = 0; i < as.length; i++) { u = okLink(as[i].getAttribute('href'), strict); if (u) return u; }
+      u = linkFromAttrs(el, strict); if (u) return u;
+      var ds = el.querySelectorAll('[data-href],[data-url],[data-link],[data-target-url],[data-event-url],[data-permalink],[onclick]');
+      for (var j = 0; j < ds.length && j < 40; j++) { u = linkFromAttrs(ds[j], strict); if (u) return u; }
+      if (allowAncestor) {
+        var anc = el.parentElement && el.parentElement.closest('a[href]');
+        if (anc) { u = okLink(anc.getAttribute('href'), strict); if (u) return u; }
+      }
+      return '';
+    }
+
+    // ---------------------------------------------------------------- groups of similar siblings
+    var SKIP_PARENT = { SCRIPT: 1, STYLE: 1, SVG: 1, SELECT: 1, NOSCRIPT: 1, TEMPLATE: 1, HEAD: 1, TEXTAREA: 1, OPTION: 1 };
+    var SKIP_ITEM = { SCRIPT: 1, STYLE: 1, LINK: 1, META: 1, NOSCRIPT: 1, TEMPLATE: 1, SVG: 1, BR: 1, HR: 1, OPTION: 1, OPTGROUP: 1,
+      INPUT: 1, SELECT: 1, TEXTAREA: 1, IMG: 1, CANVAS: 1, IFRAME: 1, HEAD: 1, TITLE: 1, PATH: 1 };
+    var RE_STATE_TOKEN = /^(active|selected|current|open|opened|closed|first|last|odd|even|hover|focus|focused|show|shown|visible|hidden|loaded|live|new|featured|highlight|highlighted|past|upcoming|ended|soon|ng-.*|is-.*|has-.*|js-.*)$/i;
+    function tokens(el) {
+      var out = [], cl = el.classList;
+      for (var i = 0; i < cl.length; i++) if (!RE_STATE_TOKEN.test(cl[i])) out.push(cl[i]);
+      return out;
+    }
+    function jacc(a, b) {
+      if (!a.length && !b.length) return 1;
+      var s = {}, i, inter = 0, un = a.length;
+      for (i = 0; i < a.length; i++) s[a[i]] = 1;
+      for (i = 0; i < b.length; i++) { if (s[b[i]]) inter++; else un++; }
+      return inter / un;
+    }
+    function sig(el) { return el.tagName + '.' + tokens(el).sort().join('.'); }
+    function describe(el) {
+      if (!el) return '?';
+      var s = el.tagName.toLowerCase();
+      if (el.id) s += '#' + el.id;
+      var t = tokens(el).slice(0, 2);
+      if (t.length) s += '.' + t.join('.');
+      return s.length > 50 ? s.substring(0, 50) : s;
+    }
+    function docOrder(a, b) { return a === b ? 0 : ((a.compareDocumentPosition(b) & 4) ? -1 : 1); }
+
+    function buildGroups() {
+      var all = document.body.getElementsByTagName('*');
+      var limit = Math.min(all.length, 15000);
+      var map = {}, list = [];
+      for (var i = -1; i < limit; i++) {
+        var p = i < 0 ? document.body : all[i];
+        if (SKIP_PARENT[p.tagName.toUpperCase()]) continue;
+        var kids = p.children;
+        if (!kids.length) continue;
+        var clusters = [];
+        for (var k = 0; k < kids.length; k++) {
+          var c = kids[k];
+          if (SKIP_ITEM[c.tagName.toUpperCase()]) continue;
+          var tc = c.textContent;
+          if (!tc || tc.length > 4000 || tc.replace(/\s+/g, '').length < 2) continue;
+          if (!visible(c)) continue;
+          var tk = tokens(c), placed = false;
+          for (var j = 0; j < clusters.length; j++) {
+            if (clusters[j].tag === c.tagName && jacc(clusters[j].tk, tk) >= 0.5) { clusters[j].items.push(c); placed = true; break; }
+          }
+          if (!placed) clusters.push({ tag: c.tagName, tk: tk, items: [c] });
+        }
+        if (!clusters.length) continue;
+        var psig = sig(p);
+        var gp = p.parentElement ? uid(p.parentElement) : 0;
+        for (var m = 0; m < clusters.length; m++) {
+          var cl = clusters[m];
+          var key = gp + '|' + psig + '|' + cl.tag + '.' + cl.tk.slice().sort().join('.');
+          var g = map[key];
+          if (!g) { g = map[key] = { items: [], parents: [] }; list.push(g); }
+          g.parents.push(p);
+          for (var q = 0; q < cl.items.length; q++) g.items.push(cl.items[q]);
+        }
+      }
+      var out = [];
+      for (var x = 0; x < list.length; x++) {
+        var items = list[x].items;
+        items.sort(docOrder);
+        var uniq = [];
+        for (var y = 0; y < items.length; y++) if (!y || items[y] !== items[y - 1]) uniq.push(items[y]);
+        if (uniq.length >= 2) out.push({ items: uniq, parents: list[x].parents });
+      }
+      return out;
+    }
+
+    var RE_CHROME_CLASS = /(^|[\s_-])(nav|navbar|navigation|menu|topbar|footer|sidebar|breadcrumbs?|pagination|pager|chips?|filters?|toolbar|dropdown|cookie|consent|banner|ads?|advert|sponsor|sponsored|promo)([\s_-]|$)/i;
+    function chromeOf(el) {
+      for (var e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
+        var tg = e.tagName;
+        if (tg === 'NAV' || tg === 'ASIDE') return tg.toLowerCase();
+        if ((tg === 'HEADER' || tg === 'FOOTER') && !(e.parentElement && e.parentElement.closest('main,article,section'))) return tg.toLowerCase();
+        var r = (e.getAttribute('role') || '').toLowerCase();
+        if (r === 'navigation' || r === 'banner' || r === 'contentinfo' || r === 'complementary' || r === 'menu' || r === 'menubar' || r === 'tablist' || r === 'toolbar') return 'role=' + r;
+        var c = (typeof e.className === 'string' ? e.className : '') + ' ' + (e.id || '');
+        if (RE_CHROME_CLASS.test(c)) return 'class';
+      }
+      return '';
+    }
+    function inMain(el) { return !!el.closest('main,[role=main]'); }
+
+    function scoreGroup(g) {
+      var items = g.items, n = items.length;
+      var sample = items.length > 60 ? items.slice(0, 60) : items;
+      var timed = 0, linked = 0, urls = {}, nUrls = 0, lenSum = 0, linesSum = 0, counts = 0;
+      for (var i = 0; i < sample.length; i++) {
+        var t = txt(sample[i]);
+        var lines = t.split('\n').map(oneLine).filter(function (l) { return l; });
+        var hasTime = false;
+        for (var j = 0; j < lines.length; j++) if (timeLineRank(lines[j]) > 0) { hasTime = true; break; }
+        if (hasTime) timed++;
+        var u = linkOf(sample[i], true, false);
+        if (u) { linked++; var nu = normUrl(u); if (!urls[nu]) { urls[nu] = 1; nUrls++; } }
+        var ol = oneLine(t);
+        lenSum += ol.length; linesSum += lines.length;
+        if (/\s\d{1,4}$/.test(ol)) counts++;
+      }
+      var sn = sample.length;
+      g.n = n;
+      g.timeFrac = timed / sn;
+      g.linkFrac = linked / sn;
+      g.uniqFrac = nUrls / sn;
+      g.avgLen = lenSum / sn;
+      g.chrome = chromeOf(items[0]);
+      var s = 0;
+      s += g.timeFrac * 50;
+      s += g.linkFrac * 10 + g.uniqFrac * 30;
+      s += Math.min(n, 25) * 0.8;
+      if (linesSum / sn >= 2) s += 5;
+      if (g.chrome) s -= 60;
+      if (inMain(items[0])) s += 10;
+      if (g.timeFrac < 0.25 && g.uniqFrac < 0.5) s -= 40;   // feature cards: no time, no link of their own
+      if (g.avgLen < 14 && g.timeFrac < 0.3) s -= 35;       // menus, chips: very short text
+      if (counts / sn >= 0.6 && g.avgLen < 30) s -= 30;     // "Workshops 18"
+      if (g.avgLen > 600) s -= 30;
+      g.score = s;
+      g.raw = s;
+      return g;
+    }
+
+    function related(a, b) {
+      var A = a.items.slice(0, 40), B = b.items.slice(0, 40);
+      for (var i = 0; i < A.length; i++) for (var j = 0; j < B.length; j++) if (A[i].contains(B[j]) || B[j].contains(A[i])) return true;
+      return false;
+    }
+    function outerOf(a, b) { // true if a's items contain b's items
+      var b0 = b.items[0];
+      for (var i = 0; i < a.items.length; i++) if (a.items[i] !== b0 && a.items[i].contains(b0)) return true;
+      return false;
+    }
+    /** A group of "day" wrappers: each starts with a date heading followed by the real rows. */
+    function wrapperLike(g) {
+      var hit = 0, tot = Math.min(g.items.length, 10);
+      for (var i = 0; i < tot; i++) {
+        var f = g.items[i].firstElementChild;
+        if (f && g.items[i].children.length >= 2 && isDateHeader(f)) hit++;
+      }
+      return tot > 0 && hit / tot >= 0.6;
+    }
+
+    // ---------------------------------------------------------------- headings / sections
+    function isHeadingEl(el) { return /^H[1-6]$/.test(el.tagName) || el.getAttribute('role') === 'heading'; }
+    function isDateHeader(el) {
+      if (el.querySelector('a[href]') || el.tagName === 'A') return false;
+      var t = oneLine(txt(el));
+      if (!t || t.length > 80) return false;
+      var k = kinds(t);
+      return k.date && !k.time && !RE_REL_IN.test(t) && remainder(t) <= 20;
+    }
+    function headingText(el) { return oneLine(txt(el)).substring(0, 120); }
+    function findSection(item, itemSet) {
+      var cur = item, steps = 0;
+      for (var level = 0; level < 6 && cur && cur !== document.body; level++) {
+        for (var sib = cur.previousElementSibling; sib; sib = sib.previousElementSibling) {
+          if (itemSet[uid(sib)]) { steps++; continue; }
+          steps++;
+          if (!txt(sib)) continue;
+          if (isDateHeader(sib)) return headingText(sib);
+          var hd = isHeadingEl(sib) ? sib : sib.querySelector('h1,h2,h3,h4,h5,h6,[role=heading]');
+          if (hd && !sib.querySelector('a[href]')) {
+            var ht = headingText(hd);
+            var dated = kinds(ht).date;
+            // plain (non-date) headings count only when close to the list, and not the page's h1
+            if (dated || (level <= 1 && steps <= 2 && hd.tagName !== 'H1')) return ht;
+          }
+        }
+        cur = cur.parentElement;
+      }
+      return '';
+    }
+
+    // ---------------------------------------------------------------- reading one item
+    var INLINE_DISPLAY = { inline: 1, 'inline-block': 1, contents: 1, ruby: 1 };
+    function hasText(el) { return !!(el.textContent && el.textContent.trim()); }
+    function allInline(el) {
+      for (var c = el.firstElementChild; c; c = c.nextElementSibling) {
+        if (!hasText(c)) continue;
+        var cs = getComputedStyle(c);
+        if (cs.display === 'none') continue;
+        if (!INLINE_DISPLAY[cs.display] || !allInline(c)) return false;
+      }
+      return true;
+    }
+    function styleEl(el) { // descend while there is exactly one text-bearing child element and no text of our own
+      for (var guard = 0; guard < 6; guard++) {
+        var only = null, count = 0, ownText = false;
+        for (var n = el.firstChild; n; n = n.nextSibling) {
+          if (n.nodeType === 3 && n.nodeValue.trim()) ownText = true;
+          else if (n.nodeType === 1 && hasText(n)) { count++; only = n; }
+        }
+        if (ownText || count !== 1) break;
+        el = only;
+      }
+      return el;
+    }
+    var SKIP_TEXT = { SCRIPT: 1, STYLE: 1, SVG: 1, NOSCRIPT: 1, TEMPLATE: 1, SELECT: 1, OPTION: 1, TEXTAREA: 1 };
+    var RE_HASALNUM = /[A-Za-z0-9À-￿]/;
+    function collectLines(item) {
+      var out = [];
+      function push(text, el) {
+        var parts = text.split('\n');
+        for (var i = 0; i < parts.length; i++) {
+          var t = oneLine(parts[i]);
+          if (t && RE_HASALNUM.test(t)) out.push({ text: t, el: el });
+        }
+      }
+      (function walk(el) {
+        if (SKIP_TEXT[el.tagName.toUpperCase()] || !visible(el)) return;
+        var t = txt(el);
+        if (!t) return;
+        if (allInline(el)) { push(t, el); return; }
+        for (var n = el.firstChild; n; n = n.nextSibling) {
+          if (n.nodeType === 3) { var v = n.nodeValue; if (v && v.trim()) push(v, el); }
+          else if (n.nodeType === 1) walk(n);
+        }
+      })(item);
+      for (var i = 0; i < out.length; i++) {
+        var se = styleEl(out[i].el), cs = getComputedStyle(se);
+        out[i].fs = parseFloat(cs.fontSize) || 14;
+        var fw = parseInt(cs.fontWeight, 10);
+        if (isNaN(fw)) fw = cs.fontWeight === 'bold' ? 700 : 400;
+        if (/^(STRONG|B|H[1-6])$/.test(se.tagName)) fw = Math.max(fw, 700);
+        out[i].fw = fw;
+        var hd = out[i].el.closest('h1,h2,h3,h4,h5,h6,[role=heading]');
+        out[i].heading = !!(hd && item.contains(hd));
+        var cls = '', e = se;
+        for (var d = 0; d < 3 && e && e !== item.parentElement; d++, e = e.parentElement) cls += ' ' + (typeof e.className === 'string' ? e.className : '');
+        out[i].cls = cls;
+      }
+      return out;
+    }
+
+    var RE_BADGE = /^(live|live now|on air|on-air|new|free|sold out|full|register|details|view|view all|more|read more|learn more|book now|get tickets|tickets|rsvp|today|tomorrow|tonight|upcoming|featured|popular)$/i;
+    function isBadge(t) { return RE_BADGE.test(t.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '')); }
+    var RE_TITLE_CLASS = /(^|[\s_-])(title|name|heading|headline|summary)([\s_-]|$)/i;
+
+    function pickTitle(lines, skip) {
+      var best = -1e9, bi = -1;
+      for (var i = 0; i < lines.length; i++) {
+        if (skip[i]) continue;
+        var L = lines[i], t = L.text;
+        if (t.length < 2) continue;
+        var s = 0;
+        if (L.heading) s += 100;
+        if (RE_TITLE_CLASS.test(L.cls)) s += 40;
+        s += L.fs * 2;
+        if (L.fw >= 600) s += 20;
+        if (isBadge(t)) s -= 200;
+        var k = kinds(t);
+        if (k.date || k.time) s -= 50;
+        if (/^[\d\s,.:%+\-]+$/.test(t)) s -= 100;
+        s -= i * 0.5;
+        if (s > best) { best = s; bi = i; }
+      }
+      return bi;
+    }
+
+    function findTime(item, lines, ov) {
+      var res = { text: '', datetime: '', idx: {} };
+      var tEl = ov && ov.time ? ov.time : item.querySelector('time');
+      if (tEl) {
+        res.datetime = dtAttr(tEl);
+        var tt = oneLine(txt(tEl));
+        if (tt) {
+          res.text = tt;
+          for (var i = 0; i < lines.length; i++) if (tEl.contains(lines[i].el)) res.idx[i] = 1;
+        }
+      }
+      if (!res.text && !(ov && ov.time)) {
+        var bi = -1, br = 0, i2;
+        for (i2 = 0; i2 < lines.length; i2++) {
+          var r = timeLineRank(lines[i2].text);
+          if (r > br) { br = r; bi = i2; }
+        }
+        if (bi >= 0) {
+          res.text = lines[bi].text; res.idx[bi] = 1;
+          if (br < 3) { // "Sat, May 24" and "9:00 AM" in two neighbouring lines: join them
+            var want = br === 1 ? 2 : 1;
+            var nb = [bi - 1, bi + 1];
+            for (var q = 0; q < nb.length; q++) {
+              var j = nb[q];
+              if (j >= 0 && j < lines.length && timeLineRank(lines[j].text) === want) {
+                res.text = (j < bi ? lines[j].text + ' ' + lines[bi].text : lines[bi].text + ' ' + lines[j].text);
+                res.idx[j] = 1; break;
+              }
+            }
+          }
+        }
+      }
+      if (!res.datetime) {
+        res.datetime = dtAttr(item);
+        if (!res.datetime) {
+          var ds = item.querySelectorAll('[data-datetime],[data-start],[data-start-time],[data-starttime],[data-timestamp],[data-time],[data-date],[data-event-start]');
+          for (var d = 0; d < ds.length && d < 20 && !res.datetime; d++) res.datetime = dtAttr(ds[d]);
+        }
+      }
+      return res;
+    }
+
+    var RE_LIVE = /(^|[^a-z0-9])(live|on[\s-]?air|streaming[\s-]now|now[\s-]streaming)([^a-z0-9]|$)/i;
+    var RE_LIVE_TITLE = /^[^A-Za-z0-9]*(live|on[\s-]?air)\s*(?:[:\-–—|•]|$)/i;
+    function liveHintOf(item, lines, titleIdx, timeIdx) {
+      if (titleIdx >= 0 && RE_LIVE_TITLE.test(lines[titleIdx].text)) return true;
+      for (var i = 0; i < lines.length; i++) {
+        if (i === titleIdx) continue;
+        if (lines[i].text.length <= 24 && RE_LIVE.test(lines[i].text)) return true;
+      }
+      var els = [item], more = item.querySelectorAll('*');
+      for (var j = 0; j < more.length && j < 80; j++) els.push(more[j]);
+      for (var k = 0; k < els.length; k++) {
+        var el = els[k];
+        var cls = typeof el.className === 'string' ? el.className : (el.getAttribute && el.getAttribute('class')) || '';
+        if (cls && RE_LIVE.test(cls)) return true;
+        var a = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('data-status') || '') + ' ' + (el.getAttribute('data-state') || '');
+        if (a.trim() && RE_LIVE.test(a)) return true;
+        var dl = (el.getAttribute('data-live') || '').toLowerCase();
+        if (dl === 'true' || dl === '1') return true;
+      }
+      return false;
+    }
+
+    function imageOf(item) {
+      var imgs = item.querySelectorAll('img');
+      for (var i = 0; i < imgs.length; i++) {
+        var im = imgs[i];
+        var src = im.currentSrc || im.getAttribute('src') || im.getAttribute('data-src') || im.getAttribute('data-lazy-src') || '';
+        if (!src || /^data:/i.test(src)) continue;
+        if (layoutOk) { var r = im.getBoundingClientRect(); if (r.width > 0 && r.width < 20 && r.height < 20) continue; }
+        var u = okAbs(src);
+        if (u) return u;
+      }
+      var els = [item], more = item.querySelectorAll('*');
+      for (var j = 0; j < more.length && j < 30; j++) els.push(more[j]);
+      for (var k = 0; k < els.length; k++) {
+        var bg = getComputedStyle(els[k]).backgroundImage;
+        if (bg && bg !== 'none') {
+          var m = /url\((['"]?)(.*?)\1\)/.exec(bg);
+          if (m && m[2] && !/^data:/i.test(m[2])) { var u2 = okAbs(m[2]); if (u2) return u2; }
+        }
+      }
+      return null;
+    }
+    function okAbs(u) {
+      try { var x = new URL(u, document.baseURI); if (x.protocol === 'http:' || x.protocol === 'https:') return x.href.substring(0, 500); } catch (e) { }
+      return '';
+    }
+
+    /** ov: optional per-field overrides from a recipe (elements, plus section text / live boolean). */
+    function readItem(item, ov, itemSet, strictLinks) {
+      ov = ov || {};
+      var lines = collectLines(item);
+      if (!lines.length) return null;
+      var tm = findTime(item, lines, ov);
+      var titleIdx = -1, title = '';
+      if (ov.title) {
+        title = oneLine(txt(ov.title));
+        for (var a = 0; a < lines.length; a++) if (ov.title.contains(lines[a].el)) { titleIdx = a; break; }
+      }
+      if (!title) {
+        var skip = {}, key;
+        for (key in tm.idx) skip[key] = 1;
+        titleIdx = pickTitle(lines, skip);
+        if (titleIdx < 0 && lines.length) titleIdx = pickTitle(lines, {});
+        title = titleIdx >= 0 ? lines[titleIdx].text : '';
+      }
+      if (!title) return null;
+      var used = {};
+      if (titleIdx >= 0) used[titleIdx] = 1;
+      // teams split over several elements: "Team A" / "vs" / "Team B" become one title
+      if (!ov.title && titleIdx >= 0 && titleIdx + 2 < lines.length && /^(vs\.?|v\.?|versus|-|\u2013|\u2014|@|x)$/i.test(lines[titleIdx + 1].text) &&
+          !tm.idx[titleIdx + 2] && !isBadge(lines[titleIdx + 2].text)) {
+        title = title + ' ' + lines[titleIdx + 1].text + ' ' + lines[titleIdx + 2].text;
+        used[titleIdx + 1] = 1; used[titleIdx + 2] = 1;
+      }
+      var timeText = tm.text;
+      if (!timeText && titleIdx >= 0) timeText = extractSub(lines[titleIdx].text); // "Match 8pm" as the only line
+      if (!timeText && tm.datetime) timeText = tm.datetime;
+
+      var subtitle = '';
+      if (ov.subtitle) subtitle = oneLine(txt(ov.subtitle));
+      else if (titleIdx >= 0) {
+        for (var s = titleIdx + 1; s < lines.length; s++) {
+          var L = lines[s];
+          if (tm.idx[s] || used[s] || isBadge(L.text) || L.text === title) continue;
+          if (L.text.length < 2) continue;
+          subtitle = L.text.substring(0, 140);
+          break;
+        }
+      }
+      var url = '';
+      if (ov.link) {
+        var lel = ov.link;
+        url = okLink(lel.getAttribute('href'), strictLinks) || linkOf(lel, strictLinks, true);
+      }
+      if (!url) url = linkOf(item, strictLinks, true);
+      var section = typeof ov.section === 'string' ? ov.section : findSection(item, itemSet || {});
+      var live;
+      if (typeof ov.live === 'boolean') live = ov.live; else live = liveHintOf(item, lines, titleIdx);
+      return {
+        title: title.substring(0, 160), subtitle: subtitle, url: url, timeText: timeText.substring(0, 100), datetime: tm.datetime,
+        section: section, liveHint: live, imageUrl: imageOf(item)
+      };
+    }
+
+    // ---------------------------------------------------------------- automatic mode
+    function automatic() {
+      var groups = buildGroups();
+      for (var i = 0; i < groups.length; i++) scoreGroup(groups[i]);
+      groups.sort(function (a, b) { return b.score - a.score; });
+      var top = groups.slice(0, 25);
+      var i2, j2;
+      for (i2 = 0; i2 < top.length; i2++) if (top[i2].raw >= MIN_SCORE && wrapperLike(top[i2])) top[i2].score *= 0.3;
+      for (i2 = 0; i2 < top.length; i2++) {
+        for (j2 = i2 + 1; j2 < top.length; j2++) {
+          var A = top[i2], B = top[j2];
+          if (A.raw < MIN_SCORE || B.raw < MIN_SCORE || !related(A, B)) continue;
+          var outer = outerOf(A, B) ? A : (outerOf(B, A) ? B : null);
+          if (!outer) continue;
+          var inner = outer === A ? B : A;
+          if (inner.n > outer.n) outer.score *= 0.4; else inner.score *= 0.7;
+        }
+      }
+      top.sort(function (a, b) { return b.score - a.score; });
+      var desc = function (g) {
+        return describe(g.items[0]) + ' in ' + describe(g.items[0].parentElement) + ' x' + g.n + ' score=' + Math.round(g.score) +
+          ' time=' + Math.round(g.timeFrac * 100) + '% links=' + Math.round(g.uniqFrac * 100) + '%' + (g.chrome ? ' chrome=' + g.chrome : '');
+      };
+      var shown = [];
+      for (var d = 0; d < top.length && d < 5; d++) shown.push(desc(top[d]));
+      debug.push('groups considered ' + groups.length + ' [' + shown.join('; ') + ']');
+      var best = top[0];
+      if (!best || best.score < MIN_SCORE) { debug.push('no group scored >= ' + MIN_SCORE); return { items: [], noLink: 0 }; }
+      var chosen = [best];
+      for (var c = 1; c < top.length; c++) {
+        var g = top[c], ok = g.score >= best.score * 0.75 && g.timeFrac >= 0.5;
+        for (var q = 0; ok && q < chosen.length; q++) if (related(chosen[q], g)) ok = false;
+        if (ok) chosen.push(g);
+      }
+      debug.push('chosen ' + chosen.length + ' group(s): ' + chosen.map(describe0).join(' + '));
+      var all = [], itemSet = {};
+      chosen.forEach(function (g) { g.items.forEach(function (it) { all.push(it); itemSet[uid(it)] = 1; }); });
+      all.sort(docOrder);
+      var items = [], noLink = 0, seen = {};
+      for (var k = 0; k < all.length && items.length < MAX_ITEMS; k++) {
+        var it = readItem(all[k], null, itemSet, true);
+        if (!it) continue;
+        if (!it.url) { noLink++; continue; }
+        var dk = it.url + '|' + it.title + '|' + it.timeText + '|' + it.section;
+        if (seen[dk]) continue;
+        seen[dk] = 1;
+        items.push(it);
+      }
+      if (noLink) debug.push(noLink + ' row(s) had no link of their own and were dropped');
+      return { items: items, noLink: noLink };
+    }
+    function describe0(g) { return describe(g.items[0]) + ' x' + g.n; }
+
+    // ---------------------------------------------------------------- recipe mode
+    function qs(root, sel) {
+      if (!sel) return null;
+      try { return root.querySelector(sel) || (root.matches && root.matches(sel) ? root : null); } catch (e) { return null; }
+    }
+    function recipeMode(r) {
+      var rows;
+      try { rows = Array.prototype.slice.call(document.querySelectorAll(r.item)); } catch (e) { debug.push('recipe: bad "item" selector'); return null; }
+      rows = rows.filter(function (el) { try { return visible(el); } catch (e) { return false; } });
+      var secs = [];
+      if (r.section) { try { secs = Array.prototype.slice.call(document.querySelectorAll(r.section)); } catch (e) { debug.push('recipe: bad "section" selector'); } }
+      var itemSet = {};
+      rows.forEach(function (el) { itemSet[uid(el)] = 1; });
+      var items = [], noLink = 0, seen = {};
+      for (var i = 0; i < rows.length && items.length < MAX_ITEMS; i++) {
+        var row = rows[i], ov = {};
+        ov.title = qs(row, r.title); ov.subtitle = qs(row, r.subtitle); ov.time = qs(row, r.time); ov.link = qs(row, r.link);
+        if (r.section) {
+          var last = null;
+          for (var s = 0; s < secs.length; s++) if (secs[s] !== row && (secs[s].compareDocumentPosition(row) & 4)) last = secs[s];
+          if (last) ov.section = headingText(last);
+        }
+        if (r.live) { try { ov.live = !!(row.querySelector(r.live) || row.matches(r.live)); } catch (e) { } }
+        var it = readItem(row, ov, itemSet, false);
+        if (!it) continue;
+        if (!it.url) { noLink++; continue; }
+        var dk = it.url + '|' + it.title + '|' + it.timeText;
+        if (seen[dk]) continue;
+        seen[dk] = 1;
+        items.push(it);
+      }
+      debug.push('recipe ' + (r.host || '') + ': ' + rows.length + ' row(s), ' + items.length + ' event(s)' + (noLink ? ', ' + noLink + ' without link' : ''));
+      return { items: items, noLink: noLink };
+    }
+
+    // ---------------------------------------------------------------- main
+    var recipe = null;
+    try { if (recipeJson) recipe = JSON.parse(recipeJson); } catch (e) { debug.push('recipe JSON unreadable'); }
+    if (recipe && (typeof recipe.item !== 'string' || !recipe.item)) recipe = null;
+
+    var pageTitle = safeTitle();
+    if (!pageTitle) { var h1 = document.querySelector('h1'); pageTitle = h1 ? oneLine(txt(h1)) : ''; }
+
+    var result = null, method = 'automatic';
+    if (!document.body) { debug.push('page has no body'); result = { items: [], noLink: 0 }; }
+    else {
+      if (recipe) {
+        result = recipeMode(recipe);
+        if (result && result.items.length) method = 'recipe';
+        else { debug.push('recipe found nothing; falling back to automatic'); result = null; }
+      }
+      if (!result) result = automatic();
+    }
+    return JSON.stringify({
+      pageTitle: pageTitle.substring(0, 160), pageUrl: String(PAGE), method: method, debug: debug.join(' | '),
+      noLink: result.noLink, items: result.items
+    });
+  }
+})
