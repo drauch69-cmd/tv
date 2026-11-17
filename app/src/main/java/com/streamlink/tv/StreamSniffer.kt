@@ -14,6 +14,7 @@ import androidx.webkit.WebViewFeature
 import org.json.JSONArray
 import org.json.JSONTokener
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /** One playable stream: its URL, the headers to send, and which pages to claim as referer (best first). */
@@ -89,6 +90,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var linkLoadedSinceClick = false
     private var linkTapped = false
     private var linkGot = 0
+    // Per-link diagnostics, reset on each click (see nextLink). The WebView callbacks may run off the main thread.
+    private val linkFrames = AtomicInteger(0)
+    @Volatile private var linkFrameHost = ""
+    private val linkReqs = AtomicInteger(0)
+    private val linkPlaylists = AtomicInteger(0)
+    private val linkKnown = AtomicInteger(0)
+    private var linkTapDone = false
     private var curLabel = ""
     private var curDefault = true
     private var runStartedAt = 0L
@@ -324,14 +332,20 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         }
         val c = object : SafeWebViewClient(url) {
             override fun onFrame(url: String) {
+                linkFrames.incrementAndGet()
+                linkFrameHost = Report.host(url)
                 if (!AdBlock.isBlockedHost(Report.host(url))) frameUrls.add(url)
             }
 
             override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
+                linkReqs.incrementAndGet() // also the requests that blockResource answers next
                 if (isStreamUrl(u)) {
                     playlistSeen = true
+                    linkPlaylists.incrementAndGet()
                     val headers = HashMap(request.requestHeaders ?: emptyMap())
+                    // Posted before found(), so the check sees the candidates from before this request.
+                    main.post { if (candidates.containsKey(u)) linkKnown.incrementAndGet() }
                     main.post { found(u, headers) }
                 }
             }
@@ -558,6 +572,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         linkNewAt = 0L
         linkLoadedSinceClick = false
         linkTapped = false
+        linkFrames.set(0)
+        linkFrameHost = ""
+        linkReqs.set(0)
+        linkPlaylists.set(0)
+        linkKnown.set(0)
+        linkTapDone = false
         linkClickedAt = SystemClock.uptimeMillis()
         val gen = generation
         wv.evaluateJavascript("($script)('click $idx')") { raw ->
@@ -591,7 +611,10 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             return
         }
         if (got) linkGot++
-        linkLog("Link ${linkCurrent + 1} (${curLabel.ifEmpty { "no label" }}): " + if (got) "stream found" else "no new stream")
+        val frame = if (linkFrames.get() > 0) "yes (${linkFrameHost.ifEmpty { "?" }})" else "no"
+        linkLog("Link ${linkCurrent + 1} (${curLabel.ifEmpty { "no label" }}): " + (if (got) "stream found" else "no new stream") +
+            " — player frame changed: $frame; requests: ${linkReqs.get()}; playlists: ${linkPlaylists.get()} (already known: ${linkKnown.get()}); " +
+            "fallback tap: ${if (linkTapDone) "yes" else "no"}")
         if (linkLoadedSinceClick) refindAfterLoad() else nextLink()
     }
 
@@ -622,7 +645,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val x = sw.xs[i] * scale
         val y = sw.ys[i] * scale
         if (x <= 0f || y <= 0f || y >= wv.height) return
-        log("The click did not start anything; tapping link ${i + 1}")
+        linkLog("The click did not start anything; tapping link ${i + 1}")
+        linkTapDone = true
         tap(wv, x, y)
     }
 
