@@ -932,7 +932,7 @@ class PlayerActivity : Activity() {
         coverDetails = button("Show details") {
             val show = coverText.visibility != View.VISIBLE
             coverText.visibility = if (show) View.VISIBLE else View.GONE
-            (it as TextView).text = if (show) "Hide details" else "Show details"
+            coverDetails.text = if (show) "Hide details" else "Show details"
         }
         buttons.addView(coverCancel)
         buttons.addView(coverDetails, LinearLayout.LayoutParams(
