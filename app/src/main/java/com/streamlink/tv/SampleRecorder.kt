@@ -85,16 +85,30 @@ object SampleRecorder {
         if (chunks.size >= MAX_CHUNKS) null else ChunkTap(url, System.currentTimeMillis()).also { chunks.add(it) }
     }
 
-    fun hasData(): Boolean = synchronized(lock) { master != null || media.isNotEmpty() || chunks.isNotEmpty() }
+    fun hasData(): Boolean = synchronized(lock) { master != null || media.isNotEmpty() || chunks.isNotEmpty() || lastPage != null }
+
+    /** The last list (index) page the app read: its structure and a picture of it. Not cleared by [reset]. */
+    class PageSnap(val url: String, val html: ByteArray, val image: ByteArray?, val at: Long, val note: String)
+
+    @Volatile var lastPage: PageSnap? = null
+        private set
+
+    fun page(url: String, html: String, image: ByteArray?, note: String) {
+        var h = html.toByteArray(Charsets.UTF_8)
+        if (h.size > MAX_PAGE_HTML) h = h.copyOf(MAX_PAGE_HTML)
+        val img = image?.takeIf { it.size <= MAX_PAGE_IMAGE }
+        lastPage = PageSnap(url, h, img, System.currentTimeMillis(), note)
+    }
 
     /** The zip for GET /sample, or null if nothing was recorded yet. */
     fun zip(reportText: String, appVersion: String, now: Long = System.currentTimeMillis()): ByteArray? {
+        val page = lastPage
         val snap = synchronized(lock) {
-            if (master == null && media.isEmpty() && chunks.isEmpty()) null
+            if (master == null && media.isEmpty() && chunks.isEmpty() && page == null) null
             else Triple(master, media.toList(), chunks.toList())
         } ?: return null
         val (m, md, ck) = snap
-        return buildZip(reportText, appVersion, m, md, ck, now)
+        return buildZip(reportText, appVersion, m, md, ck, now, page)
     }
 
     fun fileName(now: Long = System.currentTimeMillis()): String {
@@ -110,6 +124,7 @@ object SampleRecorder {
         media: List<Playlist>,
         chunks: List<ChunkTap>,
         now: Long = System.currentTimeMillis(),
+        page: PageSnap? = null,
     ): ByteArray {
         val out = ByteArrayOutputStream()
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).also { it.timeZone = TimeZone.getTimeZone("UTC") }
@@ -148,6 +163,15 @@ object SampleRecorder {
                     .append(if (c.complete) "" else " (download was still running or stopped early)")
                     .append("\n    unwrap decision: ").append(c.decision).append('\n')
             }
+            if (page != null) {
+                put("list-page.html", page.html)
+                page.image?.let { put("list-page.jpg", it) }
+                urls.append("list-page.html: ").append(page.url).append('\n')
+                info.append("list-page.html: ").append(page.html.size).append(" bytes, read ").append(iso.format(Date(page.at)))
+                    .append(", result: ").append(page.note)
+                    .append(if (page.image != null) "\nlist-page.jpg: ${page.image.size} bytes" else "\n(no picture of the list page)")
+                    .append('\n')
+            }
             if (master == null) info.append("(no main playlist seen)\n")
             if (media.isEmpty()) info.append("(no video playlist seen)\n")
             if (chunks.isEmpty()) info.append("(no video chunk seen)\n")
@@ -160,6 +184,9 @@ object SampleRecorder {
     private fun describe(p: Playlist, iso: SimpleDateFormat) =
         ", type ${p.contentType}, fetched ${iso.format(Date(p.fetchedAt))}" + if (p.truncated) ", TRUNCATED" else ""
 
+    private const val MAX_PAGE_HTML = 1_500_000
+    private const val MAX_PAGE_IMAGE = 1_000_000
+
     private const val README = """StreamLink sample - what is in this zip
 
 report.txt     The "What happened?" report from the phone page.
@@ -170,6 +197,9 @@ chunk-1.bin    The first two video chunks the player loaded, EXACTLY as received
 chunk-2.bin    the network, before StreamLink removed any disguise. Each is cut at 6 MB.
 urls.txt       The full addresses of all of the above, INCLUDING any access tokens.
 info.txt       Sizes, content types, the unwrap decision per chunk, app version.
+list-page.html The last list page the app read, as the hidden browser saw it
+               (scripts and styles removed), if any.
+list-page.jpg  A picture of that page as the hidden browser saw it.
 
 Privacy: urls.txt and the playlists contain the stream's address and tokens.
 Only share this file with people you trust.

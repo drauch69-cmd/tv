@@ -40,6 +40,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private var followedFrom: String? = null // the list page's own URL once we moved on to an embedded frame
     private var deadlineAt = 0L
     private var recipes: List<ListRecipes.Recipe>? = null // null while still being fetched
+    private var snapshotting = false
 
     private val overallTimeout = Runnable {
         if (done) return@Runnable
@@ -84,6 +85,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         slowRetried = false
         followedFrom = null
         recipes = null
+        snapshotting = false
         val wv = createWebView(url)
         webView = wv
         // A fixed desktop-ish size, so pages lay out their list and not a phone menu.
@@ -143,9 +145,57 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
     private fun finish(result: ListResult) {
         if (done) return
+        val wv = webView
+        if (wv == null || snapshotting) {
+            complete(result)
+            return
+        }
+        // Keep a snapshot of what the hidden browser saw, for "Save sample" (diagnosing pages we misread).
+        snapshotting = true
+        val gen = generation
+        val note = if (result.error != null) result.error else "${result.items.size} events"
+        val page = currentPage()
+        val image = try { picture(wv) } catch (t: Throwable) { null }
+        val guard = Runnable { if (gen == generation) complete(result) }
+        main.postDelayed(guard, 3000)
+        try {
+            wv.evaluateJavascript(SNAP_JS) { raw ->
+                main.removeCallbacks(guard)
+                try {
+                    val html = if (raw == null || raw == "null") "" else org.json.JSONTokener(raw).nextValue() as? String ?: ""
+                    SampleRecorder.page(page, html, image, note)
+                } catch (t: Throwable) {
+                    SampleRecorder.page(page, "", image, note)
+                }
+                if (gen == generation) complete(result)
+            }
+        } catch (t: Throwable) {
+            main.removeCallbacks(guard)
+            complete(result)
+        }
+    }
+
+    private fun complete(result: ListResult) {
+        if (done) return
         val cb = onResult
         cancel()
         cb?.invoke(result)
+    }
+
+    /** Draws the WebView (1280x720) into a small JPEG. */
+    private fun picture(wv: WebView): ByteArray? {
+        val w = wv.width
+        val h = wv.height
+        if (w <= 0 || h <= 0) return null
+        val scale = 640f / w
+        val bmp = android.graphics.Bitmap.createBitmap(640, (h * scale).toInt().coerceAtLeast(1), android.graphics.Bitmap.Config.RGB_565)
+        val canvas = android.graphics.Canvas(bmp)
+        canvas.scale(scale, scale)
+        wv.draw(canvas)
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+        bmp.recycle()
+        return out.toByteArray()
     }
 
     private fun createWebView(url: String): WebView {
@@ -314,6 +364,19 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         private const val POLL_MS = 1000L
         private const val SETTLE_MAX_MS = 15_000L
         private const val OVERALL_MS = 25_000L
+        /** The page's structure without scripts/styles, plus open shadow roots, capped at 1.5 MB. */
+        private const val SNAP_JS = """(function(){try{
+var c=document.documentElement.cloneNode(true);
+c.querySelectorAll('script,style,noscript,link[rel=stylesheet],template').forEach(function(e){e.remove();});
+c.querySelectorAll('svg').forEach(function(e){e.innerHTML='';});
+var out='<!-- '+String(location.href).replace(/--/g,'- -')+' -->\n'+c.outerHTML;
+var shadows=[];
+document.querySelectorAll('*').forEach(function(e){if(e.shadowRoot){shadows.push(e.tagName+(e.id?'#'+e.id:'')+': '+e.shadowRoot.innerHTML.replace(/--/g,'- -'));}});
+if(shadows.length){out+='\n<!-- OPEN SHADOW ROOTS\n'+shadows.join('\n\n')+'\n-->';}
+var fr=[];document.querySelectorAll('iframe').forEach(function(f){fr.push(String(f.src));});
+if(fr.length){out+='\n<!-- IFRAMES\n'+fr.join('\n').replace(/--/g,'- -')+'\n-->';}
+return out.slice(0,1500000);
+}catch(e){return 'snapshot failed: '+e;}})()"""
         private const val SIGNATURE_JS =
             "(function(){var b=document.body;if(!b)return '0:0';return b.innerText.length+':'+b.getElementsByTagName('*').length;})()"
 
