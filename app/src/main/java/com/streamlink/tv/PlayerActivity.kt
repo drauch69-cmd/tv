@@ -372,6 +372,7 @@ class PlayerActivity : Activity() {
         main.postDelayed(disguiseCheck, 1_000)
         starveSamples.clear()
         main.removeCallbacks(audioStarveCheck)
+        main.removeCallbacks(syncRestart)
         main.postDelayed(audioStarveCheck, 2_000)
         p.prepare()
         p.playWhenReady = true
@@ -808,6 +809,12 @@ class PlayerActivity : Activity() {
     }
 
     private var appliedExtraMs = 0
+    private val syncRestart = Runnable {
+        if (player != null && Math.abs(AudioSync.extraBufferMs(AudioSync.offsetMs) - appliedExtraMs) >= 1000) {
+            Report.log("Rebuffering for the audio sync (${AudioSync.describe(AudioSync.offsetMs)})")
+            play()
+        }
+    }
 
     private fun adjustSync(v: String) {
         val ms = when (v) {
@@ -822,9 +829,11 @@ class PlayerActivity : Activity() {
         Report.log("Audio sync for this site: ${AudioSync.describe(AudioSync.offsetMs)}")
         // Sound well ahead of the picture needs more video buffered: restart once the needed cushion
         // changes by a second or more (small lip-sync tweaks apply instantly).
+        main.removeCallbacks(syncRestart)
         if (Math.abs(AudioSync.extraBufferMs(AudioSync.offsetMs) - appliedExtraMs) >= 1000) {
-            Toast.makeText(this, "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)} · rebuffering", Toast.LENGTH_SHORT).show()
-            play()
+            // Wait for the last press: one restart, not one per step.
+            Toast.makeText(this, "Audio sync: ${AudioSync.describe(AudioSync.offsetMs)} · applies in a moment", Toast.LENGTH_SHORT).show()
+            main.postDelayed(syncRestart, 3_000)
             return
         }
         if (tunnelEngaged() && AudioSync.offsetMs != 0) {

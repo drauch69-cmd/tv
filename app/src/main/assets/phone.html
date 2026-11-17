@@ -154,6 +154,10 @@
         <button type="button" class="ghost" id="synclater">Sound comes after the picture (+50 ms)</button>
         <button type="button" class="ghost" id="synclater1">Sound comes after the picture (+1 s)</button>
         <button type="button" class="ghost" id="syncreset">Reset audio sync</button>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <input id="syncsec" type="number" inputmode="decimal" step="0.05" placeholder="Seconds: − sound early, + sound late" aria-label="Audio sync in seconds" style="flex:1;min-width:0">
+          <button type="button" class="ghost" id="syncset" style="flex:none">Set</button>
+        </div>
       </div>
     </div>
   </div>
@@ -425,6 +429,11 @@
   ['later','earlier','later1','earlier1','reset'].forEach(function(k){
     $('sync' + k).onclick = function(){ post('/cmd', 'c=sync&v=' + k).then(function(){ setTimeout(tick, 300); }); };
   });
+  $('syncset').onclick = function(){
+    var v = parseFloat($('syncsec').value);
+    if (isNaN(v)) return;
+    post('/cmd', 'c=sync&v=' + Math.round(v * 1000)).then(function(){ $('syncsec').value = ''; setTimeout(tick, 300); });
+  };
   var tunnelOn = false;
   $('tunnelbtn').onclick = function(){
     post('/cmd', 'c=tunnel&v=' + (tunnelOn ? 'off' : 'on')).then(function(){ setTimeout(tick, 500); });
