@@ -2,7 +2,7 @@ name: Build APK
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     paths-ignore:
       - "cleaner/**"
       - ".github/workflows/cleaner.yml"
@@ -26,7 +26,14 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          gradle testReleaseUnitTest assembleRelease --no-daemon -i 2>&1 | grep -E "LinkServerTest|HTTP/1.1|BUILD|FAIL|^e:"
+          gradle testReleaseUnitTest assembleRelease --no-daemon --console=plain > build.log 2>&1 || {
+            echo "===== BUILD FAILED: errors ====="
+            grep -E "^e: |error:|warning:.*deprecated.*error|FAILED|What went wrong|AssertionError|Expected|expected:|\.java:[0-9]+|\.kt:[0-9]+" build.log | head -80
+            echo "===== last 60 lines ====="
+            tail -60 build.log
+            exit 1
+          }
+          grep -E "BUILD SUCCESSFUL|tests completed" build.log || true
 
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk StreamLink.apk
@@ -38,6 +45,7 @@ jobs:
 
       # Also publish it as a "latest" release, so the TV can download it from one fixed link.
       - name: Publish latest release
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
