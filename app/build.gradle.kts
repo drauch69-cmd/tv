@@ -51,8 +51,10 @@ android {
     lint {
         checkReleaseBuilds = false
         abortOnError = false
+        xmlReport = true
+        htmlReport = true
         textReport = true
-        textOutput = file("build/reports/lint.txt")
+        textOutput = file("build/reports/lint-results.txt")
     }
 }
 
