@@ -458,11 +458,8 @@ class MainActivity : Activity() {
             }
             Ui.growOnFocus(card)
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
-            val badgeText = when (e.status) {
-                ListStatus.LIVE -> "LIVE"
-                else -> ListText.badge(e.item, now, zone, locale)
-            }
-            top.addView(Ui.badge(this, badgeText, live, 10f))
+            val badgeText = HomeFeed.badge(e.item, e.status, now, zone, locale)
+            if (badgeText.isNotEmpty()) top.addView(Ui.badge(this, badgeText, live, 10f))
             top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
             top.addView(Ui.text(this, e.list.name, 10.5f, Ui.TEXT_3).apply {
                 maxLines = 1

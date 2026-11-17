@@ -51,6 +51,14 @@ object HomeFeed {
         else -> "Nothing listed"
     }
 
+    /** The card's badge: "LIVE", "IN 12 MIN", or the start time ("7:30 PM"); "" when there is nothing to say. */
+    fun badge(item: ListItem, status: String, now: Long, zone: java.util.TimeZone, locale: java.util.Locale): String {
+        if (status == ListStatus.LIVE) return "LIVE"
+        val s = item.startMillis ?: return ""
+        if (status == ListStatus.SOON) return "IN ${((s - now + 59_999) / 60_000).coerceAtLeast(1)} MIN"
+        return java.text.SimpleDateFormat("h:mm a", locale).apply { timeZone = zone }.format(java.util.Date(s))
+    }
+
     /** Bottom line of a card: "Started 25 min ago" / "Starts in 12 min" / "Today 7:30 PM" / "Live". */
     fun whenLine(item: ListItem, now: Long, zone: java.util.TimeZone, locale: java.util.Locale): String {
         val s = item.startMillis ?: return if (item.liveHint) "Live" else ""

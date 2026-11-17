@@ -52,4 +52,11 @@ class HomeFeedTest {
         assertEquals("Live", HomeFeed.whenLine(item("a", null, live = true), now, z, Locale.US))
         assertEquals("", HomeFeed.whenLine(item("a", null), now, z, Locale.US))
     }
+
+    @Test fun badges() {
+        val z = TimeZone.getTimeZone("UTC")
+        assertEquals("LIVE", HomeFeed.badge(item("a", now - min), ListStatus.LIVE, now, z, Locale.US))
+        assertEquals("IN 12 MIN", HomeFeed.badge(item("a", now + 12 * min - 1000), ListStatus.SOON, now, z, Locale.US))
+        assertEquals("", HomeFeed.badge(item("a", null), ListStatus.UNKNOWN, now, z, Locale.US))
+    }
 }
