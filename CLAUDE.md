@@ -88,6 +88,12 @@ Playback pipeline:
    a background download checks the content (`Verifier.confirmPossible`: starts with #EXTM3U or holds <MPD); if
    it passes, it becomes a normal stream (sets playlistSeen, starts the sibling wait), else it is dropped. Possibles
    never shorten waits by themselves, are verified last, and unverified ones never become sources. The verifier
+   **Repeating requests** (`RepeatWatch` in StreamUrls.kt): a sub-resource GET to an address that is not a stream, not an
+   image/script/style/font/media piece, and is requested a 2nd time 1.5-20 s after the first (a live playlist refresh,
+   even with no extension or playlist word) is also a possible playlist, checked exactly like the word-based ones, but
+   with its own budget (max 3 per run, separate from the 4) so ad beacons cannot starve them. Fires once per address;
+   reset per run; light runs get it too. Report line: "A repeating request may be a playlist: <host>/…; checking it".
+   Not yet tested on the TV.
    records the content type in `Source.mime` for addresses with no m3u8/.mpd, and `PlayerActivity` sets it on the item.
    A playlist address found only inside another request (an analytics ping) usually lacks the player's signed
    access code (`t=` query): the sniffer waits up to 8 s for the player's own request, which replaces the copy

@@ -98,6 +98,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private val candidates = LinkedHashMap<String, StreamCandidate>()
     /** Possible playlists (disguised addresses) seen in this run, and the ones whose content turned out not to be a playlist. */
     private var possibleCount = 0
+    private var repeatCount = 0
+    private val repeatWatch = RepeatWatch()
     private val possibleRejected = HashSet<String>()
     private var onResult: ((StreamSet) -> Unit)? = null
 
@@ -286,6 +288,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         frameUrls.clear()
         candidates.clear()
         possibleCount = 0
+        repeatCount = 0
+        repeatWatch.reset()
         possibleRejected.clear()
         onResult = callback
         val wv = createWebView(target)
@@ -339,10 +343,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     }
 
     /** Called on the main thread for each stream the page asks for. */
-    private fun found(url: String, requestHeaders: Map<String, String>, embedded: Boolean = false, possible: Boolean = false) {
+    private fun found(url: String, requestHeaders: Map<String, String>, embedded: Boolean = false, possible: Boolean = false, repeat: Boolean = false) {
         if (done || verifying || candidates.containsKey(url)) return
-        if (possible && (url in possibleRejected || possibleCount >= MAX_POSSIBLES)) return
-        if (possible) possibleCount++
+        if (possible && url in possibleRejected) return
+        // Repeat-based possibles have their own budget so ad beacons cannot starve the word-based ones.
+        if (possible && (if (repeat) repeatCount >= MAX_REPEAT_POSSIBLES else possibleCount >= MAX_POSSIBLES)) return
+        if (possible) { if (repeat) repeatCount++ else possibleCount++ }
         if (AdBlock.isLocalHost(Report.host(url))) return
         // The player's own request carries the access code and real headers: prefer it over a copy found inside another request.
         if (embedded && candidates.values.any { !it.embedded && StreamUrls.sameStream(it.url, url) }) return
@@ -508,6 +514,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                         !AdBlock.isBlockedHost(request.url.host)) {
                         val headers = HashMap(request.requestHeaders ?: emptyMap())
                         main.post { found(u, headers, possible = true) }
+                    } else if (!request.isForMainFrame && request.method.equals("GET", true) &&
+                        !AdBlock.isBlockedHost(request.url.host) && repeatWatch.seen(u, System.currentTimeMillis())) {
+                        val headers = HashMap(request.requestHeaders ?: emptyMap())
+                        main.post {
+                            if (!done && !verifying && !candidates.containsKey(u) && u !in possibleRejected) {
+                                log("A repeating request may be a playlist: ${Report.host(u)}/…; checking it")
+                            }
+                            found(u, headers, possible = true, repeat = true)
+                        }
                     }
                     return
                 }
@@ -936,6 +951,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         private const val MAX_CANDIDATES = 12
         /** Possible playlists (disguised addresses) looked at per run. */
         private const val MAX_POSSIBLES = 4
+        /** Separate budget for possibles found by repeating (see [RepeatWatch]). */
+        private const val MAX_REPEAT_POSSIBLES = 3
         private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 
         /** A media segment (not a playlist): the background link finder never downloads these. */

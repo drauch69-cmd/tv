@@ -84,6 +84,14 @@ object StreamUrls {
         return false
     }
 
+    /** Could this (non-stream) request be a playlist whose address only gives itself away by repeating? See [RepeatWatch]. */
+    fun isRepeatCandidate(url: String): Boolean {
+        if (!isWeb(url) || classify(url).first) return false
+        val path = pathOf(url)
+        if (IMAGE_OR_SCRIPT_EXTENSIONS.any { path.endsWith(it) } || NOT_PLAYLIST_EXTENSIONS.any { path.endsWith(it) }) return false
+        return url.substringBefore('#').substringBefore('?').substringAfter("://").substringAfter('/', "").isNotEmpty()
+    }
+
     private val PAGE_EXTENSIONS = setOf(".php", ".asp", ".aspx", ".jsp")
 
     /** The address has a query string with something in it (often a signed, short-lived access code). */
@@ -123,5 +131,43 @@ object StreamUrls {
         URLDecoder.decode(s.replace("+", "%2B"), "UTF-8")
     } catch (_: IllegalArgumentException) {
         s
+    }
+}
+
+/**
+ * "A repeating request is a possible playlist": a live playlist is asked for again every few seconds at the
+ * same address, even when the address has no extension or playlist word. [seen] returns true exactly once per
+ * address: when it is requested a 2nd time between [MIN_GAP_MS] and [MAX_GAP_MS] after its first request.
+ * Only addresses that could be a playlist are tracked (see [StreamUrls.isRepeatCandidate]). Thread-safe.
+ */
+class RepeatWatch {
+    private val first = LinkedHashMap<String, Long>()
+    private val fired = HashSet<String>()
+
+    @Synchronized
+    fun seen(url: String, nowMs: Long): Boolean {
+        if (!StreamUrls.isRepeatCandidate(url) || url in fired) return false
+        val t = first[url]
+        if (t == null) {
+            first[url] = nowMs
+            while (first.size > MAX_TRACKED) first.remove(first.keys.first())
+            return false
+        }
+        val gap = nowMs - t
+        if (gap < MIN_GAP_MS) return false
+        if (gap > MAX_GAP_MS) { first[url] = nowMs; return false }
+        first.remove(url)
+        fired.add(url)
+        if (fired.size > MAX_TRACKED) fired.remove(fired.first())
+        return true
+    }
+
+    @Synchronized
+    fun reset() { first.clear(); fired.clear() }
+
+    companion object {
+        const val MIN_GAP_MS = 1500L
+        const val MAX_GAP_MS = 20000L
+        const val MAX_TRACKED = 300
     }
 }
