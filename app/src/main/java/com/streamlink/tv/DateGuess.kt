@@ -26,6 +26,8 @@ object DateGuess {
     private val ISO_FULL = Regex("""(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?""", OPT)
     private val ISO_DATE = Regex("""\b(\d{4})-(\d{1,2})-(\d{1,2})\b""")
     private val REL_IN = Regex("""\bin\s+(?:about\s+|around\s+|~\s*)?(\d+|an?|half an)\s*(min(?:ute)?s?|m|hours?|hrs?|h|days?)\b""", OPT)
+    // compact countdowns: "in 1d 19h", "starts in 2h 5m", "in 45m", "in 3d"
+    private val REL_COMPACT = Regex("""\bin\s+(?:about\s+|around\s+|~\s*)?(?:(\d+)\s*d(?:ays?)?\b)?\s*(?:(\d+)\s*h(?:ours?|rs?)?\b)?\s*(?:(\d+)\s*m(?:in(?:ute)?s?)?\b)?""", OPT)
     private val TIME12 = Regex("""(?<![\d:])(1[0-2]|0?[1-9])(?::([0-5]\d))?(?::[0-5]\d)?\s*([ap])\.?m\.?(?![a-z])""", OPT)
     private val TIME24 = Regex("""(?<![\d:.])([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?(?![\d:])""")
     private val MONTH_DAY = Regex("""\b($MONTHS)\b\.?\s*(\d{1,2})(?!\d)(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4})(?![\d:]))?""", OPT)
@@ -67,7 +69,13 @@ object DateGuess {
             else OffsetDateTime.of(ldt, parseOffset(off)).toInstant().toEpochMilli()
         }
 
-        // 2. "in 2 hours", "starts in 15 min"
+        // 2. "in 2 hours", "starts in 15 min", "STARTS IN 1d 19h"
+        REL_COMPACT.findAll(timeTextRaw).firstOrNull { it.groupValues.drop(1).any { g -> g.isNotEmpty() } }?.let { m ->
+            val d = m.groupValues[1].ifEmpty { "0" }.toLong()
+            val h = m.groupValues[2].ifEmpty { "0" }.toLong()
+            val mi = m.groupValues[3].ifEmpty { "0" }.toLong()
+            return nowMillis + ((d * 24 + h) * 60 + mi) * 60_000L
+        }
         REL_IN.find(timeTextRaw)?.let { m ->
             val n = when (val q = m.groupValues[1].lowercase()) { "a", "an" -> 1.0; "half an" -> 0.5; else -> q.toDouble() }
             val u = m.groupValues[2].lowercase()

@@ -135,6 +135,13 @@ Remote tabs; prefetch toggle).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
+  Reader rules (structure only): a line identical in nearly every row of a 3+ row group (league label, "Watch") is a
+  label, never a title; lines with no letters and button text are not titles and button text is never a live marker;
+  two same-style name lines with only short parts between them (VS, score, time, status, countdown) or sharing one
+  class become "A vs B"; an empty full-card link's aria-label/title is the title; table cells are separate lines;
+  a live marker or `data-time` counts like a clock when scoring rows; links inside running text are not rows; a group
+  with no time/live marker needs 4+ rows (or a date heading); same-shaped containers in sibling sections merge;
+  header/form rows are penalized; "STARTS IN" + "1d 19h" is one time text (`DateGuess` reads compact countdowns).
 - **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL and
   college football (all FBS games: `groups=80`) for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. `ScoreMatch` matches a list title to
