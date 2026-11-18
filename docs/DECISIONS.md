@@ -5,6 +5,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **TV report 2026-11-18 01:45 (Sports build 184):** TheTVApp and Roxie streams play on the TV. Reed was down for everyone;
+  Buffstreams and StreamEast had nothing live to test. The app is "very slow, stalls often, crashes occasionally".
+  Suspect (unverified): since 184 the home screen recomputes every 5 s on the main thread (reads all cached lists,
+  matches every item against 3 days of ESPN games) on top of the Sports rows' own refresh. Offered a fix; waiting.
 - **Repeating requests as possible playlists** (2026-11-18, Sports app): a sub-resource address requested again
   1.5–20 s later is checked by content like a disguised playlist (own budget of 6 per run). Aimed at CrackStreams'
   `/…/application5` playlist. Not tested on the TV; next: the user opens a CrackStreams game and sends the report
