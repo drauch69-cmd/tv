@@ -83,4 +83,30 @@ class StreamUrlsTest {
         val url = "https://ping.example.com/beacon.gif?mu=https%3A%2F%2Fhost%2Fa%2Findex.m3u8%3Ftok%3Dab+cd"
         assertEquals(false to listOf("https://host/a/index.m3u8?tok=ab+cd"), classify(url))
     }
+
+    @Test
+    fun sameStreamIgnoresQueryAndFragment() {
+        val a = "https://edge.example.top/premium45/index.m3u8"
+        assertEquals(true, StreamUrls.sameStream(a, "$a?t=123.abc&_=99"))
+        assertEquals(true, StreamUrls.sameStream("$a?t=1", "$a?t=2#x"))
+        assertEquals(true, StreamUrls.sameStream("HTTPS://Edge.Example.top/premium45/index.m3u8", a))
+    }
+
+    @Test
+    fun sameStreamNeedsSameSchemeHostAndPath() {
+        val a = "https://edge.example.top/premium45/index.m3u8"
+        assertEquals(false, StreamUrls.sameStream(a, "https://edge.example.top/premium46/index.m3u8"))
+        assertEquals(false, StreamUrls.sameStream(a, "https://other.example.top/premium45/index.m3u8"))
+        assertEquals(false, StreamUrls.sameStream(a, "http://edge.example.top/premium45/index.m3u8"))
+        assertEquals(false, StreamUrls.sameStream(a, "not a url"))
+        assertEquals(false, StreamUrls.sameStream("x", "x"))
+    }
+
+    @Test
+    fun hasQueryOnlyWhenSomethingFollowsTheQuestionMark() {
+        assertEquals(true, StreamUrls.hasQuery("https://h/p.m3u8?t=1"))
+        assertEquals(false, StreamUrls.hasQuery("https://h/p.m3u8"))
+        assertEquals(false, StreamUrls.hasQuery("https://h/p.m3u8?"))
+        assertEquals(false, StreamUrls.hasQuery("https://h/p.m3u8#a?b"))
+    }
 }
