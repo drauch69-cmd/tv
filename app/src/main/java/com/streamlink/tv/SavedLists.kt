@@ -60,6 +60,28 @@ object SavedListsJson {
     }
 }
 
+/**
+ * Thread-safe in-memory memo keyed by id. Remembers loaded values (also "nothing there") so the same
+ * object is returned until it is replaced or invalidated. Pure, so it can be unit tested.
+ */
+class CacheMemo<T : Any> {
+    private val map = HashMap<String, Any>() // value, or NONE for "loaded, nothing there"
+    private object NONE
+
+    @Suppress("UNCHECKED_CAST")
+    @Synchronized
+    fun get(id: String, load: () -> T?): T? {
+        val have = map[id]
+        if (have != null) return if (have === NONE) null else have as T
+        val v = load()
+        map[id] = v ?: NONE
+        return v
+    }
+
+    @Synchronized fun put(id: String, value: T) { map[id] = value }
+    @Synchronized fun invalidate(id: String) { map.remove(id) }
+}
+
 /** The last successful read of a list and when it happened. */
 data class CachedList(val result: ListResult, val readAt: Long)
 
@@ -72,9 +94,17 @@ object SavedLists {
     // In-memory only: which lists are being read right now, and the last read error per list.
     private val busy = HashSet<String>()
     private val errors = HashMap<String, String>()
+    // Parsed list caches kept in memory: the JSON in preferences is parsed once per change, not on every screen draw.
+    private val cacheMemo = CacheMemo<CachedList>()
+    private var listsRaw: String? = null
+    private var listsParsed: List<SavedList> = emptyList()
 
     @Synchronized
-    fun all(ctx: Context): List<SavedList> = SavedListsJson.parse(prefs(ctx).getString(KEY, "[]") ?: "[]")
+    fun all(ctx: Context): List<SavedList> {
+        val raw = prefs(ctx).getString(KEY, "[]") ?: "[]"
+        if (raw != listsRaw) { listsParsed = SavedListsJson.parse(raw); listsRaw = raw }
+        return listsParsed
+    }
 
     fun get(ctx: Context, id: String): SavedList? = all(ctx).firstOrNull { it.id == id }
 
@@ -105,6 +135,7 @@ object SavedLists {
         if (cur.none { it.id == id }) return false
         save(ctx, cur.filter { it.id != id })
         prefs(ctx).edit().remove(CACHE_PREFIX + id).apply()
+        cacheMemo.invalidate(id)
         busy.remove(id); errors.remove(id)
         return true
     }
@@ -128,18 +159,22 @@ object SavedLists {
 
     fun cleanName(raw: String): String = raw.filter { !it.isISOControl() }.trim().take(60)
 
-    fun cached(ctx: Context, id: String): CachedList? = try {
-        prefs(ctx).getString(CACHE_PREFIX + id, null)?.let {
-            val o = JSONObject(it)
-            CachedList(ListJson.resultFromJson(o.getJSONObject("result")), o.optLong("readAt"))
+    /** The last read of a list; the same object is returned until the cache is replaced or removed. */
+    fun cached(ctx: Context, id: String): CachedList? = cacheMemo.get(id) {
+        try {
+            prefs(ctx).getString(CACHE_PREFIX + id, null)?.let {
+                val o = JSONObject(it)
+                CachedList(ListJson.resultFromJson(o.getJSONObject("result")), o.optLong("readAt"))
+            }
+        } catch (_: Exception) {
+            null
         }
-    } catch (_: Exception) {
-        null
     }
 
     fun saveCache(ctx: Context, id: String, result: ListResult, readAt: Long) {
         val o = JSONObject().put("readAt", readAt).put("result", ListJson.resultToJson(result))
         prefs(ctx).edit().putString(CACHE_PREFIX + id, o.toString()).apply()
+        cacheMemo.invalidate(id) // the next read parses what was saved, exactly as before
     }
 
     /**

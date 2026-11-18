@@ -71,31 +71,73 @@ class MainActivity : Activity() {
             if (resumed) {
                 refreshStale()
                 renderLists() // statuses change with the clock: LIVE badges, "starts in"
-                refreshScores()
             }
             main.postDelayed(this, HOME_TICK_MS)
         }
     }
-    /** Every 5 s while the home screen is in front: lets the 30 s live-score cadence run. */
+    /**
+     * Every 5 s while the home screen is in front: lets the 30 s live-score cadence run. This is the only score
+     * refresher on this screen; when the scores really changed it asks for one redraw of everything that depends on them.
+     */
     private val scoreTick = object : Runnable {
         override fun run() {
-            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && resumed) scoresChanged() }
+            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
             main.postDelayed(this, SCORE_TICK_MS)
         }
     }
-    /** What the home screen showed last (statuses and badges), so a score update only redraws when it changes something. */
+
+    // ---- Home data: worked out on one background thread, drawn on the main thread ----
+    private val homeCalc = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "home-calc").apply { isDaemon = true } }
+    /** Bumped on every request; a result that is not from the latest request is dropped. Main thread only. */
+    private var homeGen = 0
+    /** What the home screen showed last, so a score update only redraws when it changes something. */
     private var homeLook = ""
-    private fun currentHomeLook(): String {
-        val now = System.currentTimeMillis()
-        val games = ScoreFeed.latest()
-        val cached = SavedLists.all(this).mapNotNull { l -> SavedLists.cached(this, l.id)?.let { l to it } }
-        val sb = StringBuilder()
-        for (e in HomeFeed.liveRow(cached.map { it.first to it.second.result.items }, now, games = games)) sb.append(e.item.url).append('|').append(e.status).append('|').append(e.item.startMillis).append(';')
-        for ((_, c) in cached) sb.append(HomeFeed.countsText(HomeFeed.counts(c.result.items, now, games))).append(';')
-        return sb.toString()
+    /** The scores the last request was made for (same instance until the data changes). */
+    private var homeGames: List<Game>? = null
+    /** A forced redraw is wanted (lists, busy marks or the clock changed), even if the look is the same. */
+    private var homeForce = false
+
+    private fun computeHome(ctx: android.content.Context, games: List<Game>, now: Long): HomeModel {
+        val lists = SavedLists.all(ctx)
+        val byId = HashMap<String, CachedList>()
+        for (l in lists) SavedLists.cached(ctx, l.id)?.let { byId[l.id] = it }
+        return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault())
     }
-    private fun scoresChanged() {
-        if (currentHomeLook() != homeLook) renderLists() // focus is kept by renderLive/renderLists as on the 60 s tick
+
+    /**
+     * Asks for the home rows to be rebuilt. [force]: draw even when nothing in the look changed (the lists, a busy
+     * mark or the clock changed). Not forced (new scores): drawn only when the look changed. Not forced and the
+     * scores are the same instance as last time: nothing to do.
+     */
+    private fun requestHome(force: Boolean) {
+        val games = ScoreFeed.latest()
+        if (!force && games === homeGames) return
+        homeGames = games
+        if (force) homeForce = true
+        val gen = ++homeGen
+        val now = System.currentTimeMillis()
+        val app = applicationContext
+        homeCalc.execute {
+            val m = try { computeHome(app, games, now) } catch (_: Exception) { return@execute }
+            main.post { if (gen == homeGen && !isFinishing && !isDestroyed) applyHome(m) }
+        }
+    }
+
+    /** Same as a forced [requestHome] but worked out and drawn right now (first draw, list removed). */
+    private fun renderHomeNow() {
+        val games = ScoreFeed.latest()
+        homeGames = games
+        homeForce = true
+        homeGen++
+        applyHome(computeHome(this, games, System.currentTimeMillis()))
+    }
+
+    private fun applyHome(m: HomeModel) {
+        if (!homeForce && (m.look == homeLook || !resumed)) return
+        homeForce = false
+        homeLook = m.look
+        renderSports(m) // also draws "Live now"
+        renderListTiles(m) // focus is kept by each render as on the 60 s tick
     }
     private val updateTick = object : Runnable {
         override fun run() {
@@ -167,7 +209,7 @@ class MainActivity : Activity() {
         )
         port = try { server.start() } catch (_: Exception) { -1 }
         showAddress()
-        renderLists()
+        renderHomeNow()
         renderRecents()
         watchNetwork()
         Updater.listener = { runOnUiThread { renderUpdate() } }
@@ -195,7 +237,6 @@ class MainActivity : Activity() {
         showAddress()
         renderLists()
         refreshStale()
-        refreshScores()
         if (Session.mode == "idle") statusView.text = lastStatusForScreen()
         // Back from playing with a "Live now" card still focused: no focus event comes, so start the 2 s again.
         (liveRow.focusedChild?.tag as? String)?.let { liveItems[it] }?.let { prefetcher.focus(it) }
@@ -322,7 +363,7 @@ class MainActivity : Activity() {
 
     private fun removeList(id: String): Boolean {
         val ok = SavedLists.remove(this, id)
-        if (ok) runOnUiThread { renderLists() }
+        if (ok) runOnUiThread { renderHomeNow() }
         return ok
     }
 
@@ -396,18 +437,20 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The list tiles and the "Live now" row (both come from the saved lists). */
-    private fun renderLists() {
-        renderSports() // also draws "Live now" (renderLive)
-        homeLook = currentHomeLook()
+    /** Redraws the home rows from the saved lists and the scores (worked out in the background). */
+    private fun renderLists() = requestHome(true)
+
+    /** The list tiles (the sports rows and "Live now" are drawn by [renderSports]). */
+    private fun renderListTiles(m: HomeModel) {
+        val cachedById = m.cached.associate { it.first.id to it.second }
         val focusedId = listRow.focusedChild?.tag as? String
         val addFocused = listRow.focusedChild?.tag == ADD_TAG
         listRow.removeAllViews()
-        val lists = SavedLists.all(this)
+        val lists = m.lists
         val now = System.currentTimeMillis()
         var focusTarget: View? = null
         for (l in lists) {
-            val c = SavedLists.cached(this, l.id)
+            val c = cachedById[l.id]
             val tile = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 background = Ui.focusable(this@MainActivity, radiusDp = 11f)
@@ -423,7 +466,7 @@ class MainActivity : Activity() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            val counts = c?.let { HomeFeed.counts(it.result.items, now) }
+            val counts = m.counts[l.id]
             val line = SpannableStringBuilder()
             when {
                 counts == null -> line.append(if (SavedLists.isBusy(l.id)) "Reading…" else "Not read yet")
@@ -479,15 +522,14 @@ class MainActivity : Activity() {
     }
 
     /** The "Live now" row: live events from every list, then ones starting soon. */
-    private fun renderLive(matched: Set<String> = emptySet()) {
+    private fun renderLive(m: HomeModel) {
         val focusedUrl = liveRow.focusedChild?.tag as? String
         liveRow.removeAllViews()
         val now = System.currentTimeMillis()
-        val lists = SavedLists.all(this)
-        val cached = lists.mapNotNull { l -> SavedLists.cached(this, l.id)?.let { l to it } }
-        // Items already shown as a live game card are not shown a second time here.
-        fun shown(i: ListItem) = i.url !in matched && GameFolders.urlKey(i.url) !in matched
-        val rows = HomeFeed.liveRow(cached.map { it.first to it.second.result.items.filter { shown(it) } }, now)
+        val lists = m.lists
+        val cached = m.cached
+        // Items already shown as a live game card are not shown a second time here (worked out in the model).
+        val rows = m.liveRows
         val oldest = cached.minOfOrNull { it.second.readAt }
         liveSub.text = when {
             lists.isEmpty() -> "add a list of events from your phone to see what's live"
@@ -553,18 +595,11 @@ class MainActivity : Activity() {
         focusTarget?.requestFocus()
     }
 
-    /** Fetches scores when due (main thread callback); only the sports rows are rebuilt. */
-    private fun refreshScores() {
-        ScoreFeed.refreshIfDue { if (resumed && !isFinishing && !isDestroyed) renderSports() }
-    }
-
     /** The "Live games" row, the "Sports" row, and "Live now" (which skips games shown as cards). */
-    private fun renderSports() {
-        val now = System.currentTimeMillis()
-        val folders = SportsData.both(this, now)
-        renderLiveGames(folders)
-        renderSportTiles(folders)
-        renderLive(LiveGames.matchedUrls(folders))
+    private fun renderSports(m: HomeModel) {
+        renderLiveGames(m.folders)
+        renderSportTiles(m)
+        renderLive(m)
     }
 
     private fun renderLiveGames(folders: List<SportFolders>) {
@@ -614,7 +649,7 @@ class MainActivity : Activity() {
         focusTarget?.requestFocus()
     }
 
-    private fun renderSportTiles(folders: List<SportFolders>) {
+    private fun renderSportTiles(m: HomeModel) {
         val focusedTag = sportsRow.focusedChild?.tag as? String
         sportsRow.removeAllViews()
         val now = System.currentTimeMillis()
@@ -644,12 +679,12 @@ class MainActivity : Activity() {
             sportsRow.addView(t, lp)
             if (key == focusedTag) focusTarget = t
         }
-        for (f in folders) {
-            tile(f.league, Sports.label(f.league), SportsText.sportTileLine(SportsData.taggedCount(this, f.league), f), "Today and the next 2 days") {
+        for (f in m.folders) {
+            tile(f.league, Sports.label(f.league), SportsText.sportTileLine(m.taggedCounts[f.league] ?: 0, f), "Today and the next 2 days") {
                 startActivity(SportActivity.intent(this, f.league))
             }
         }
-        val n = AlwaysOn.collect(SportsData.lists(this), now).size
+        val n = m.alwaysOnCount
         tile(ALWAYS_ON_TAG, "24/7", SportsText.alwaysOnLine(n), "From all your lists") {
             startActivity(StreamsActivity.alwaysOnIntent(this))
         }
@@ -704,7 +739,7 @@ class MainActivity : Activity() {
             .setMessage("This removes the saved stream list. The website is not affected.")
             .setPositiveButton("Remove") { _, _ ->
                 SavedLists.remove(this, l.id)
-                renderLists()
+                renderHomeNow()
                 Toast.makeText(this, "Removed", Toast.LENGTH_SHORT).show()
                 focusFirst()
             }

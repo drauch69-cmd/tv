@@ -189,6 +189,15 @@ Remote tabs; prefetch toggle).
   rebuilds from caches + `ScoreFeed` and uses `Prefetcher` head start. Both new screens use `Session.mode = "list"` (so the
   phone's stop works and head start is allowed). Pure text lives in `SportsText.kt` (`SportsTextTest`); `SportsData.kt`
   loads folders from caches.
+- **Home screen refresh and list cache.** `SavedLists.cached` / `all` keep the parsed lists in memory (`CacheMemo`; the same
+  object until a read is saved or a list removed, so no screen re-parses JSON on every draw). `MainActivity` has ONE score
+  refresher: `scoreTick` (5 s) asks `ScoreFeed.refreshIfDue`; when data changed it calls `requestHome(false)`. Everything
+  on home that depends on lists or scores (Live games row, Sports tiles, Live now, list tile counts) comes from one
+  `HomeModel` (`HomeModel.kt`, pure) built on a single background thread (`home-calc`) and drawn on the main thread;
+  results from older requests are dropped (`homeGen`). A non-forced request (new scores) redraws only if `HomeModel.look`
+  changed (look covers statuses, counts, live-game score lines, sport tile lines); forced requests (`renderLists()`:
+  list changes, busy marks, the 60 s clock tick, resume) always redraw. First draw and list removal use `renderHomeNow()`
+  (synchronous). Rows still keep focus as before. Not yet tested on the TV.
 - **ESPN-driven status** (`ScoreStatus.resolve`). Every status, badge and start time (list screen, home "Live now"
   row and counts, phone page, prefetcher) goes through it. The list screen and the phone page's list view use only the games of the list's sport
   tags (same as its score lines), so status and score always agree. For an item that matches a game: in progress = Live (any
