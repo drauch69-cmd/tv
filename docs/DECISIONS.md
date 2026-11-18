@@ -5,9 +5,15 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **Sports folders** (2026-11-17, branch `sports` only): in progress. Separate app "StreamLink Sports"
-  (`com.streamlink.tv.sports`, release `sports-latest`) so `test` and `main` stay untouched; fold back into `test`
-  only if the user says it works. Fixes on `test` do not reach `sports` by themselves. Nothing tested on the TV yet.
+- **Sports folders** (2026-11-17, branch `sports` only): built (sport tags on the phone page, 3-day ESPN schedule,
+  game matching, home Sports + Live games rows, 24/7 tile, sport screen with "All games", game/24/7 streams screen).
+  Separate app "StreamLink Sports" (`com.streamlink.tv.sports`, release `sports-latest`) so `test` and `main` stay
+  untouched; fold back into `test` only if the user says it works. Fixes on `test` do not reach `sports` by
+  themselves. **Nothing tested on the TV yet.** To check there: games matched to the right streams on a real slate;
+  D-pad order on home (Live games above Live now, Sports row below it); focus kept while rows refresh; the phone
+  page's sport pickers. Known rough edges: the phone's per-list Refresh doesn't reach the sport screen; home and the
+  sport screen can read the same list at once (harmless); a game that leaves the schedule leaves its screen with
+  nothing to focus (Back works). Later, not now: Source panel offering the same game's streams from other pages.
 - **Live scores on the list screen** (2026-11-17): built (NFL + college football from ESPN). Untested on the TV.
   Next: the user opens a list during a game; if a game should match and doesn't (or matches wrongly), ask for the
   item's title as shown and the "Scores:" report lines. Not checked yet against the live API: the college
