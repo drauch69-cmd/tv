@@ -30,7 +30,7 @@ class GamesTest {
     private fun item(title: String, url: String, start: Long? = null, sub: String = "", live: Boolean = false) =
         ListItem(title, sub, url, start, "", "", live, null)
 
-    private fun list(id: String, sport: String = "nfl") = SavedList(id, "List $id", "https://$id.example", sport)
+    private fun list(id: String, sports: Set<String> = setOf("nfl")) = SavedList(id, "List $id", "https://$id.example", sports)
 
     private val gWsh = game("1", wsh, nyg, at("2026-11-19T20:00:00Z"))
     private val gBuf = game("2", buf, nyj, at("2026-11-20T18:00:00Z"))
@@ -85,8 +85,8 @@ class GamesTest {
 
     @Test fun untaggedAndOtherSportListsAreIgnored() {
         val f = build(listOf(
-            list("a", "") to listOf(item("Commanders vs Giants", "https://a.example/1")),
-            list("b", "cfb") to listOf(item("Commanders vs Giants", "https://b.example/1")),
+            list("a", emptySet()) to listOf(item("Commanders vs Giants", "https://a.example/1")),
+            list("b", setOf("cfb")) to listOf(item("Commanders vs Giants", "https://b.example/1")),
         ))
         assertTrue(f.games.all { it.streams.isEmpty() })
         assertTrue(f.other.isEmpty())
@@ -104,7 +104,7 @@ class GamesTest {
 
     @Test fun onlyGamesOfTheLeagueAreUsed() {
         val c = game("c1", osu, mich, at("2026-11-19T20:00:00Z"), league = "cfb")
-        val f = build(listOf(list("a", "cfb") to listOf(item("Ohio State vs Michigan", "https://a.example/c"))), listOf(gWsh, c), "cfb")
+        val f = build(listOf(list("a", setOf("cfb")) to listOf(item("Ohio State vs Michigan", "https://a.example/c"))), listOf(gWsh, c), "cfb")
         assertEquals(listOf("c1"), f.games.map { it.game.id })
         assertEquals(1, f.games[0].streams.size)
     }
@@ -140,8 +140,8 @@ class GamesTest {
 
     @Test fun alwaysOnCollectsFromAllListsAndDedupes() {
         val out = AlwaysOn.collect(listOf(
-            list("a", "") to listOf(item("Ch 1", "https://a.example/c1", now - 48 * hour), item("Live", "https://a.example/l", now - hour), item("NoTime", "https://a.example/n")),
-            list("b", "nfl") to listOf(item("Ch 1 again", "https://a.example/c1/", now - 72 * hour), item("Ch 2", "https://b.example/c2", now - 25 * hour)),
+            list("a", emptySet()) to listOf(item("Ch 1", "https://a.example/c1", now - 48 * hour), item("Live", "https://a.example/l", now - hour), item("NoTime", "https://a.example/n")),
+            list("b", setOf("nfl")) to listOf(item("Ch 1 again", "https://a.example/c1/", now - 72 * hour), item("Ch 2", "https://b.example/c2", now - 25 * hour)),
         ), now)
         assertEquals(listOf("https://a.example/c1", "https://b.example/c2"), out.map { it.item.url })
         assertEquals(listOf("a", "b"), out.map { it.listId })
@@ -168,13 +168,60 @@ class GamesTest {
     }
 
     @Test fun savedListJsonRoundTripAndMissingSport() {
-        val lists = listOf(SavedList("a", "One", "https://a.example", "nfl"), SavedList("b", "Two", "https://b.example"))
-        val back = SavedListsJson.parse(SavedListsJson.toJson(lists))
+        val lists = listOf(SavedList("a", "One", "https://a.example", setOf("nfl", "cfb")), SavedList("b", "Two", "https://b.example"))
+        val json = SavedListsJson.toJson(lists)
+        assertTrue(json.contains("\"sports\":[\"nfl\",\"cfb\"]"))
+        val back = SavedListsJson.parse(json)
         assertEquals(lists, back)
-        assertEquals("", back[1].sport)
+        assertEquals(emptySet<String>(), back[1].sports)
+        val mixed = SavedListsJson.parse("""[{"id":"m","name":"M","url":"https://m.example","sports":["nba","bogus","NFL","nba"]}]""")
+        assertEquals(listOf("nfl", "nba"), mixed[0].sports.toList())
         val old = SavedListsJson.parse("""[{"id":"x","name":"Old","url":"https://o.example"},{"id":"y","name":"Odd","url":"https://p.example","sport":"rugby"},{"id":"z","name":"C","url":"https://q.example","sport":"cfb"}]""")
-        assertEquals(listOf("", "", "cfb"), old.map { it.sport })
+        assertEquals(listOf(emptySet<String>(), emptySet<String>(), setOf("cfb")), old.map { it.sports })
         assertEquals(emptyList<SavedList>(), SavedListsJson.parse("not json"))
+    }
+
+    @Test fun sportsParse() {
+        assertEquals(setOf("nfl", "cfb"), Sports.parse("nfl,cfb"))
+        assertEquals(listOf("nfl", "cfb"), Sports.parse("cfb, NFL").toList())
+        assertEquals(emptySet<String>(), Sports.parse(""))
+        assertEquals(setOf("nfl"), Sports.parse("nfl,bogus"))
+    }
+
+    private val cMia = ts("Miami Hurricanes", "Hurricanes", "MIA", "Miami", "Hurricanes")
+    private val cBuf = ts("Buffalo Bulls", "Bulls", "BUF", "Buffalo", "Bulls")
+    private val cOsu = game("c1", osu, mich, at("2026-11-19T20:00:00Z"), league = "cfb")
+
+    @Test fun listWithTwoSportsSplitsItemsBetweenThem() {
+        val l = list("a", setOf("nfl", "cfb"))
+        val items = listOf(
+            item("Commanders vs Giants", "https://a.example/n"),
+            item("Ohio State vs Michigan", "https://a.example/c"),
+            item("Premium Channel 7", "https://a.example/x"),
+        )
+        val games = listOf(gWsh, cOsu)
+        val nfl = build(listOf(l to items), games, "nfl")
+        val cfb = build(listOf(l to items), games, "cfb")
+        assertEquals(listOf("https://a.example/n"), nfl.games.single().streams.map { it.item.url })
+        assertEquals(listOf("https://a.example/c"), cfb.games.single().streams.map { it.item.url })
+        assertEquals(listOf("https://a.example/x"), nfl.other.map { it.item.url })
+        assertEquals(listOf("https://a.example/x"), cfb.other.map { it.item.url })
+    }
+
+    @Test fun titleFittingTwoLeaguesLandsInAtMostOne() {
+        val l = list("a", setOf("nfl", "cfb"))
+        val nflGame = game("n9", buf, mia, at("2026-11-19T20:00:00Z"))
+        val cfbGame = game("c9", cBuf, cMia, at("2026-11-19T20:00:00Z"), league = "cfb")
+        val items = listOf(item("Miami vs Buffalo", "https://a.example/mb"))
+        val games = listOf(nflGame, cfbGame)
+        val placed = listOf("nfl", "cfb").sumOf { lg -> build(listOf(l to items), games, lg).games.sumOf { it.streams.size } }
+        assertTrue(placed <= 1)
+    }
+
+    @Test fun listTaggedOtherLeagueOnlyIsIgnoredForThisLeague() {
+        val f = build(listOf(list("a", setOf("nba")) to listOf(item("Commanders vs Giants", "https://a.example/1"))))
+        assertTrue(f.games.all { it.streams.isEmpty() })
+        assertTrue(f.other.isEmpty())
     }
 
     @Test fun sportsCleanAndLabels() {
@@ -191,7 +238,7 @@ class GamesTest {
         val lal = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers")
         val bos = ts("Boston Celtics", "Celtics", "BOS", "Boston", "Celtics")
         val g = game("b1", bos, lal, at("2026-11-19T20:00:00Z"), league = "nba")
-        val f = build(listOf(list("a", "nba") to listOf(item("Lakers vs Celtics", "https://a.example/b"))), listOf(gWsh, g), "nba")
+        val f = build(listOf(list("a", setOf("nba")) to listOf(item("Lakers vs Celtics", "https://a.example/b"))), listOf(gWsh, g), "nba")
         assertEquals(listOf("b1"), f.games.map { it.game.id })
         assertEquals(1, f.games[0].streams.size)
         val live = game("b2", bos, lal, at("2026-11-19T13:00:00Z"), "in", "nba")

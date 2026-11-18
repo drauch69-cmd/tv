@@ -35,29 +35,35 @@ object GameFolders {
 
     /**
      * Sorts the items of the lists tagged [league] into games.
-     * - Only lists with sport == [league] and games with league == [league] count.
+     * - Only lists whose tags include [league] count. [games] may hold every league; this filters itself.
      * - Games in the window (today to the end of today + 2, in [zone]) plus any game still live (state "in").
-     * - An item is matched with [ScoreMatch.find] on its title, else on title + subtitle. Matched: that game's
-     *   streams; unmatched: [SportFolders.other].
+     * - An item is matched with [ScoreMatch.find] on its title, else on title + subtitle, against the games of ALL
+     *   the list's tagged leagues together (one best game wins, so an item never lands in two sports). If the
+     *   winner belongs to [league]: that game's streams; if it belongs to another league: skipped here (it is
+     *   placed when that league is built); no match: [SportFolders.other] (so an unmatched item of a list tagged
+     *   with two sports shows in both sports' Other).
      * - Always-on channels are never placed anywhere; finished items are placed only when they match a game
      *   (never in other).
      * - The same address (see [urlKey]) is placed once: first list in saved order, first item in page order.
      */
     fun build(league: String, games: List<Game>, lists: List<Pair<SavedList, List<ListItem>>>, now: Long, zone: ZoneId): SportFolders {
         val (from, to) = window(now, zone)
-        val inWindow = games.filter { it.league == league && (it.state == "in" || it.startMillis in from until to) }
+        val windowAll = games.filter { it.state == "in" || it.startMillis in from until to }
+        val inWindow = windowAll.filter { it.league == league }
         val perGame = LinkedHashMap<String, MutableList<GameStream>>()
         for (g in inWindow) perGame[g.id] = ArrayList()
         val other = ArrayList<GameStream>()
         val seen = HashSet<String>()
         for ((list, items) in lists) {
-            if (list.sport != league) continue
+            if (!list.has(league)) continue
+            val pool = windowAll.filter { list.has(it.league) }
             for (item in items) {
                 val start = item.startMillis
                 if (start != null && ListStatus.isAlwaysOn(start, now)) continue
                 val finished = ListStatus.of(item, now) == ListStatus.FINISHED
-                val game = ScoreMatch.find(item.title, start, inWindow)
-                    ?: if (item.subtitle.isNotBlank()) ScoreMatch.find(item.title + " " + item.subtitle, start, inWindow) else null
+                val game = ScoreMatch.find(item.title, start, pool)
+                    ?: if (item.subtitle.isNotBlank()) ScoreMatch.find(item.title + " " + item.subtitle, start, pool) else null
+                if (game != null && game.league != league) continue // belongs to another of the list's sports
                 if (game == null && finished) continue
                 if (!seen.add(urlKey(item.url))) continue
                 val stream = GameStream(list.id, list.name, item)

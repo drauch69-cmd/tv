@@ -142,13 +142,16 @@ Remote tabs; prefetch toggle).
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
   · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
-  On a list screen whose list has a sport tag, scores are matched only against games of that league (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
+  On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Sports folders** (`Games.kt`, pure Kotlin; logic only so far, screens come separately). A saved list carries a
-  sport tag (`SavedList.sport`: "nfl", "cfb", "nba" or "" via `Sports`; set on the phone page's Lists tab when adding or
-  with the select on each list; `POST /lists/sport` (id, sport), `/lists/add` takes an optional `sport`, `GET /lists`
-  returns it). `GameFolders.build` sorts every item of every list tagged with a sport into that sport's games
-  (today to the end of today + 2 in the TV's zone, plus any live game) using `ScoreMatch` on the title, then on
-  title + subtitle; unmatched go to `other`; always-on items are never placed, finished ones only when they match a
+  set of sport tags (`SavedList.sports`, any of "nfl", "cfb", "nba" via `Sports`, empty = none; `has(league)`; JSON
+  `"sports": [...]`, the old single `"sport"` string is still read; set with toggle chips on the phone page's Lists tab, when
+  adding and on each list; `POST /lists/sport` (id, sport) and `/lists/add` take `sport` as a comma-separated list
+  like "nfl,cfb", unknown values ignored; `GET /lists` returns `"sports"`). `GameFolders.build` sorts every item of
+  every list tagged with the league into that sport's games (today to the end of today + 2 in the TV's zone, plus any
+  live game) using `ScoreMatch` on the title, then on title + subtitle, against the games of ALL the list's tagged
+  leagues together (one best game wins; if it belongs to another league the item is skipped here and placed when that
+  league is built, so an item never lands in two sports); unmatched go to `other` (so in every tagged sport's Other); always-on items are never placed, finished ones only when they match a
   game; the same address (trailing slash ignored) appears once. `GameSections.group` makes Live now / Today /
   Tomorrow / weekday / Final sections (`withStreamsOnly` hides games without streams); `AlwaysOn.collect` gathers
   24/7 channels from all lists; `LiveGames.sample` / `matchedUrls` feed the home live row; `GameFolders.summary` is

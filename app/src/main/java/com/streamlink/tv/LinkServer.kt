@@ -26,12 +26,12 @@ class LinkServer(
     private val lists: () -> String = { "{\"lists\":[]}" },
     /** GET /list?id=: JSON of one list's cached events, or null if there is no such list. */
     private val list: (String) -> String? = { null },
-    /** POST /lists/add (url, name, sport; sport may be empty): null on success, otherwise the reason it was refused. */
-    private val onListAdd: (String, String, String) -> String? = { _, _, _ -> "Stream lists are not available" },
+    /** POST /lists/add (url, name, sport; sport is a comma-separated list like "nfl,cfb", may be empty; unknown values ignored): null on success, otherwise the reason it was refused. */
+    private val onListAdd: (String, String, Set<String>) -> String? = { _, _, _ -> "Stream lists are not available" },
     /** POST /lists/remove (id): false if there is no such list. */
     private val onListRemove: (String) -> Boolean = { false },
-    /** POST /lists/sport (id, sport: "nfl", "cfb", "nba" or empty for none): false if there is no such list. */
-    private val onListSport: (String, String) -> Boolean = { _, _ -> false },
+    /** POST /lists/sport (id, sport: comma-separated "nfl", "cfb", "nba" or empty for none; unknown values ignored): false if there is no such list. */
+    private val onListSport: (String, Set<String>) -> Boolean = { _, _ -> false },
     /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
     private val onListRefresh: (String) -> Boolean = { false },
     /** POST /list/play (id, url, start): plays an event of a list; start is its start time (epoch ms) if known. */
@@ -196,7 +196,7 @@ class LinkServer(
                 if (url == null) {
                     respond(c, 400, text, "That doesn't look like a web link.")
                 } else {
-                    val problem = try { onListAdd(url, (formValue(body, "name") ?: "").take(200), (formValue(body, "sport") ?: "").take(20)) } catch (_: Exception) { "Could not save the list" }
+                    val problem = try { onListAdd(url, (formValue(body, "name") ?: "").take(200), Sports.parse((formValue(body, "sport") ?: "").take(40))) } catch (_: Exception) { "Could not save the list" }
                     if (problem == null) respond(c, 200, text, "Saved as a stream list") else respond(c, 400, text, problem)
                 }
             }
@@ -206,8 +206,8 @@ class LinkServer(
             }
             method == "POST" && path == "/lists/sport" -> {
                 val id = formValue(body, "id")
-                val sport = (formValue(body, "sport") ?: "").take(20)
-                if (!id.isNullOrEmpty() && onListSport(id, sport)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
+                val sports = Sports.parse((formValue(body, "sport") ?: "").take(40))
+                if (!id.isNullOrEmpty() && onListSport(id, sports)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
             }
             method == "POST" && path == "/list/refresh" -> {
                 val id = formValue(body, "id")

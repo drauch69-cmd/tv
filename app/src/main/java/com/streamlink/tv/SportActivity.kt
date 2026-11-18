@@ -136,7 +136,7 @@ class SportActivity : Activity() {
         val now = System.currentTimeMillis()
         if (lastReadAllAt != 0L && now - lastReadAllAt < gapMs) return
         lastReadAllAt = now
-        val ids = SavedLists.all(this).filter { it.sport == league && !SavedLists.isBusy(it.id) }.map { it.id }
+        val ids = SavedLists.all(this).filter { it.has(league) && !SavedLists.isBusy(it.id) }.map { it.id }
         if (ids.isEmpty()) return
         queue.addAll(ids)
         readTotal = ids.size
@@ -239,7 +239,7 @@ class SportActivity : Activity() {
 
     private fun updateHeader() {
         val now = System.currentTimeMillis()
-        val tagged = SavedLists.all(this).filter { it.sport == league }
+        val tagged = SavedLists.all(this).filter { it.has(league) }
         val oldest = tagged.map { SavedLists.cached(this, it.id)?.readAt ?: 0L }.minOrNull()
         val ago = when {
             tagged.isEmpty() -> "no pages tagged"

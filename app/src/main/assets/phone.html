@@ -49,11 +49,14 @@
   .evbtn{width:100%;text-align:left;display:block;background:var(--surface);border:0;border-radius:14px;padding:14px;margin-bottom:10px;min-height:56px}
   .evbtn .ttl{font-size:17px;font-weight:600;margin-top:6px;overflow-wrap:anywhere}
   .evbtn .sub{font-size:13px;font-weight:400;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
-  .lrow{display:flex;gap:8px;margin-bottom:10px}
+  .lrow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
   .lrow .main{flex:1;min-width:0;text-align:left;border:0;padding:14px;border-radius:14px}
   .lrow .main .ttl{font-size:17px;font-weight:600;overflow-wrap:anywhere}
   .lrow .main .sub{font-size:13px;font-weight:400;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
-  .lrow select{flex:none;width:104px;min-height:0;font-size:13px;padding:8px 26px 8px 10px;border-radius:14px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .lrow .chips{flex:0 0 100%}
+  .chips button{min-height:36px;padding:6px 12px;font-size:13px;border-radius:18px;background:transparent;color:var(--dim)}
+  .chips button[aria-pressed=true]{background:var(--chip);border-color:var(--accent);color:var(--text)}
   .lrow .x{flex:none;width:48px;padding:0;color:var(--dim);border-radius:14px}
   .empty{text-align:center;padding:28px 10px;color:var(--dim)}
   .empty b{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
@@ -109,7 +112,7 @@
     <div class="fl card" style="margin-bottom:12px">
       <label for="lname" class="lbl">Save the pasted link as a stream list</label>
       <input id="lname" type="text" maxlength="60" placeholder="Name for a stream list (optional)" autocomplete="off">
-      <select id="lsport" aria-label="Sport"><option value="">No sport</option><option value="nfl">NFL</option><option value="cfb">College football</option><option value="nba">NBA</option></select>
+      <div class="chips" id="lsport" role="group" aria-label="Sports on this page (any, or none)"></div>
       <button class="ghost" type="button" id="addlist">Add as stream list</button>
     </div>
     <div class="section">Stream lists</div>
@@ -190,6 +193,28 @@
     if (text !== undefined && text !== null) e.textContent = text; // never innerHTML: titles come from websites
     return e;
   }
+  // Sport toggle chips: any combination, none = no sport. The group's value is "nfl,cfb".
+  var SPORTS = [['nfl', 'NFL'], ['cfb', 'College football'], ['nba', 'NBA']];
+  function chipValue(g){
+    var v = [];
+    Array.prototype.forEach.call(g.children, function(b){ if (b.getAttribute('aria-pressed') === 'true') v.push(b.getAttribute('data-sport')); });
+    return v.join(',');
+  }
+  function setChips(g, on){
+    Array.prototype.forEach.call(g.children, function(b){ b.setAttribute('aria-pressed', on.indexOf(b.getAttribute('data-sport')) >= 0 ? 'true' : 'false'); });
+  }
+  function makeChips(g, on, onChange){
+    SPORTS.forEach(function(o){
+      var b = el('button', null, o[1]); b.type = 'button'; b.setAttribute('data-sport', o[0]);
+      b.onclick = function(){
+        b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') === 'true' ? 'false' : 'true');
+        if (onChange) onChange(chipValue(g));
+      };
+      g.appendChild(b);
+    });
+    setChips(g, on);
+  }
+  makeChips($('lsport'), [], null);
   var NOREACH = 'Could not reach the TV. Is StreamLink open?';
   function playIcon(){
     var s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -236,10 +261,10 @@
     var u = $('u').value.trim();
     if (!u) { $('status').textContent = 'Paste the link of the index page first.'; return; }
     $('status').textContent = 'Saving…';
-    post('/lists/add', 'url=' + encodeURIComponent(u) + '&name=' + encodeURIComponent($('lname').value.trim()) + '&sport=' + encodeURIComponent($('lsport').value)).then(function(r){
+    post('/lists/add', 'url=' + encodeURIComponent(u) + '&name=' + encodeURIComponent($('lname').value.trim()) + '&sport=' + encodeURIComponent(chipValue($('lsport')))).then(function(r){
       return r.text().then(function(t){
         $('status').textContent = t;
-        if (r.ok) { $('u').value = ''; $('lname').value = ''; $('lsport').value = ''; $('u').blur(); listsKey = ''; loadLists(); setTimeout(loadLists, 3000); }
+        if (r.ok) { $('u').value = ''; $('lname').value = ''; setChips($('lsport'), []); $('u').blur(); listsKey = ''; loadLists(); setTimeout(loadLists, 3000); }
       });
     }).catch(function(){ $('status').textContent = NOREACH; });
   };
@@ -346,15 +371,11 @@
           if (!confirm('Remove the stream list “' + l.name + '”?')) return;
           post('/lists/remove', 'id=' + encodeURIComponent(l.id)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
         };
-        var sp = el('select'); sp.setAttribute('aria-label', 'Sport for ' + l.name);
-        [['', 'No sport'], ['nfl', 'NFL'], ['cfb', 'College football'], ['nba', 'NBA']].forEach(function(o){
-          var op = el('option', null, o[1]); op.value = o[0]; sp.appendChild(op);
+        var sp = el('div', 'chips'); sp.setAttribute('role', 'group'); sp.setAttribute('aria-label', 'Sports for ' + l.name);
+        makeChips(sp, l.sports || [], function(v){
+          post('/lists/sport', 'id=' + encodeURIComponent(l.id) + '&sport=' + encodeURIComponent(v)).then(function(){ listsKey = ''; loadLists(); });
         });
-        sp.value = l.sport || '';
-        sp.onchange = function(){
-          post('/lists/sport', 'id=' + encodeURIComponent(l.id) + '&sport=' + encodeURIComponent(sp.value)).then(function(){ listsKey = ''; loadLists(); });
-        };
-        row.appendChild(b); row.appendChild(sp); row.appendChild(x); box.appendChild(row);
+        row.appendChild(b); row.appendChild(x); row.appendChild(sp); box.appendChild(row);
       });
     }).catch(function(){});
   }

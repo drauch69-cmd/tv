@@ -24,7 +24,7 @@ object SportsData {
         return Sports.ALL.map { folders(ctx, it, now, ls) }
     }
 
-    fun taggedCount(ctx: Context, league: String): Int = SavedLists.all(ctx).count { it.sport == league }
+    fun taggedCount(ctx: Context, league: String): Int = SavedLists.all(ctx).count { it.has(league) }
 }
 
 /** Shared pieces of the sports screens. Text from pages is shown as plain text only. */

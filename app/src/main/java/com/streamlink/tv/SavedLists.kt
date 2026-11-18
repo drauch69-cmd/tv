@@ -5,8 +5,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** [sport] is "nfl", "cfb", "nba" or "" (none); see [Sports]. */
-data class SavedList(val id: String, val name: String, val url: String, val sport: String = "")
+/** [sports] holds any of "nfl", "cfb", "nba" (empty = no sport); see [Sports]. One index page can mix leagues. */
+data class SavedList(val id: String, val name: String, val url: String, val sports: Set<String> = emptySet()) {
+    fun has(league: String): Boolean = league in sports
+}
 
 /** The sports a saved list can be tagged with. */
 object Sports {
@@ -18,6 +20,13 @@ object Sports {
     fun label(sport: String): String = when (sport) { NFL -> "NFL"; CFB -> "College football"; NBA -> "NBA"; else -> "" }
     /** Unknown values read as "" (no sport). */
     fun clean(raw: String?): String = raw?.trim()?.lowercase()?.takeIf { it in ALL } ?: ""
+    /** Cleans every value, drops unknown ones and returns the rest in [ALL] order. */
+    fun cleanSet(raw: Iterable<String?>): Set<String> {
+        val have = raw.map { clean(it) }.filter { it.isNotEmpty() }.toSet()
+        return ALL.filterTo(LinkedHashSet()) { it in have }
+    }
+    /** "nfl,cfb" (comma-separated; empty or unknown values ignored) to a clean set. */
+    fun parse(raw: String?): Set<String> = cleanSet((raw ?: "").split(','))
 }
 
 /** The lists JSON kept in preferences. Pure, so it can be unit tested. */
@@ -28,16 +37,25 @@ object SavedListsJson {
             a.optJSONObject(i)?.let { o ->
                 val id = o.optString("id"); val url = o.optString("url")
                 if (id.isEmpty() || url.isEmpty()) null
-                else SavedList(id, o.optString("name").ifEmpty { Report.host(url) }, url, Sports.clean(o.optString("sport")))
+                else SavedList(id, o.optString("name").ifEmpty { Report.host(url) }, url, readSports(o))
             }
         }
     } catch (_: Exception) {
         emptyList()
     }
 
+    /** The "sports" array if present, else the older single "sport" string. */
+    private fun readSports(o: JSONObject): Set<String> {
+        val arr = o.optJSONArray("sports")
+        if (arr != null) return Sports.cleanSet((0 until arr.length()).map { arr.optString(it) })
+        return Sports.cleanSet(listOf(o.optString("sport")))
+    }
+
     fun toJson(lists: List<SavedList>): String {
         val a = JSONArray()
-        lists.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("url", it.url).put("sport", it.sport)) }
+        lists.forEach { l ->
+            a.put(JSONObject().put("id", l.id).put("name", l.name).put("url", l.url).put("sports", JSONArray(l.sports.toList())))
+        }
         return a.toString()
     }
 }
@@ -61,22 +79,22 @@ object SavedLists {
     fun get(ctx: Context, id: String): SavedList? = all(ctx).firstOrNull { it.id == id }
 
     /**
-     * Adds a list (or renames the existing one with the same link; a non-empty [sport] also updates the
-     * existing one's sport). Null when the limit is reached.
+     * Adds a list (or renames the existing one with the same link; a non-empty [sports] set also replaces the
+     * existing one's tags). Null when the limit is reached.
      */
     @Synchronized
-    fun add(ctx: Context, url: String, name: String, sport: String = ""): SavedList? {
+    fun add(ctx: Context, url: String, name: String, sports: Set<String> = emptySet()): SavedList? {
         val cur = all(ctx)
         val clean = cleanName(name)
-        val tag = Sports.clean(sport)
+        val tags = Sports.cleanSet(sports)
         cur.firstOrNull { it.url == url }?.let { existing ->
-            if (clean.isEmpty() && tag.isEmpty()) return existing
-            val updated = existing.copy(name = clean.ifEmpty { existing.name }, sport = tag.ifEmpty { existing.sport })
+            if (clean.isEmpty() && tags.isEmpty()) return existing
+            val updated = existing.copy(name = clean.ifEmpty { existing.name }, sports = tags.ifEmpty { existing.sports })
             save(ctx, cur.map { if (it.id == existing.id) updated else it })
             return updated
         }
         if (cur.size >= MAX) return null
-        val l = SavedList(UUID.randomUUID().toString().take(8), clean.ifEmpty { Report.host(url) }, url, tag)
+        val l = SavedList(UUID.randomUUID().toString().take(8), clean.ifEmpty { Report.host(url) }, url, tags)
         save(ctx, cur + l)
         return l
     }
@@ -98,13 +116,13 @@ object SavedLists {
         save(ctx, all(ctx).map { if (it.id == id) it.copy(name = clean) else it })
     }
 
-    /** Sets or clears a list's sport. False if there is no such list. */
+    /** Sets or clears a list's sports. False if there is no such list. */
     @Synchronized
-    fun setSport(ctx: Context, id: String, sport: String): Boolean {
+    fun setSports(ctx: Context, id: String, sports: Set<String>): Boolean {
         val cur = all(ctx)
         if (cur.none { it.id == id }) return false
-        val tag = Sports.clean(sport)
-        save(ctx, cur.map { if (it.id == id) it.copy(sport = tag) else it })
+        val tags = Sports.cleanSet(sports)
+        save(ctx, cur.map { if (it.id == id) it.copy(sports = tags) else it })
         return true
     }
 

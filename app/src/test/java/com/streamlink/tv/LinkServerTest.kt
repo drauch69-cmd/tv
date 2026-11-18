@@ -12,8 +12,8 @@ class LinkServerTest {
     private val links = CopyOnWriteArrayList<String>()
     private val commands = CopyOnWriteArrayList<Pair<String, String?>>()
     private val added = CopyOnWriteArrayList<Pair<String, String>>()
-    private val addedSport = CopyOnWriteArrayList<String>()
-    private val sported = CopyOnWriteArrayList<Pair<String, String>>()
+    private val addedSport = CopyOnWriteArrayList<Set<String>>()
+    private val sported = CopyOnWriteArrayList<Pair<String, Set<String>>>()
     private val removed = CopyOnWriteArrayList<String>()
     private val refreshed = CopyOnWriteArrayList<String>()
     private val played = CopyOnWriteArrayList<Triple<String, String, Long?>>()
@@ -163,14 +163,18 @@ class LinkServerTest {
     @Test
     fun addListPassesSportAndSportCanBeChanged() {
         post("/lists/add", form, "url=https%3A%2F%2Fevents.example&name=&sport=nfl")
-        assertEquals("nfl", addedSport.last())
+        assertEquals(setOf("nfl"), addedSport.last())
         post("/lists/add", form, "url=https%3A%2F%2Fevents.example&name=")
-        assertEquals("", addedSport.last())
+        assertEquals(emptySet<String>(), addedSport.last())
+        post("/lists/add", form, "url=https%3A%2F%2Fevents.example&name=&sport=nfl%2Ccfb")
+        assertEquals(setOf("nfl", "cfb"), addedSport.last())
+        post("/lists/add", form, "url=https%3A%2F%2Fevents.example&name=&sport=nfl%2Cbogus")
+        assertEquals(setOf("nfl"), addedSport.last())
         assertTrue(post("/lists/sport", form, "id=a1&sport=cfb").startsWith("HTTP/1.1 200"))
         assertTrue(post("/lists/sport", form, "id=a1&sport=").startsWith("HTTP/1.1 200"))
         assertTrue(post("/lists/sport", form, "id=zz&sport=nfl").startsWith("HTTP/1.1 404"))
         assertTrue(post("/lists/sport", form, "sport=nfl").startsWith("HTTP/1.1 404"))
-        assertEquals(listOf("a1" to "cfb", "a1" to "", "zz" to "nfl"), sported.toList())
+        assertEquals(listOf("a1" to setOf("cfb"), "a1" to emptySet(), "zz" to setOf("nfl")), sported.toList())
     }
 
     @Test
