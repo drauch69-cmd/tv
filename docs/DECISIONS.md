@@ -5,6 +5,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Empty player box pages** (2026-11-17): built (source-switch.js anchor, hidden search presses source 1 then 2, site player
+  presses source 1; chat-like narrow frames ignored). Not compiled or tested on the TV. Next: the user opens such a page and
+  sends the report; look for "pressing source button" lines.
 - **Live scores on the list screen** (2026-11-17): built (NFL + college football from ESPN). Untested on the TV.
   Next: the user opens a list during a game; if a game should match and doesn't (or matches wrongly), ask for the
   item's title as shown and the "Scores:" report lines. Not checked yet against the live API: the college

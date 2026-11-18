@@ -88,6 +88,13 @@ Playback pipeline:
    A playlist address found only inside another request (an analytics ping) usually lacks the player's signed
    access code (`t=` query): the sniffer waits up to 8 s for the player's own request, which replaces the copy
    (`StreamUrls.sameStream`) and is checked first; embedded-only stays as the last resort.
+   **Empty player box.** Some pages show an empty 16:9 box that only loads video after one of the page's own source
+   buttons is pressed. If ~5 s after the page loads (primary search only, not the links run or light runs) there is
+   still no player (or only a player box with no frame) and no playlist, the sniffer presses source button 1
+   (`SourcePress.kt`: `source-switch.js` `find`, then `click 0`; a coordinate tap if the click fails); ~10 s later,
+   if still nothing, button 2 (max 2 presses). Report line: "No player on the page yet; pressing source button N of M".
+   Tall/narrow frames (chat panels, width/height < 1.1) are never taken for the player (NUDGE_JS, source-switch.js,
+   site player). The normal nudge/tap search then carries on with whatever player appears.
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
    being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
    (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play.
@@ -117,7 +124,10 @@ Remote tabs; prefetch toggle).
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
   by the keyword's trailing number, joined, base64-decoded). A counter of undecodable segments triggers the
   site-player fallback.
-- **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Links mode
+- **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Its anchor is the largest visible landscape
+  (width/height >= 1.1) video/iframe; with none, the largest visible EMPTY player-shaped box (div/section/figure, aspect
+  1.3-2.4, no video/iframe/canvas/object/embed inside, <= 200 chars of text, not pinned, not in nav/header/footer), and
+  `find` then answers `empty: true`. Buttons that carry sequential number badges (1, 2, 3) count as a numbered row. Links mode
   clicks each link and records each new player frame; once a playlist is seen, everything else is blocked.
   `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open. It also builds the "open page"
   entries (`openPageEntry`, label ending " · site player") and keeps them out of automatic source fallback
@@ -141,6 +151,10 @@ Remote tabs; prefetch toggle).
   `ListStatus.byTime`, the old rules. Matching is cached per games list. The home screen fetches scores too (5 s tick
   while in front) and redraws only when a status changes; the list screen rebuilds (keeping focus) only when a row's
   status or badge changes.
+- **Site player** (`SitePlayerActivity`, `FOCUS_JS`): picks the biggest landscape video/frame and fills the screen with
+  it; portrait/narrow frames (chat) score 0. If no candidate is left after a few ticks (an empty player box), it presses
+  source button 1 once per page (max 2 per visit) via `SourcePress`; report line "Site player: pressed source button N
+  of M (the player was empty)". Not yet tested on the TV.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).

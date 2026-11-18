@@ -58,6 +58,23 @@ const srv = http.createServer((q, r) => {
   eq('h: pinned chat widget is the largest frame, still finds the selector', [r.found, r.count, r.active], [true, 4, 0]);
   await p.setViewport({ width: 1280, height: 720 });
 
+  // Empty player box (nothing loaded until a source button is pressed); the only frame is a tall narrow chat panel.
+  for (const vp of [[1280, 720], [1920, 1080]]) {
+    await p.setViewport({ width: vp[0], height: vp[1] });
+    await open('i.html');
+    r = await run('find');
+    eq('i ' + vp[0] + ': empty box found, 3 source buttons, empty flag', [r.found, r.count, r.empty], [true, 3, true]);
+    eq('i ' + vp[0] + ': click 0 presses the first button', (await run('click 0')).ok, true);
+  }
+  await p.setViewport({ width: 1280, height: 720 });
+  await open('i.html');
+  await p.evaluate(() => document.querySelector('.box').remove());
+  r = await run('find');
+  eq('i: tall narrow iframe alone is not an anchor', r.found, false);
+  await open('a.html');
+  r = await run('find');
+  eq('a: real iframe anchor reports empty false', r.empty, false);
+
   console.log(fail ? 'FAILED' : 'all passed');
   await br.close(); srv.close(); process.exit(fail ? 1 : 0);
 });
