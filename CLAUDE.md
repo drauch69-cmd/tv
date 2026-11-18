@@ -56,6 +56,10 @@ In practice:
 ## Branches, releases, CI
 
 - `main`: stable release; moves only with the user's OK. `test`: working release channel.
+- `sports`: experimental "StreamLink Sports" app (`com.streamlink.tv.sports`, release `sports-latest`,
+  https://github.com/drauch69-cmd/tv/releases/download/sports-latest/StreamLink-Sports.apk), branched from `test`
+  for the sports-folders idea (see DECISIONS). Push it directly (`git push origin sports`); never merge it into
+  `test` or `main` without the user's OK.
 - The lead works on an `integrate` branch and publishes with `git push -qf origin integrate:test`.
   **That is a force push: always start `integrate` from the latest `origin/test`** (`git fetch origin test` then
   branch or rebase onto it), or commits made directly on `test` (like doc updates) are wiped.

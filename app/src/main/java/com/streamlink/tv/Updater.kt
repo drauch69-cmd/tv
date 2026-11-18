@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
- * In-app updates from this app's own GitHub release channel (main -> `latest`, test -> `test-latest`).
+ * In-app updates from this app's own GitHub release channel (main -> `latest`, test -> `test-latest`, sports -> `sports-latest`).
  *
  * Flow: read version.json -> if newer, download the APK -> check its SHA-256 -> check it is our package
  * signed by the same certificate as the installed app -> keep it ready. Nothing is installed until the

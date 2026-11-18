@@ -23,13 +23,17 @@ jobs:
         with:
           gradle-version: "8.13"
 
-      # Branch "test" builds a separate app (StreamLink Test, com.streamlink.tv.test) that installs
-      # next to the normal one. Every other branch builds the normal app.
+      # Branch "test" builds a separate app (StreamLink Test, com.streamlink.tv.test) and branch "sports"
+      # another (StreamLink Sports, com.streamlink.tv.sports); both install next to the normal one.
+      # Every other branch builds the normal app.
       - name: Pick build channel
         run: |
           if [ "$GITHUB_REF" = "refs/heads/test" ]; then
             echo "STREAMLINK_CHANNEL=test" >> "$GITHUB_ENV"
             echo "APK_NAME=StreamLink-Test.apk" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF" = "refs/heads/sports" ]; then
+            echo "STREAMLINK_CHANNEL=sports" >> "$GITHUB_ENV"
+            echo "APK_NAME=StreamLink-Sports.apk" >> "$GITHUB_ENV"
           else
             echo "STREAMLINK_CHANNEL=main" >> "$GITHUB_ENV"
             echo "APK_NAME=StreamLink.apk" >> "$GITHUB_ENV"
@@ -75,7 +79,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.STREAMLINK_CHANNEL == 'test' && 'StreamLink-Test-apk' || 'StreamLink-apk' }}
+          name: ${{ env.STREAMLINK_CHANNEL == 'test' && 'StreamLink-Test-apk' || env.STREAMLINK_CHANNEL == 'sports' && 'StreamLink-Sports-apk' || 'StreamLink-apk' }}
           path: ${{ env.APK_NAME }}
 
       # Also publish it as a "latest" release, so the TV can download it from one fixed link.
@@ -95,6 +99,15 @@ jobs:
         run: |
           gh release delete test-latest --yes --cleanup-tag || true
           gh release create test-latest StreamLink-Test.apk version.json --title "Test build" --notes "Test build ${{ github.run_number }}"
+
+      # Branch "sports" publishes the separate sports app to its own fixed link.
+      - name: Publish sports release
+        if: github.ref == 'refs/heads/sports'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete sports-latest --yes --cleanup-tag || true
+          gh release create sports-latest StreamLink-Sports.apk version.json --title "Sports build" --notes "Sports build ${{ github.run_number }}"
 
       # Android Lint report. Runs after build/test and publishing so it can never block them.
       - name: Android Lint

@@ -5,6 +5,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Sports folders** (2026-11-17, branch `sports` only): in progress. Separate app "StreamLink Sports"
+  (`com.streamlink.tv.sports`, release `sports-latest`) so `test` and `main` stay untouched; fold back into `test`
+  only if the user says it works. Fixes on `test` do not reach `sports` by themselves. Nothing tested on the TV yet.
 - **Live scores on the list screen** (2026-11-17): built (NFL + college football from ESPN). Untested on the TV.
   Next: the user opens a list during a game; if a game should match and doesn't (or matches wrongly), ask for the
   item's title as shown and the "Scores:" report lines. Not checked yet against the live API: the college
@@ -26,6 +29,15 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **Sports folders plan** (2026-11-17, `sports` branch): saved lists get a sport tag (NFL, College football, or
+  none; set on the phone page when adding, changeable later). ESPN schedule for today plus 2 days. Each stream from
+  every tagged list is matched to a game (same both-teams rule as live scores); a game lists all its streams from
+  all pages, labeled by page, exact repeats once; unmatched go to "Other". Home: NFL and College football tiles, a
+  live-games row (sample of live games with scores; replaces matched games in "Live now"), and a 24/7 tile
+  (always-on channels from all lists). Sport screen: Live now / Today / Tomorrow / day after / Other; shows only
+  games with streams by default, with an "All games" toggle. Game screen: score card plus stream options. Opening a
+  sport re-reads its pages (cached results first). Saved lists and the phone link stay as they are. Later, not
+  now: the player's Source panel offering the same game's streams from other pages.
 - **Live scores** (2026-11-17): NFL and college football only; scores shown by default (no spoiler hiding); on the
   list rows (short line) and the details card (full block); no team logos for now. A game matches only when both
   teams are named; ties broken by start time, else nothing shown.

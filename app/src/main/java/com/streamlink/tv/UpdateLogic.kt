@@ -47,6 +47,7 @@ internal object UpdateLogic {
     fun tagFor(channel: String): String? = when (channel) {
         "main" -> "latest"
         "test" -> "test-latest"
+        "sports" -> "sports-latest"
         else -> null
     }
 
@@ -54,6 +55,7 @@ internal object UpdateLogic {
     fun apkNameFor(channel: String): String? = when (channel) {
         "main" -> "StreamLink.apk"
         "test" -> "StreamLink-Test.apk"
+        "sports" -> "StreamLink-Sports.apk"
         else -> null
     }
 

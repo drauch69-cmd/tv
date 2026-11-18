@@ -3,25 +3,35 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Build channel: "main" (default) or "test". The test channel installs next to the normal app
+// Build channel: "main" (default), "test" or "sports". Test and sports install next to the normal app
 // (own applicationId and label). Set with -Pchannel=test or the STREAMLINK_CHANNEL env var.
 val channel = (findProperty("channel") as String?) ?: System.getenv("STREAMLINK_CHANNEL") ?: "main"
 val isTestChannel = channel == "test"
+val isSportsChannel = channel == "sports"
 
 android {
     namespace = "com.streamlink.tv"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = if (isTestChannel) "com.streamlink.tv.test" else "com.streamlink.tv"
-        manifestPlaceholders["appLabel"] = if (isTestChannel) "StreamLink Test" else "StreamLink"
+        applicationId = when {
+            isTestChannel -> "com.streamlink.tv.test"
+            isSportsChannel -> "com.streamlink.tv.sports"
+            else -> "com.streamlink.tv"
+        }
+        manifestPlaceholders["appLabel"] = when {
+            isTestChannel -> "StreamLink Test"
+            isSportsChannel -> "StreamLink Sports"
+            else -> "StreamLink"
+        }
         minSdk = 26
         targetSdk = 34
         // Each GitHub build gets a higher version number so it installs over the last one.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
-        // Which release channel this app updates itself from ("main" or "test"); see Updater.kt.
-        buildConfigField("String", "CHANNEL", "\"${if (isTestChannel) "test" else "main"}\"")
+        // Which release channel this app updates itself from ("main", "test" or "sports"); see Updater.kt.
+        val ch = if (isTestChannel || isSportsChannel) channel else "main"
+        buildConfigField("String", "CHANNEL", "\"$ch\"")
     }
 
     // A fixed signing key, so every new build can be installed over the old one.

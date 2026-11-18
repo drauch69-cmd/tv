@@ -554,7 +554,7 @@ class MainActivity : Activity() {
         findViewById<View>(R.id.qrClose).background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
         updateSettings.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
         findViewById<TextView>(R.id.versionText).text = "StreamLink ${BuildConfig.VERSION_NAME}" +
-            if (BuildConfig.CHANNEL == "test") " (test)" else ""
+            if (BuildConfig.CHANNEL == "main") "" else " (${BuildConfig.CHANNEL})"
     }
 
     private fun confirmRemove(l: SavedList) {
