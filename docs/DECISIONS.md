@@ -5,6 +5,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Live scores on the list screen** (2026-11-17): built (NFL + college football from ESPN). Untested on the TV.
+  Next: the user opens a list during a game; if a game should match and doesn't (or matches wrongly), ask for the
+  item's title as shown and the "Scores:" report lines. Not checked yet against the live API: the college
+  `groups=80` setting and ESPN's live clock wording.
 - **Slow fallback on sites the finder can't catch** (e.g. a list event with no start time on a site with 5 misses
   in a row: site player only at 36 s, two searches plus a 15 s wait). Offered, not approved: treat "Live" in the
   list as started (fall back after the first check), and fall back right after the first search on sites with 3+
@@ -22,6 +26,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **Live scores** (2026-11-17): NFL and college football only; scores shown by default (no spoiler hiding); on the
+  list rows (short line) and the details card (full block); no team logos for now. A game matches only when both
+  teams are named; ties broken by start time, else nothing shown.
 - **Home screen:** TV-home-style dashboard, plus all the other mockup changes (list, player overlay, loading
   screen, phone page).
 - **Audio sync adjustment:** built, then reverted at the user's request as clunky. The real cause was a TV audio

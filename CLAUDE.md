@@ -125,6 +125,15 @@ Remote tabs; prefetch toggle).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
+- **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL and
+  college football (all FBS games: `groups=80`) for today in New York time (also yesterday before 5 am), every 30 s
+  while a game is live, else every 5 min, 2 min back-off after a failure; no key. `ScoreMatch` matches a list title to
+  a game only if BOTH teams are named (full name, school/city, nickname or abbreviation, whole words; a name inside a
+  longer team name doesn't count; NFL cities shared by two teams are ignored), within 18 h of the event's start; if
+  several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
+  · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
+  Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
+  Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
