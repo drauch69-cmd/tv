@@ -1,0 +1,30 @@
+# StreamLink — decisions and open items
+
+Running log. Update it in the same session a decision is made or an item opens or closes.
+Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
+
+## Open items
+
+- **Links 2–4 on the test site.** Their players only work when embedded; their playlists are found (inside a
+  tracking request) but refused with 403. Build 150 sends Origin and Referer from the frame referers; waiting on the
+  user's report. If it still fails: try the inner embed frame as the referer, then other headers.
+- **Waiting on the user's OK:** releasing `test` to `main`; moving the signing key to GitHub secrets; pruning fixes
+  never proven to help; restyling the player's loading screen.
+- **Offered, not approved:** automatic retry of failed list reads after about 15 minutes.
+
+Reminder: lay out options and get a "go" before starting any of these.
+
+## Decisions (do not undo without asking)
+
+- **Home screen:** TV-home-style dashboard, plus all the other mockup changes (list, player overlay, loading
+  screen, phone page).
+- **Audio sync adjustment:** built, then reverted at the user's request as clunky. The real cause was a TV audio
+  setting on the user's side. Do not bring it back.
+- **Channel surfing:** removed. Up/Down open the bottom menu, like OK.
+- **Sources** have their own button and panel (not under Audio). **Pause** is the first button.
+- **"Jump to live"** is styled like the other buttons, not highlighted. The list's Play button stays highlighted.
+- **Extra sources:** gathered in the background while watching.
+- **Origin header:** always derived from the referer being tried, not from what was captured.
+- **Tunneling:** auto-detect and switch off, not a manual setting only.
+- **Agent docs:** `CLAUDE.md` + this file in the repo are the source of truth (2026-11-17). The user's Claude Doc
+  "StreamLink — Agent Onboarding Guide" is a summary for the user only, not maintained by agents.
