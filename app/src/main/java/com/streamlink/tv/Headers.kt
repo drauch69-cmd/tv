@@ -39,7 +39,9 @@ object Headers {
      */
     fun originFor(referer: String, captured: String?): String? {
         if (referer.isEmpty()) return null
-        return captured ?: originOf(referer)
+        // Always the origin of the referer being tried: a captured Origin from another request (an
+        // analytics carrier, say) or from a different referer would be a mismatch strict servers refuse.
+        return originOf(referer) ?: captured
     }
 
     /**

@@ -45,7 +45,7 @@ class HeadersTest {
 
     @Test
     fun originForUsesCapturedThenDerivedAndNothingWithoutReferer() {
-        assertEquals("https://captured.example.com", Headers.originFor("https://player.example.com/e", "https://captured.example.com"))
+        assertEquals("https://player.example.com", Headers.originFor("https://player.example.com/e", "https://captured.example.com"))
         assertEquals("https://player.example.com", Headers.originFor("https://player.example.com/e", null))
         assertNull(Headers.originFor("", "https://captured.example.com"))
     }
