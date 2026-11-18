@@ -157,4 +157,15 @@ class ScoreStatusTest {
         assertEquals("Postponed", ScoreText.rowLine(g))
         assertEquals("Postponed", ScoreText.cardLines(g)[1])
     }
+
+    @Test fun finalNbaGameIsFinishedEvenWithLiveHint() {
+        val cha = TeamSide("Charlotte Hornets", "Hornets", "CHA", "Charlotte", "Hornets", "90", "")
+        val lal = TeamSide("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers", "95", "")
+        val g = listOf(Game("9", "nba", now - 3 * hour, "post", "Final", 4, "0.0", lal, cha, "", "STATUS_FINAL"))
+        for (hint in listOf(false, true)) {
+            val i = item(now - 3 * hour, live = hint, t = "Los Angeles Lakers vs Charlotte Hornets")
+            assertEquals(ListStatus.FINISHED, st(i, g))
+            assertEquals("Final", ScoreStatus.resolve(i, now, g).badge)
+        }
+    }
 }

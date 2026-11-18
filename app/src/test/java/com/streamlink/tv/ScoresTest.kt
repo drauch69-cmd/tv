@@ -219,4 +219,100 @@ class ScoresTest {
         assertEquals(listOf("Commanders at Giants", kick), ScoreText.cardLines(bare, ct))
         assertNotNull(ScoreText.cardLines(bare))
     }
+
+    // ---- NBA ----
+
+    private val lal = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers", "88", "10-4")
+    private val lac = ts("LA Clippers", "Clippers", "LAC", "LA", "Clippers")
+    private val cha = ts("Charlotte Hornets", "Hornets", "CHA", "Charlotte", "Hornets", "80", "5-9")
+    private val nyk = ts("New York Knicks", "Knicks", "NY", "New York", "Knicks", "99", "")
+    private val tor = ts("Toronto Raptors", "Raptors", "TOR", "Toronto", "Raptors", "101", "")
+    private val bkn = ts("Brooklyn Nets", "Nets", "BKN", "Brooklyn", "Nets")
+    private val lalB = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers")
+    private val lacB = ts("Los Angeles Clippers", "Clippers", "LAC", "Los Angeles", "Clippers")
+    private val phx = ts("Phoenix Suns", "Suns", "PHX", "Phoenix", "Suns")
+    private val utah = ts("Utah Jazz", "Jazz", "UTA", "Utah", "Jazz")
+
+    private fun nbaEvent(id: String, date: String, state: String, detail: String, period: Int, clock: String,
+                         away: String, home: String) =
+        """{"id":"$id","date":"$date","competitions":[{"competitors":[$away,$home]}],"status":{"displayClock":"$clock","period":$period,"type":{"state":"$state","name":"X","shortDetail":"$detail"}}}"""
+
+    @Test fun parsesNbaScoreboard() {
+        val json = feed(
+            nbaEvent("1", "2026-11-18T00:30Z", "in", "8:42 - 3rd", 3, "8:42",
+                jTeam("away", "Charlotte Hornets", "Hornets", "CHA", "Charlotte", "Hornets", "80", "5-9"),
+                jTeam("home", "Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers", "88", "10-4")),
+            nbaEvent("2", "2026-11-17T23:00Z", "post", "Final", 4, "0.0",
+                jTeam("away", "Toronto Raptors", "Raptors", "TOR", "Toronto", "Raptors", "101"),
+                jTeam("home", "New York Knicks", "Knicks", "NY", "New York", "Knicks", "99")),
+            nbaEvent("3", "2026-11-18T02:00Z", "pre", "11/17 - 9:00 PM EST", 0, "0:00",
+                jTeam("away", "Phoenix Suns", "Suns", "PHX", "Phoenix", "Suns"),
+                jTeam("home", "Utah Jazz", "Jazz", "UTA", "Utah", "Jazz")),
+        )
+        val games = ScoreParse.parse(json, "nba")
+        assertEquals(3, games.size)
+        assertEquals(listOf("in", "post", "pre"), games.map { it.state })
+        assertEquals("nba", games[0].league)
+        assertEquals(3, games[0].period)
+        assertEquals("88", games[0].home.score)
+        assertEquals("Final", games[1].shortDetail)
+        assertEquals("pre", games[2].state)
+        assertEquals("CHA 80 – LAL 88 · Q3 8:42", ScoreText.rowLine(games[0]))
+        assertEquals("Final · TOR 101 – NY 99", ScoreText.rowLine(games[1]))
+        assertNull(ScoreText.rowLine(games[2]))
+    }
+
+    @Test fun nbaMatchesByTeamNames() {
+        val games = listOf(
+            game("1", "nba", cha, lal, state = "in"),
+            game("2", "nba", tor, nyk),
+            game("3", "nba", phx, utah),
+        )
+        assertEquals("1", ScoreMatch.find("Los Angeles Lakers vs Charlotte Hornets", null, games)?.id)
+        assertEquals("2", ScoreMatch.find("Knicks vs Raptors", null, games)?.id)
+        assertEquals("1", ScoreMatch.find("Lakers @ Hornets live", null, games)?.id)
+        // a title naming only one team matches nothing
+        assertNull(ScoreMatch.find("Lakers highlights", null, games))
+    }
+
+    @Test fun sharedNbaCityDoesNotMatchWhenBothTeamsPlay() {
+        val games = listOf(game("1", "nba", cha, lalB), game("2", "nba", phx, lacB))
+        assertNull(ScoreMatch.find("Los Angeles vs Charlotte", null, games))
+        assertEquals("1", ScoreMatch.find("Lakers vs Charlotte", null, games)?.id)
+        assertEquals("2", ScoreMatch.find("Phoenix Suns vs Los Angeles Clippers", null, games)?.id)
+        // with only one LA team playing, the bare city is fine
+        assertEquals("1", ScoreMatch.find("Los Angeles vs Charlotte", null, listOf(game("1", "nba", cha, lalB)))?.id)
+    }
+
+    @Test fun newYorkAndBrooklynAreTold() {
+        val games = listOf(game("1", "nba", bkn, nyk), game("2", "nba", tor, lalB))
+        assertEquals("1", ScoreMatch.find("Brooklyn vs New York", null, games)?.id)
+        assertEquals("1", ScoreMatch.find("Nets vs Knicks", null, games)?.id)
+    }
+
+    @Test fun nflAndNbaSameDayDoNotConfuse() {
+        // NFL has two New York teams; NBA has one. Cities are judged per league.
+        val games = nflDay() + listOf(game("10", "nba", tor, nyk))
+        assertEquals("10", ScoreMatch.find("Knicks vs Raptors", null, games)?.id)
+        assertEquals("10", ScoreMatch.find("New York vs Toronto", null, games)?.id) // NBA New York is not ambiguous
+        assertNull(ScoreMatch.find("New York vs Buffalo", null, games)) // NFL New York still is
+        assertEquals("2", ScoreMatch.find("Bills vs Jets", null, games)?.id)
+        // two LA teams in the NBA do not block an NFL name
+        val mixed = listOf(game("1", "nfl", chi, ts("Los Angeles Rams", "Rams", "LAR", "Los Angeles", "Rams")),
+            game("2", "nba", cha, lalB), game("3", "nba", phx, lacB))
+        assertEquals("1", ScoreMatch.find("Los Angeles vs Chicago", null, mixed)?.id)
+    }
+
+    @Test fun nbaStatusText() {
+        val g = game("1", "nba", cha, lal, state = "in", detail = "8:42 - 3rd", period = 3, clock = "8:42")
+        assertEquals("CHA 80 – LAL 88 · Q3 8:42", ScoreText.rowLine(g))
+        assertEquals("Q3 · 8:42", ScoreText.cardLines(g)[1])
+        assertEquals("CHA 80 – LAL 88 · Half", ScoreText.rowLine(g.copy(shortDetail = "Halftime", period = 2, clock = "0.0")))
+        assertEquals("CHA 80 – LAL 88 · OT 2:10", ScoreText.rowLine(g.copy(period = 5, clock = "2:10", shortDetail = "2:10 - OT")))
+        assertEquals("OT · 2:10", ScoreText.cardLines(g.copy(period = 5, clock = "2:10"))[1])
+        assertEquals("CHA 80 – LAL 88 · 2OT 0:45", ScoreText.rowLine(g.copy(period = 6, clock = "0:45")))
+        assertEquals("CHA 80 – LAL 88 · 3OT", ScoreText.rowLine(g.copy(period = 7, clock = "")))
+        // football unchanged
+        assertEquals("OT 4:10", ScoreText.rowLine(live().copy(period = 5, clock = "4:10"))!!.substringAfter("· "))
+    }
 }
