@@ -254,6 +254,8 @@ class ScoresTest {
         val games = listOf(game("n1", "nba", bos, lalS), game("n2", "nba", den, lacS))
         assertNull(ScoreMatch.find("Los Angeles vs Boston", base, games))
         assertEquals("n2", ScoreMatch.find("Clippers vs Nuggets", base, games)?.id)
+    }
+
     private val lal = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers", "88", "10-4")
     private val lac = ts("LA Clippers", "Clippers", "LAC", "LA", "Clippers")
     private val cha = ts("Charlotte Hornets", "Hornets", "CHA", "Charlotte", "Hornets", "80", "5-9")
