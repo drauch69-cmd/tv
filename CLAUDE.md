@@ -107,7 +107,7 @@ Playback pipeline:
    started with `isLinkPage` and runs no background link run of its own.
 
 Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (live NFL/college games with streams), "Live now" row from
-`HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, 24/7 tiles), sections from `ListSections`),
+`HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`),
 `SportActivity` (one sport: game sections, "All games" toggle, "Other" streams), `StreamsActivity` (one game's score card and
 streams, or the 24/7 channels),
 `Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
@@ -132,19 +132,19 @@ Remote tabs; prefetch toggle).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
-- **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL and
-  college football (all FBS games: `groups=80`) for today in New York time (also yesterday before 5 am), every 30 s
+- **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL,
+  college football (all FBS games: `groups=80`) and the NBA for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. The next two days are fetched too
   (schedule for the sports folders), cached separately and refreshed at most every 30 min; a failure there never
   discards today's data. `ScoreFeed.latest()` returns all of it (3 days), merged by game id. `ScoreMatch` matches a list title to
   a game only if BOTH teams are named (full name, school/city, nickname or abbreviation, whole words; a name inside a
-  longer team name doesn't count; NFL cities shared by two teams are ignored), within 18 h of the event's start; if
+  longer team name doesn't count; NFL and NBA cities shared by two teams are ignored, e.g. Los Angeles Lakers/Clippers), within 18 h of the event's start; if
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
   · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
-  Report lines start with "Scores:". Uses ESPN team names only, never site wording.
+  On a list screen whose list has a sport tag, scores are matched only against games of that league (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Sports folders** (`Games.kt`, pure Kotlin; logic only so far, screens come separately). A saved list carries a
-  sport tag (`SavedList.sport`: "nfl", "cfb" or "" via `Sports`; set on the phone page's Lists tab when adding or
+  sport tag (`SavedList.sport`: "nfl", "cfb", "nba" or "" via `Sports`; set on the phone page's Lists tab when adding or
   with the select on each list; `POST /lists/sport` (id, sport), `/lists/add` takes an optional `sport`, `GET /lists`
   returns it). `GameFolders.build` sorts every item of every list tagged with a sport into that sport's games
   (today to the end of today + 2 in the TV's zone, plus any live game) using `ScoreMatch` on the title, then on

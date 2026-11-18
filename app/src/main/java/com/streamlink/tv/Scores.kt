@@ -24,10 +24,10 @@ data class TeamSide(
     val record: String,
 )
 
-/** One NFL or college football game from ESPN's scoreboard. */
+/** One NFL, college football or NBA game from ESPN's scoreboard. */
 data class Game(
     val id: String,
-    val league: String,       // "nfl" | "cfb"
+    val league: String,       // "nfl" | "cfb" | "nba"
     val startMillis: Long,
     val state: String,        // "pre" | "in" | "post"
     val shortDetail: String,  // "Final", "Q3 - 8:42", "Halftime", "11/22 - 7:15 PM EST"
@@ -169,7 +169,7 @@ object ScoreMatch {
         out.add(norm(t.shortName))
         val abbr = norm(t.abbr)
         if (abbr.length >= 2 && !abbr.contains(' ')) out.add(abbr)
-        if (loc.isNotEmpty() && (league != "nfl" || loc !in ambiguousLocations)) out.add(loc)
+        if (loc.isNotEmpty() && (!(league == "nfl" || league == "nba") || loc !in ambiguousLocations)) out.add(loc)
         out.removeAll { it.length < 2 }
         return out
     }
@@ -181,9 +181,9 @@ object ScoreMatch {
         if (pool.isEmpty()) return null
         val padded = " $t "
 
-        // NFL locations shared by two teams in the list ("New York", "Los Angeles") are not used.
+        // NFL and NBA locations shared by two teams in the list ("New York", "Los Angeles") are not used.
         val teamsByLocation = HashMap<String, MutableSet<String>>()
-        for (g in pool) if (g.league == "nfl") for (s in listOf(g.home, g.away)) {
+        for (g in pool) if (g.league == "nfl" || g.league == "nba") for (s in listOf(g.home, g.away)) {
             val loc = norm(s.location)
             if (loc.isNotEmpty()) teamsByLocation.getOrPut(loc) { HashSet() }.add(norm(s.abbr).ifEmpty { norm(s.displayName) })
         }
@@ -227,7 +227,7 @@ object ScoreText {
             isHalf(g) -> if (sep == " ") "Half" else "Halftime"
             d.contains("end", ignoreCase = true) || d.contains("delay", ignoreCase = true) -> d
             g.period in 1..4 -> "Q${g.period}$sep${g.clock}".trimEnd(' ', '·')
-            g.period > 4 -> if (g.league == "nfl" && g.clock.isNotBlank()) "OT$sep${g.clock}" else d.ifBlank { "OT" }
+            g.period > 4 -> if ((g.league == "nfl" || g.league == "nba") && g.clock.isNotBlank()) "OT$sep${g.clock}" else d.ifBlank { "OT" }
             d.isNotBlank() -> d
             else -> "Live"
         }
@@ -258,7 +258,7 @@ object ScoreText {
         } else {
             fun side(s: TeamSide) = if (s.record.isBlank()) name(s) else "${name(s)} (${s.record})"
             out.add("${side(g.away)} at ${side(g.home)}")
-            out.add("Kickoff " + KICKOFF.format(java.time.Instant.ofEpochMilli(g.startMillis).atZone(zone)))
+            out.add((if (g.league == "nba") "Tip-off " else "Kickoff ") + KICKOFF.format(java.time.Instant.ofEpochMilli(g.startMillis).atZone(zone)))
             if (g.broadcast.isNotBlank()) out.add(g.broadcast)
         }
         return out
@@ -266,7 +266,7 @@ object ScoreText {
 }
 
 /**
- * Cached scores and schedule for both leagues, refreshed in the background: today (and yesterday before 5 am,
+ * Cached scores and schedule for all leagues, refreshed in the background: today (and yesterday before 5 am,
  * New York time) on the live timing, plus the next two days at most every 30 minutes, cached separately.
  */
 object ScoreFeed {
@@ -274,7 +274,7 @@ object ScoreFeed {
     private const val IDLE_MS = 5 * 60_000L
     private const val BACKOFF_MS = 2 * 60_000L
     private const val FUTURE_MS = 30 * 60_000L
-    private val LEAGUES = listOf("nfl", "cfb")
+    private val LEAGUES = listOf("nfl", "cfb", "nba")
     private val NY = ZoneId.of("America/New_York")
     private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
 
@@ -338,7 +338,8 @@ object ScoreFeed {
             if (after != before) {
                 val n = after.count { it.league == "nfl" }
                 val c = after.count { it.league == "cfb" }
-                Report.logOnce("scores-count-$n-$c", "Scores: $n NFL and $c college games over 3 days")
+                val b = after.count { it.league == "nba" }
+                Report.logOnce("scores-count-$n-$c-$b", "Scores: $n NFL, $c college and $b NBA games over 3 days")
                 Handler(Looper.getMainLooper()).post(onUpdate)
             }
         }
@@ -395,6 +396,7 @@ object ScoreFeed {
 
     private fun url(league: String, date: String) =
         if (league == "nfl") "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=$date"
+        else if (league == "nba") "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=$date"
         else "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=$date&groups=80&limit=300"
 
     private fun download(address: String): String {

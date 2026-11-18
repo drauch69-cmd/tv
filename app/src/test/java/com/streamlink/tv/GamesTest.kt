@@ -183,4 +183,23 @@ class GamesTest {
         assertEquals("", Sports.clean("hockey"))
         assertEquals("College football", Sports.label("cfb"))
     }
+
+    @Test fun nbaSportAndFolders() {
+        assertEquals("nba", Sports.clean(" NBA "))
+        assertEquals("NBA", Sports.label("nba"))
+        assertEquals(listOf("nfl", "cfb", "nba"), Sports.ALL)
+        val lal = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers")
+        val bos = ts("Boston Celtics", "Celtics", "BOS", "Boston", "Celtics")
+        val g = game("b1", bos, lal, at("2026-11-19T20:00:00Z"), league = "nba")
+        val f = build(listOf(list("a", "nba") to listOf(item("Lakers vs Celtics", "https://a.example/b"))), listOf(gWsh, g), "nba")
+        assertEquals(listOf("b1"), f.games.map { it.game.id })
+        assertEquals(1, f.games[0].streams.size)
+        val live = game("b2", bos, lal, at("2026-11-19T13:00:00Z"), "in", "nba")
+        val l3 = game("cfb-same", chi, det, at("2026-11-19T13:00:00Z"), "in", "cfb")
+        val l2 = game("nfl-same", wsh, nyg, at("2026-11-19T13:00:00Z"), "in")
+        val order = LiveGames.sample(listOf(SportFolders("nba", listOf(folder(live, "https://x/b")), emptyList()),
+            SportFolders("cfb", listOf(folder(l3, "https://x/c")), emptyList()),
+            SportFolders("nfl", listOf(folder(l2, "https://x/n")), emptyList())))
+        assertEquals(listOf("nfl-same", "cfb-same", "b2"), order.map { it.game.id })
+    }
 }

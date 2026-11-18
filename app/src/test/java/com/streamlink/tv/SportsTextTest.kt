@@ -74,4 +74,9 @@ class SportsTextTest {
         assertEquals("All games: Off", SportsText.allGamesChip(false))
         assertEquals("All games: On", SportsText.allGamesChip(true))
     }
+
+    @Test fun nbaEmptyMessage() {
+        val empty = SportFolders("nba", emptyList(), emptyList())
+        assertEquals("No NBA games today or in the next 2 days.", SportsText.emptyMessage("nba", 1, empty, false))
+    }
 }

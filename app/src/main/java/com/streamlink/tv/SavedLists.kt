@@ -5,16 +5,17 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** [sport] is "nfl", "cfb" or "" (none); see [Sports]. */
+/** [sport] is "nfl", "cfb", "nba" or "" (none); see [Sports]. */
 data class SavedList(val id: String, val name: String, val url: String, val sport: String = "")
 
 /** The sports a saved list can be tagged with. */
 object Sports {
     const val NFL = "nfl"
     const val CFB = "cfb"
+    const val NBA = "nba"
     /** Allowed non-empty values, in display order. */
-    val ALL = listOf(NFL, CFB)
-    fun label(sport: String): String = when (sport) { NFL -> "NFL"; CFB -> "College football"; else -> "" }
+    val ALL = listOf(NFL, CFB, NBA)
+    fun label(sport: String): String = when (sport) { NFL -> "NFL"; CFB -> "College football"; NBA -> "NBA"; else -> "" }
     /** Unknown values read as "" (no sport). */
     fun clean(raw: String?): String = raw?.trim()?.lowercase()?.takeIf { it in ALL } ?: ""
 }

@@ -109,7 +109,7 @@
     <div class="fl card" style="margin-bottom:12px">
       <label for="lname" class="lbl">Save the pasted link as a stream list</label>
       <input id="lname" type="text" maxlength="60" placeholder="Name for a stream list (optional)" autocomplete="off">
-      <select id="lsport" aria-label="Sport"><option value="">No sport</option><option value="nfl">NFL</option><option value="cfb">College football</option></select>
+      <select id="lsport" aria-label="Sport"><option value="">No sport</option><option value="nfl">NFL</option><option value="cfb">College football</option><option value="nba">NBA</option></select>
       <button class="ghost" type="button" id="addlist">Add as stream list</button>
     </div>
     <div class="section">Stream lists</div>
@@ -347,7 +347,7 @@
           post('/lists/remove', 'id=' + encodeURIComponent(l.id)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
         };
         var sp = el('select'); sp.setAttribute('aria-label', 'Sport for ' + l.name);
-        [['', 'No sport'], ['nfl', 'NFL'], ['cfb', 'College football']].forEach(function(o){
+        [['', 'No sport'], ['nfl', 'NFL'], ['cfb', 'College football'], ['nba', 'NBA']].forEach(function(o){
           var op = el('option', null, o[1]); op.value = o[0]; sp.appendChild(op);
         });
         sp.value = l.sport || '';

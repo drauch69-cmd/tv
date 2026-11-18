@@ -19,7 +19,7 @@ import android.widget.TextView
 import java.time.ZoneId
 
 /**
- * One sport (NFL or college football): its games in sections, then "Other" streams that matched no game.
+ * One sport (NFL, college football or NBA): its games in sections, then "Other" streams that matched no game.
  * Shows the cached lists at once, then re-reads every list tagged with this sport, one after another.
  */
 class SportActivity : Activity() {

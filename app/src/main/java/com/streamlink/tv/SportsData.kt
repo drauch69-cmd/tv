@@ -18,7 +18,7 @@ object SportsData {
         SportFolders(league, emptyList(), emptyList())
     }
 
-    /** NFL and college football, in [Sports.ALL] order. */
+    /** All sports, in [Sports.ALL] order. */
     fun both(ctx: Context, now: Long = System.currentTimeMillis()): List<SportFolders> {
         val ls = lists(ctx)
         return Sports.ALL.map { folders(ctx, it, now, ls) }

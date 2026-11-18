@@ -219,4 +219,40 @@ class ScoresTest {
         assertEquals(listOf("Commanders at Giants", kick), ScoreText.cardLines(bare, ct))
         assertNotNull(ScoreText.cardLines(bare))
     }
+
+    // ---- NBA ----
+
+    private val lal = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers")
+    private val lac = ts("Los Angeles Clippers", "Clippers", "LAC", "Los Angeles", "Clippers")
+    private val bos = ts("Boston Celtics", "Celtics", "BOS", "Boston", "Celtics")
+    private val den = ts("Denver Nuggets", "Nuggets", "DEN", "Denver", "Nuggets")
+
+    @Test fun parsesNbaScoreboard() {
+        val json = feed(jEvent("501", "2026-11-18T00:30Z", "in", "8:42 - 3rd",
+            jTeam("away", "Boston Celtics", "Celtics", "BOS", "Boston", "Celtics", "88", "9-2") + "," +
+                jTeam("home", "Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers", "85", "7-4")))
+        val g = ScoreParse.parse(json, "nba").single()
+        assertEquals("nba", g.league)
+        assertEquals("in", g.state)
+        assertEquals("LAL", g.home.abbr)
+        assertEquals("Los Angeles", g.home.location)
+        assertEquals("Celtics", g.away.nickname)
+        assertEquals("BOS 88 – LAL 85 · Q3 8:42", ScoreText.rowLine(g))
+        assertEquals("Halftime", ScoreText.cardLines(g.copy(shortDetail = "Halftime", period = 2, clock = "0.0"))[1])
+        assertEquals("BOS 88 – LAL 85 · OT 2:10", ScoreText.rowLine(g.copy(period = 5, clock = "2:10")))
+        val pre = g.copy(state = "pre", period = 0)
+        assertEquals("Tip-off", ScoreText.cardLines(pre)[1].substringBefore(' '))
+    }
+
+    @Test fun nbaTeamNamesMatch() {
+        val games = listOf(game("n1", "nba", bos, lal), game("n2", "nba", den, lac))
+        assertEquals("n1", ScoreMatch.find("Lakers vs Celtics", base, games)?.id)
+        assertEquals("n1", ScoreMatch.find("Celtics at Los Angeles Lakers", base, games)?.id)
+    }
+
+    @Test fun nbaSharedLocationIsIgnored() {
+        val games = listOf(game("n1", "nba", bos, lal), game("n2", "nba", den, lac))
+        assertNull(ScoreMatch.find("Los Angeles vs Boston", base, games))
+        assertEquals("n2", ScoreMatch.find("Clippers vs Nuggets", base, games)?.id)
+    }
 }

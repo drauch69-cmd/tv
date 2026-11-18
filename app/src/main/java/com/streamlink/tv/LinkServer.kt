@@ -30,7 +30,7 @@ class LinkServer(
     private val onListAdd: (String, String, String) -> String? = { _, _, _ -> "Stream lists are not available" },
     /** POST /lists/remove (id): false if there is no such list. */
     private val onListRemove: (String) -> Boolean = { false },
-    /** POST /lists/sport (id, sport: "nfl", "cfb" or empty for none): false if there is no such list. */
+    /** POST /lists/sport (id, sport: "nfl", "cfb", "nba" or empty for none): false if there is no such list. */
     private val onListSport: (String, String) -> Boolean = { _, _ -> false },
     /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
     private val onListRefresh: (String) -> Boolean = { false },

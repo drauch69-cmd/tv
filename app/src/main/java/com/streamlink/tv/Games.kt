@@ -126,11 +126,11 @@ object AlwaysOn {
 
 /** Live games for the home screen. */
 object LiveGames {
-    /** Live games that have at least one stream: earliest start first, NFL before college only as a tiebreak. */
+    /** Live games that have at least one stream: earliest start first, NFL, then college, then NBA only as a tiebreak. */
     fun sample(folders: List<SportFolders>, max: Int = 8): List<GameFolder> =
         folders.flatMap { it.games }
             .filter { it.game.state == "in" && it.streams.isNotEmpty() }
-            .sortedWith(compareBy<GameFolder>({ it.game.startMillis }, { if (it.game.league == "nfl") 0 else 1 }))
+            .sortedWith(compareBy<GameFolder>({ it.game.startMillis }, { when (it.game.league) { "nfl" -> 0; "cfb" -> 1; else -> 2 } }))
             .take(max)
 
     /**

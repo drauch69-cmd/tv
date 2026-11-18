@@ -352,7 +352,7 @@ class ListActivity : Activity() {
     }
 
     private fun gameFor(item: ListItem): Game? =
-        try { ScoreMatch.find(ListText.displayTitle(item), item.startMillis, ScoreFeed.latest()) } catch (_: Exception) { null }
+        try { ScoreMatch.find(ListText.displayTitle(item), item.startMillis, ScoreFeed.latest().filter { list.sport.isEmpty() || it.league == list.sport }) } catch (_: Exception) { null }
 
     private fun fillScoreBlock(item: ListItem) {
         pScore.removeAllViews()
