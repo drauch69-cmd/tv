@@ -56,6 +56,10 @@ In practice:
 ## Branches, releases, CI
 
 - `main`: stable release; moves only with the user's OK. `test`: working release channel.
+- `sports`: the separate "StreamLink Sports" app (`com.streamlink.tv.sports`, release `sports-latest`) with sport folders.
+  **The user runs this app on the TV.** Fixes made on `test` reach it only by merging `test` into `sports` (done
+  2026-11-18, Sports build 184); never merge `sports` into `test`/`main` without the user's OK. Read `sports`'
+  own CLAUDE.md / DECISIONS for its extra parts.
 - The lead works on an `integrate` branch and publishes with `git push -qf origin integrate:test`.
   **That is a force push: always start `integrate` from the latest `origin/test`** (`git fetch origin test` then
   branch or rebase onto it), or commits made directly on `test` (like doc updates) are wiped.

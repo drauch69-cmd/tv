@@ -5,6 +5,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **The user runs StreamLink Sports** (2026-11-18), not StreamLink Test. Tonight's `test` work was merged into `sports`
+  (Sports build 184), which also fixed Roxie's "Live" next to a "Final" score (`sports` predated ESPN-driven status).
+  Work aimed at the user's TV goes to `sports`.
 - **Pull streams from the six index sites** (user, 2026-11-18). Inspected one live game on each in the desktop browser
   (not on the TV); plan offered, waiting for "go":
   - TheTVApp and Buffstreams: same player provider; disguised playlist `/playlist/<id>/load-playlist` (already caught
@@ -23,10 +26,6 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   against the live pages in the desktop browser at 1280x720 (all six read correctly); not tested on the TV.
   Known leftovers: Buffstreams' machine time has no zone (it is UTC) and is read in the TV's zone (6 h off; ESPN fixes
   matched games); live cards that show only a game clock (Reed college games) get no start time.
-- **Roxie football: "Live" next to a "Final" score** (build 174, reported 2026-11-17). Not reproduced: code and tests say
-  a final ESPN game wins over the site's marker. Asked the user where the "Live" shows (row badge, "Live now"
-  heading, home row, phone page) and for the "Scores:" / "List: by status" report lines. The new stale-marker rule
-  may cover it once the game is 4 h past its listed start.
 - **List reading speed** (offered 2026-11-17): quick read of the page's plain text first, stop waiting once the list
   stops changing, show the last list instantly. To do after the fixes; confirm with the user before starting.
 
