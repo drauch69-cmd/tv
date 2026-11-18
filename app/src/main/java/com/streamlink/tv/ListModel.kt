@@ -35,7 +35,7 @@ object ListStatus {
     /** A start more than 24 h ago means a channel, not a one-time event: "always on". */
     fun isAlwaysOn(start: Long, nowMillis: Long): Boolean = nowMillis - start > ALWAYS_ON_MS
 
-    /** live: liveHint, started less than 4h ago, or started more than 24h ago (always on); soon: starts
+    /** live: liveHint (until 4h after the start), started less than 4h ago, or started more than 24h ago (always on); soon: starts
      *  within 30 min; upcoming: later; finished: started 4h..24h ago; unknown: no time and no liveHint.
      *  Index pages drop real one-time events once they are over, so an entry still listed a day or more
      *  after its start is treated as a channel. */
@@ -44,8 +44,10 @@ object ListStatus {
 
     /** The status from the item's own time and marker only (no scores). */
     fun byTime(item: ListItem, nowMillis: Long): String {
-        if (item.liveHint) return LIVE
-        val start = item.startMillis ?: return UNKNOWN
+        val start = item.startMillis
+        // A site's live marker counts until 4 h after the listed start; some sites never take it down.
+        if (item.liveHint && (start == null || nowMillis - start < LIVE_WINDOW_MS)) return LIVE
+        if (start == null) return UNKNOWN
         val delta = start - nowMillis
         return when {
             delta > SOON_MS -> UPCOMING
