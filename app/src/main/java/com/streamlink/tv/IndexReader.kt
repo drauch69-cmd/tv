@@ -599,7 +599,9 @@ internal object MiniJson {
  * repo root and downloaded (cached 6h in SharedPreferences "streamlink"/"recipes_json").
  */
 object ListRecipes {
-    const val URL = "https://raw.githubusercontent.com/drauch69-cmd/tv/main/recipes.json"
+    // Read from the branch this build came from: the test app's recipes live on "test", the normal
+    // app's on "main" (asking main from the test app gave HTTP 404 while main had no recipes.json yet).
+    val URL = "https://raw.githubusercontent.com/drauch69-cmd/tv/${BuildConfig.CHANNEL}/recipes.json"
     private const val PREFS = "streamlink"
     private const val KEY = "recipes_json"
     private const val KEY_AT = "recipes_json_at"

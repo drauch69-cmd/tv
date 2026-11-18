@@ -5,6 +5,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Slow fallback on sites the finder can't catch** (e.g. a list event with no start time on a site with 5 misses
+  in a row: site player only at 36 s, two searches plus a 15 s wait). Offered, not approved: treat "Live" in the
+  list as started (fall back after the first check), and fall back right after the first search on sites with 3+
+  misses in a row. Next: read the site player's new lines in the user's report to see if the stream is catchable.
 - **Links 2–4 on the test site.** Their players only work when embedded; their playlists are found (inside a
   tracking request) but refused with 403. Build 150 sends Origin and Referer from the frame referers; waiting on the
   user's report. If it still fails: try the inner embed frame as the referer, then other headers.

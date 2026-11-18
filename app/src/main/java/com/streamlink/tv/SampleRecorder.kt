@@ -55,11 +55,18 @@ object SampleRecorder {
     private var master: Playlist? = null
     private val media = ArrayList<Playlist>()
     private val chunks = ArrayList<ChunkTap>()
+    private val siteStreams = ArrayList<String>()
 
     fun reset() = synchronized(lock) {
         master = null
         media.clear()
         chunks.clear()
+        siteStreams.clear()
+    }
+
+    /** A playlist address the site's own player loaded (the app's finder had missed it). Up to 5. */
+    fun sitePlayerStream(url: String) = synchronized(lock) {
+        if (url !in siteStreams && siteStreams.size < 5) siteStreams.add(url)
     }
 
     /** A playlist as received (before any fixing). [len] bytes of [bytes] are used. */
@@ -85,7 +92,7 @@ object SampleRecorder {
         if (chunks.size >= MAX_CHUNKS) null else ChunkTap(url, System.currentTimeMillis()).also { chunks.add(it) }
     }
 
-    fun hasData(): Boolean = synchronized(lock) { master != null || media.isNotEmpty() || chunks.isNotEmpty() || lastPage != null || lastStreamPage != null }
+    fun hasData(): Boolean = synchronized(lock) { siteStreams.isNotEmpty() || master != null || media.isNotEmpty() || chunks.isNotEmpty() || lastPage != null || lastStreamPage != null }
 
     /** The last list (index) page the app read: its structure and a picture of it. Not cleared by [reset]. */
     class PageSnap(val url: String, val html: ByteArray, val image: ByteArray?, val at: Long, val note: String)
@@ -117,11 +124,11 @@ object SampleRecorder {
         val page = lastPage
         val streamPage = lastStreamPage
         val snap = synchronized(lock) {
-            if (master == null && media.isEmpty() && chunks.isEmpty() && page == null && streamPage == null) null
-            else Triple(master, media.toList(), chunks.toList())
+            if (master == null && media.isEmpty() && chunks.isEmpty() && siteStreams.isEmpty() && page == null && streamPage == null) null
+            else Triple(master, media.toList(), chunks.toList()) to siteStreams.toList()
         } ?: return null
-        val (m, md, ck) = snap
-        return buildZip(reportText, appVersion, m, md, ck, now, page, streamPage)
+        val (m, md, ck) = snap.first
+        return buildZip(reportText, appVersion, m, md, ck, now, page, streamPage, snap.second)
     }
 
     fun fileName(now: Long = System.currentTimeMillis()): String {
@@ -139,6 +146,7 @@ object SampleRecorder {
         now: Long = System.currentTimeMillis(),
         page: PageSnap? = null,
         streamPage: PageSnap? = null,
+        siteStreams: List<String> = emptyList(),
     ): ByteArray {
         val out = ByteArrayOutputStream()
         val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).also { it.timeZone = TimeZone.getTimeZone("UTC") }
@@ -189,6 +197,13 @@ object SampleRecorder {
             }
             if (page != null) putPage("list-page", "list page", page)
             if (streamPage != null) putPage("stream-page", "stream page", streamPage)
+            siteStreams.forEachIndexed { i, u ->
+                urls.append("site-player-stream-${i + 1}: ").append(u).append('\n')
+            }
+            if (siteStreams.isNotEmpty()) {
+                info.append("The site's own player loaded ").append(siteStreams.size)
+                    .append(" playlist(s) the finder missed (addresses in urls.txt; the playlists above may be these)\n")
+            }
             if (master == null) info.append("(no main playlist seen)\n")
             if (media.isEmpty()) info.append("(no video playlist seen)\n")
             if (chunks.isEmpty()) info.append("(no video chunk seen)\n")
@@ -222,6 +237,9 @@ stream-page.html The last stream page the app searched (the player's own search 
                (scripts and styles removed), if any. Its result line in info.txt says
                which search it was and what it found.
 stream-page.jpg A picture of that stream page as the hidden browser saw it.
+               When the app fell back to the site's own player, playlists that player
+               loaded are saved too (master/media above) and listed in urls.txt as
+               site-player-stream-N.
 
 Privacy: urls.txt and the playlists contain the stream's address and tokens.
 Only share this file with people you trust.

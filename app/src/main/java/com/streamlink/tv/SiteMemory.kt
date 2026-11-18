@@ -7,11 +7,13 @@ import org.json.JSONObject
  * Remembers, per site, whether the stream finder found anything there recently. After
  * [FAILS_TO_SHORTEN] misses in a row the finder only looks for [SHORT_TIMEOUT_MS] on that site and then
  * falls back to the site's own player, instead of 25 s. One success clears it; entries expire after a week.
+ * The site's own player also clears it when the page there loads a playlist the finder could have
+ * caught (the miss was the finder's, not a site the app can't read), see [clear].
  * Only host names and counts are stored.
  */
 object SiteMemory {
     const val FAILS_TO_SHORTEN = 2
-    const val SHORT_TIMEOUT_MS = 10_000L
+    const val SHORT_TIMEOUT_MS = 15_000L // 10 s left only ~8 s after the page load and first tap
     const val EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
     private const val PREFS = "streamlink"
     private const val KEY = "site_memory"
@@ -36,6 +38,9 @@ object SiteMemory {
         val k = key(host) ?: return false
         return shorten(load(ctx)[k], System.currentTimeMillis())
     }
+
+    /** Forget the misses for [host]: the stream there turned out to be one the finder can catch. */
+    fun clear(ctx: Context, host: String?) = record(ctx, host, found = true)
 
     fun fails(ctx: Context, host: String?): Int = key(host)?.let { load(ctx)[it]?.fails } ?: 0
 
