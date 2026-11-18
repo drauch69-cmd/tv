@@ -367,9 +367,12 @@ class PlayerActivity : Activity() {
         qualityChoice = -1
 
         val lower = src.url.lowercase()
+        // A disguised address (no m3u8/.mpd in it) carries the content type the verifier saw.
+        val isHls = lower.contains("m3u8") || src.mime == MimeTypes.APPLICATION_M3U8
+        val isDash = !isHls && (lower.contains(".mpd") || src.mime == MimeTypes.APPLICATION_MPD)
         val item = MediaItem.Builder().setUri(src.url).apply {
-            if (lower.contains("m3u8")) setMimeType(MimeTypes.APPLICATION_M3U8)
-            else if (lower.contains(".mpd")) setMimeType(MimeTypes.APPLICATION_MPD)
+            if (isHls) setMimeType(MimeTypes.APPLICATION_M3U8)
+            else if (isDash) setMimeType(MimeTypes.APPLICATION_MPD)
             if (smoothLive) {
                 // Play ~20s behind live (a few seconds more than usual) so there's room to buffer, and never speed up to catch up
                 // (that drains the cushion); only slow down imperceptibly to rebuild it.
@@ -387,7 +390,7 @@ class PlayerActivity : Activity() {
         p.addListener(listener)
         p.addAnalyticsListener(downloads)
         showCover(if (reconnects == 0) "Loading…" else "Reconnecting…", 2)
-        if (lower.contains("m3u8")) {
+        if (isHls) {
             // Be as forgiving as a browser with how the stream is put together. Many relayed
             // streams never send the "IDR" keyframe Android's player waits for before starting
             // (it would sit buffering forever), or don't mark where each frame begins.

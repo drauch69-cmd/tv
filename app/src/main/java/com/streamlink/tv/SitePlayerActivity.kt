@@ -357,6 +357,8 @@ class SitePlayerActivity : Activity() {
     private var videoPlaying = false
     private var clearedMisses = false
     private val streamsSeen = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
+    /** Requests that only look like a playlist by their address words (see StreamUrls.isPossiblePlaylist); never fetched here. */
+    private val possiblesSeen = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
     private var pointerMode = false
     private var pointerX = -1f
     private var pointerY = -1f
@@ -448,7 +450,14 @@ class SitePlayerActivity : Activity() {
             // Runs on a web view thread, for every request any frame makes.
             override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
-                if (!StreamSniffer.isStreamUrl(u) || streamsSeen.size >= 5 || !streamsSeen.add(u)) return
+                if (!StreamSniffer.isStreamUrl(u)) {
+                    if (!request.isForMainFrame && request.method.equals("GET", true) && StreamUrls.isPossiblePlaylist(u) &&
+                        !AdBlock.isBlockedHost(request.url.host, true) && possiblesSeen.size < 5 && possiblesSeen.add(u)) {
+                        main.post { onPossibleSeen(u) }
+                    }
+                    return
+                }
+                if (streamsSeen.size >= 5 || !streamsSeen.add(u)) return
                 val headers = request.requestHeaders?.toMap() ?: emptyMap()
                 main.post { onStreamSeen(u, headers) }
             }
@@ -488,15 +497,24 @@ class SitePlayerActivity : Activity() {
 
     private val videoCheck = Runnable {
         if (!videoPlaying) Report.log("Site player: no video playing yet after ${VIDEO_CHECK_MS / 1000} s" +
-            if (streamsSeen.isEmpty()) " (and no stream playlist loaded)" else "")
+            if (streamsSeen.isEmpty() && possiblesSeen.isEmpty()) " (and no stream playlist loaded)" else "")
     }
 
     /** 10 s after the video starts: say whether the page loaded a playlist the finder could have caught. */
     private val playlistVerdict = Runnable {
-        if (streamsSeen.isEmpty()) {
+        if (streamsSeen.isEmpty() && possiblesSeen.isNotEmpty()) {
+            Report.log("Site player: the video plays; the page loaded only a possible playlist (an address with no .m3u8/.mpd, " +
+                "${possiblesSeen.size} seen); the finder checks such addresses by their content")
+        } else if (streamsSeen.isEmpty()) {
             Report.log("Site player: the video plays, but the page loaded no playlist (.m3u8/.mpd) the app can see; " +
                 "the site likely hides its stream, so the short search on this site stays")
         }
+    }
+
+    /** A request that may be a playlist by its address words (the finder checks its content). Never fetched here; does not clear the site's misses (only a confirmed playlist does). */
+    private fun onPossibleSeen(u: String) {
+        if (isFinishing || isDestroyed) return
+        Report.log("Site player: the page loaded a possible playlist (${Report.host(u)}/…)")
     }
 
     /**

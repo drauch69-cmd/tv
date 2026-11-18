@@ -44,6 +44,46 @@ object StreamUrls {
         return x == key(b)
     }
 
+    /** Path endings that are never a playlist (pictures, code, fonts, media pieces, data/pages). ".json" is kept out on purpose. */
+    private val NOT_PLAYLIST_EXTENSIONS = listOf(
+        ".woff", ".woff2", ".ttf", ".otf", ".eot", ".map", ".json", ".html", ".htm", ".xml",
+        ".ts", ".m4s", ".mp4", ".m4v", ".m4a", ".aac", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4", ".vtt", ".webvtt", ".key",
+    )
+    private val PLAYLIST_WORDS = setOf("playlist", "manifest", "chunklist", "master", "index")
+
+    /**
+     * A request that is not a stream by [classify] but whose address may still be a playlist in disguise,
+     * e.g. "/playlist/60325/load-playlist" or "/hls/master.txt". True when the path is not an image, script,
+     * style, font, media piece, data or page file (see [NOT_PLAYLIST_EXTENSIONS]) and some path segment
+     * holds one of the words playlist / manifest / chunklist / master / index as a whole word: segments are
+     * split at anything that is not a letter or digit, at lower-to-upper case changes ("loadPlaylist") and
+     * before a trailing extension. "playlists", "indexed" and "reindex" do not count. "index.php" is a page, so
+     * a segment that is exactly "index" with ".php"/".asp"/".aspx"/".jsp" does not count either. This only
+     * decides what is worth downloading and looking at; the content check (#EXTM3U or <MPD) decides the rest.
+     */
+    fun isPossiblePlaylist(url: String): Boolean {
+        if (!isWeb(url)) return false
+        if (classify(url).first) return false
+        val path = pathOf(url)
+        if (IMAGE_OR_SCRIPT_EXTENSIONS.any { path.endsWith(it) } || NOT_PLAYLIST_EXTENSIONS.any { path.endsWith(it) }) return false
+        val rawPath = url.substringBefore('#').substringBefore('?').substringAfter("://").substringAfter('/', "")
+        if (rawPath.isEmpty()) return false
+        for (segment in rawPath.split('/')) {
+            if (segment.isEmpty()) continue
+            val dot = segment.lastIndexOf('.')
+            val ext = if (dot >= 0) segment.substring(dot).lowercase() else ""
+            val stem = if (dot > 0) segment.substring(0, dot) else segment
+            val camel = stem.replace(Regex("([a-z0-9])([A-Z])"), "\$1 \$2")
+            val words = camel.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+            if (words.none { it in PLAYLIST_WORDS }) continue
+            if (words == listOf("index") && ext in PAGE_EXTENSIONS) continue
+            return true
+        }
+        return false
+    }
+
+    private val PAGE_EXTENSIONS = setOf(".php", ".asp", ".aspx", ".jsp")
+
     /** The address has a query string with something in it (often a signed, short-lived access code). */
     fun hasQuery(url: String): Boolean = url.substringBefore('#').substringAfter('?', "").isNotEmpty()
 

@@ -30,6 +30,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 - **No early give-up on other sites' players** (2026-11-17): build 153 stopped the search 8 s after tapping a
   player from another site; most streams then fell to the site player, since those players often need 10–15 s.
   Removed at the user's request; site miss counts were reset (new storage key). Do not re-add without asking.
+- **Disguised playlist addresses** (no m3u8/.mpd in them, e.g. `/playlist/123/load-playlist`) are caught by path
+  words (playlist, manifest, chunklist, master, index as whole words) and confirmed by content (#EXTM3U / <MPD)
+  before they count as a stream (2026-11-17). Untested on the TV.
 - **Channel surfing:** removed. Up/Down open the bottom menu, like OK.
 - **Sources** have their own button and panel (not under Audio). **Pause** is the first button.
 - **"Jump to live"** is styled like the other buttons, not highlighted. The list's Play button stays highlighted.

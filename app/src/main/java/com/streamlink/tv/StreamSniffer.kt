@@ -36,6 +36,11 @@ data class Source(
      * by automatic source fallback and never renewed.
      */
     val openPage: Boolean = false,
+    /**
+     * Content type the verifier saw ("application/x-mpegURL" or "application/dash+xml") when the address does not
+     * say so itself (a disguised playlist address with no m3u8/.mpd in it); "" otherwise. The player uses it.
+     */
+    val mime: String = "",
 )
 
 /** Everything found on a page. Empty [sources] means no stream was found. */
@@ -61,6 +66,8 @@ data class StreamCandidate(
     val isDefault: Boolean = true,
     /** Taken from inside another request (an analytics ping): often without the access code the real request carries. */
     val embedded: Boolean = false,
+    /** Only looks like a playlist by its address words (see [StreamUrls.isPossiblePlaylist]); must pass the content check. */
+    val possible: Boolean = false,
 )
 
 /**
@@ -89,6 +96,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var nudgeCount = 0
     private val frameUrls = Collections.synchronizedList(mutableListOf<String>())
     private val candidates = LinkedHashMap<String, StreamCandidate>()
+    /** Possible playlists (disguised addresses) seen in this run, and the ones whose content turned out not to be a playlist. */
+    private var possibleCount = 0
+    private val possibleRejected = HashSet<String>()
     private var onResult: ((StreamSet) -> Unit)? = null
 
     // Click-only list rows ("<page>#sl-click=..."): the page is loaded without the fragment, settled, and the row clicked.
@@ -243,6 +253,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         firstPlayerTapAt = 0L
         frameUrls.clear()
         candidates.clear()
+        possibleCount = 0
+        possibleRejected.clear()
         onResult = callback
         val wv = createWebView(target)
         webView = wv
@@ -294,8 +306,10 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     }
 
     /** Called on the main thread for each stream the page asks for. */
-    private fun found(url: String, requestHeaders: Map<String, String>, embedded: Boolean = false) {
+    private fun found(url: String, requestHeaders: Map<String, String>, embedded: Boolean = false, possible: Boolean = false) {
         if (done || verifying || candidates.containsKey(url)) return
+        if (possible && (url in possibleRejected || possibleCount >= MAX_POSSIBLES)) return
+        if (possible) possibleCount++
         if (AdBlock.isLocalHost(Report.host(url))) return
         // The player's own request carries the access code and real headers: prefer it over a copy found inside another request.
         if (embedded && candidates.values.any { !it.embedded && StreamUrls.sameStream(it.url, url) }) return
@@ -333,25 +347,65 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val dropped = candidates.entries.filter { it.value.embedded && StreamUrls.sameStream(it.value.url, url) }.map { it.key }
             for (k in dropped) candidates.remove(k)
         }
-        candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault, embedded)
+        candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault, embedded, possible)
+        if (possible) {
+            // Not a stream yet: no wait is started and playlistSeen stays as it is. A quick content check decides.
+            log("Found a possible playlist: ${Report.host(url)}/… (checking its content)")
+            checkPossible(candidates.getValue(url))
+            return
+        }
         val note = when {
             StreamUrls.hasQuery(url) -> " (with access code)"
             embedded -> " (no access code)"
             else -> ""
         }
         log("Found stream: ${Report.short(url)}$note")
-        if (linkState == 0) {
-            val direct = candidates.values.count { !it.embedded }
-            if (!embedded && direct == 1) {
-                // The first real request: the usual short wait for siblings (replaces any longer wait for one).
-                main.removeCallbacks(collect)
-                main.postDelayed(collect, COLLECT_MS)
-            } else if (direct == 0 && candidates.size == 1) {
-                // Only copies found inside other requests so far: give the player's own request time to arrive.
-                main.postDelayed(collect, EMBEDDED_WAIT_MS)
+        scheduleCollect(embedded)
+        if (candidates.values.count { !it.possible } >= MAX_CANDIDATES) verifyAndFinish()
+    }
+
+    /** After a stream (not a mere possible playlist) was added: start the short wait for siblings, or the wait for the player's own request. */
+    private fun scheduleCollect(embedded: Boolean) {
+        if (linkState != 0) return
+        val direct = candidates.values.count { !it.embedded && !it.possible }
+        if (!embedded && direct == 1) {
+            // The first real request: the usual short wait for siblings (replaces any longer wait for one).
+            main.removeCallbacks(collect)
+            main.postDelayed(collect, COLLECT_MS)
+        } else if (direct == 0 && candidates.values.count { !it.possible } == 1) {
+            // Only copies found inside other requests so far: give the player's own request time to arrive.
+            main.postDelayed(collect, EMBEDDED_WAIT_MS)
+        }
+    }
+
+    /**
+     * Looks at the content of a possible playlist in the background (one download, off the main thread). If it is
+     * a playlist it is promoted to a normal stream (as if found directly: playlistSeen, wait for siblings);
+     * if not it is forgotten. A result that arrives after the run moved on is ignored.
+     */
+    private fun checkPossible(c: StreamCandidate) {
+        val gen = generation
+        val link = linkCurrent
+        thread(isDaemon = true, name = "possible-check") {
+            val ok = try {
+                Verifier.confirmPossible(c) { m -> log(m) }
+            } catch (e: Exception) {
+                false
+            }
+            main.post {
+                if (gen != generation || done || verifying) return@post
+                val cur = candidates[c.url] ?: return@post
+                if (!ok) {
+                    candidates.remove(c.url)
+                    possibleRejected.add(c.url)
+                    return@post
+                }
+                candidates[c.url] = cur.copy(possible = false)
+                log("The possible playlist is a playlist; using it as a stream")
+                if (link == linkCurrent) playlistSeen = true
+                scheduleCollect(false)
             }
         }
-        if (candidates.size >= MAX_CANDIDATES) verifyAndFinish()
     }
 
     private fun verifyAndFinish() {
@@ -364,17 +418,21 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         // Real requests first: they carry the access code; copies found inside other requests are the last resort.
-        val list = candidates.values.sortedBy { it.embedded }
+        // Order: direct requests, then copies found inside other requests, then possible playlists (disguised addresses).
+        val list = candidates.values.sortedWith(compareBy<StreamCandidate>({ it.possible }, { it.embedded }))
         val page = currentPage()
         val gen = generation
         log("Checking ${list.size} stream(s)…")
         thread(isDaemon = true, name = "stream-check") {
-            val sources = try {
+            val raw = try {
                 Verifier.rank(list) { m -> log(m) }
             } catch (e: Exception) {
                 log("Checking failed: ${e.javaClass.simpleName}")
                 list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault, verified = false, note = "checking failed") }
             }
+            // A possible playlist that did not pass the content check is not a source at all.
+            val maybe = list.filter { it.possible }.map { it.url }.toSet()
+            val sources = if (maybe.isEmpty()) raw else raw.filter { it.verified || it.url !in maybe }
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile
                 verifying = false
@@ -410,7 +468,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
                 val (isStream, embedded) = StreamUrls.classify(u)
-                if (!isStream && embedded.isEmpty()) return
+                if (!isStream && embedded.isEmpty()) {
+                    // An address with no m3u8/.mpd in it: a possible playlist, if it is a sub-resource and looks like one by its words.
+                    if (!request.isForMainFrame && request.method.equals("GET", true) && StreamUrls.isPossiblePlaylist(u) &&
+                        !AdBlock.isBlockedHost(request.url.host)) {
+                        val headers = HashMap(request.requestHeaders ?: emptyMap())
+                        main.post { found(u, headers, possible = true) }
+                    }
+                    return
+                }
                 if (isStream) playlistSeen = true
                 val headers = HashMap(request.requestHeaders ?: emptyMap())
                 main.post {
@@ -826,6 +892,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         /** Taps on a found player, at most (one per nudge, 2.5 s apart). */
         private const val MAX_PLAYER_TAPS = 6
         private const val MAX_CANDIDATES = 12
+        /** Possible playlists (disguised addresses) looked at per run. */
+        private const val MAX_POSSIBLES = 4
         private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 
         /** A media segment (not a playlist): the background link finder never downloads these. */

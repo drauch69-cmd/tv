@@ -109,4 +109,51 @@ class StreamUrlsTest {
         assertEquals(false, StreamUrls.hasQuery("https://h/p.m3u8?"))
         assertEquals(false, StreamUrls.hasQuery("https://h/p.m3u8#a?b"))
     }
+
+    private fun possible(url: String) = StreamUrls.isPossiblePlaylist(url)
+
+    @Test
+    fun disguisedPlaylistAddressesArePossible() {
+        assertEquals(true, possible("https://cdn.example.net/playlist/60325/load-playlist"))
+        assertEquals(true, possible("https://cdn.example.net/hls/master.txt?t=abc"))
+        assertEquals(true, possible("https://cdn.example.net/live/index.txt"))
+        assertEquals(true, possible("https://cdn.example.net/live/playlist.php?id=3"))
+        assertEquals(true, possible("https://cdn.example.net/api/getManifest"))
+        assertEquals(true, possible("https://cdn.example.net/x/loadPlaylist"))
+        assertEquals(true, possible("https://cdn.example.net/CHUNKLIST"))
+        assertEquals(true, possible("https://cdn.example.net/live/index"))
+    }
+
+    @Test
+    fun realStreamsAndOtherFilesAreNotPossible() {
+        assertEquals(false, possible("https://cdn.example.net/a/playlist.m3u8")) // already a stream
+        assertEquals(false, possible("https://cdn.example.net/a/manifest.mpd"))
+        assertEquals(false, possible("https://cdn.example.net/playlist/cover.png"))
+        assertEquals(false, possible("https://cdn.example.net/playlist/app.js"))
+        assertEquals(false, possible("https://cdn.example.net/playlist/site.css"))
+        assertEquals(false, possible("https://cdn.example.net/master/seg1.ts"))
+        assertEquals(false, possible("https://cdn.example.net/index/seg1.m4s"))
+        assertEquals(false, possible("https://cdn.example.net/playlist/clip.mp4"))
+        assertEquals(false, possible("https://cdn.example.net/fonts/index.woff2"))
+        assertEquals(false, possible("https://cdn.example.net/playlist/data.json"))
+        assertEquals(false, possible("https://cdn.example.net/playlist/index.html"))
+    }
+
+    @Test
+    fun wordsMustMatchWholeWords() {
+        assertEquals(false, possible("https://site.example.net/playlists/user/12"))
+        assertEquals(false, possible("https://site.example.net/reindex"))
+        assertEquals(false, possible("https://site.example.net/indexed/items"))
+        assertEquals(false, possible("https://site.example.net/mastery"))
+        assertEquals(false, possible("https://site.example.net/wp-content/themes/x/index.php"))
+        assertEquals(false, possible("https://site.example.net/"))
+        assertEquals(false, possible("https://site.example.net"))
+        assertEquals(false, possible("https://site.example.net/watch/12345"))
+        assertEquals(false, possible("ftp://site.example.net/playlist"))
+    }
+
+    @Test
+    fun wordsInTheQueryDoNotCount() {
+        assertEquals(false, possible("https://site.example.net/api/data?kind=playlist"))
+    }
 }
