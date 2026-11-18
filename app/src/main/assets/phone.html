@@ -53,6 +53,7 @@
   .lrow .main{flex:1;min-width:0;text-align:left;border:0;padding:14px;border-radius:14px}
   .lrow .main .ttl{font-size:17px;font-weight:600;overflow-wrap:anywhere}
   .lrow .main .sub{font-size:13px;font-weight:400;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}
+  .lrow select{flex:none;width:104px;min-height:0;font-size:13px;padding:8px 26px 8px 10px;border-radius:14px}
   .lrow .x{flex:none;width:48px;padding:0;color:var(--dim);border-radius:14px}
   .empty{text-align:center;padding:28px 10px;color:var(--dim)}
   .empty b{display:block;color:var(--text);font-size:17px;margin-bottom:6px}
@@ -108,6 +109,7 @@
     <div class="fl card" style="margin-bottom:12px">
       <label for="lname" class="lbl">Save the pasted link as a stream list</label>
       <input id="lname" type="text" maxlength="60" placeholder="Name for a stream list (optional)" autocomplete="off">
+      <select id="lsport" aria-label="Sport"><option value="">No sport</option><option value="nfl">NFL</option><option value="cfb">College football</option></select>
       <button class="ghost" type="button" id="addlist">Add as stream list</button>
     </div>
     <div class="section">Stream lists</div>
@@ -234,10 +236,10 @@
     var u = $('u').value.trim();
     if (!u) { $('status').textContent = 'Paste the link of the index page first.'; return; }
     $('status').textContent = 'Saving…';
-    post('/lists/add', 'url=' + encodeURIComponent(u) + '&name=' + encodeURIComponent($('lname').value.trim())).then(function(r){
+    post('/lists/add', 'url=' + encodeURIComponent(u) + '&name=' + encodeURIComponent($('lname').value.trim()) + '&sport=' + encodeURIComponent($('lsport').value)).then(function(r){
       return r.text().then(function(t){
         $('status').textContent = t;
-        if (r.ok) { $('u').value = ''; $('lname').value = ''; $('u').blur(); listsKey = ''; loadLists(); setTimeout(loadLists, 3000); }
+        if (r.ok) { $('u').value = ''; $('lname').value = ''; $('lsport').value = ''; $('u').blur(); listsKey = ''; loadLists(); setTimeout(loadLists, 3000); }
       });
     }).catch(function(){ $('status').textContent = NOREACH; });
   };
@@ -344,7 +346,15 @@
           if (!confirm('Remove the stream list “' + l.name + '”?')) return;
           post('/lists/remove', 'id=' + encodeURIComponent(l.id)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
         };
-        row.appendChild(b); row.appendChild(x); box.appendChild(row);
+        var sp = el('select'); sp.setAttribute('aria-label', 'Sport for ' + l.name);
+        [['', 'No sport'], ['nfl', 'NFL'], ['cfb', 'College football']].forEach(function(o){
+          var op = el('option', null, o[1]); op.value = o[0]; sp.appendChild(op);
+        });
+        sp.value = l.sport || '';
+        sp.onchange = function(){
+          post('/lists/sport', 'id=' + encodeURIComponent(l.id) + '&sport=' + encodeURIComponent(sp.value)).then(function(){ listsKey = ''; loadLists(); });
+        };
+        row.appendChild(b); row.appendChild(sp); row.appendChild(x); box.appendChild(row);
       });
     }).catch(function(){});
   }

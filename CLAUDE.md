@@ -131,13 +131,25 @@ Remote tabs; prefetch toggle).
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
 - **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL and
   college football (all FBS games: `groups=80`) for today in New York time (also yesterday before 5 am), every 30 s
-  while a game is live, else every 5 min, 2 min back-off after a failure; no key. `ScoreMatch` matches a list title to
+  while a game is live, else every 5 min, 2 min back-off after a failure; no key. The next two days are fetched too
+  (schedule for the sports folders), cached separately and refreshed at most every 30 min; a failure there never
+  discards today's data. `ScoreFeed.latest()` returns all of it (3 days), merged by game id. `ScoreMatch` matches a list title to
   a game only if BOTH teams are named (full name, school/city, nickname or abbreviation, whole words; a name inside a
   longer team name doesn't count; NFL cities shared by two teams are ignored), within 18 h of the event's start; if
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
   · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
   Report lines start with "Scores:". Uses ESPN team names only, never site wording.
+- **Sports folders** (`Games.kt`, pure Kotlin; logic only so far, screens come separately). A saved list carries a
+  sport tag (`SavedList.sport`: "nfl", "cfb" or "" via `Sports`; set on the phone page's Lists tab when adding or
+  with the select on each list; `POST /lists/sport` (id, sport), `/lists/add` takes an optional `sport`, `GET /lists`
+  returns it). `GameFolders.build` sorts every item of every list tagged with a sport into that sport's games
+  (today to the end of today + 2 in the TV's zone, plus any live game) using `ScoreMatch` on the title, then on
+  title + subtitle; unmatched go to `other`; always-on items are never placed, finished ones only when they match a
+  game; the same address (trailing slash ignored) appears once. `GameSections.group` makes Live now / Today /
+  Tomorrow / weekday / Final sections (`withStreamsOnly` hides games without streams); `AlwaysOn.collect` gathers
+  24/7 channels from all lists; `LiveGames.sample` / `matchedUrls` feed the home live row; `GameFolders.summary` is
+  the quiet "Sports:" report line.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).

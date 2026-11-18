@@ -127,7 +127,8 @@ class MainActivity : Activity() {
                     ListJson.listForPhone(l, SavedLists.cached(this, id), SavedLists.isBusy(id), SavedLists.lastError(id), System.currentTimeMillis())
                 }
             },
-            onListAdd = { url, name -> addList(url, name) },
+            onListAdd = { url, name, sport -> addList(url, name, sport) },
+            onListSport = { id, sport -> SavedLists.setSport(this, id, sport) },
             onListRemove = { id -> removeList(id) },
             onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id) }; true } ?: false },
             onListPlay = { id, url, start ->
@@ -279,8 +280,8 @@ class MainActivity : Activity() {
     // ---- Stream lists ----
 
     /** Phone: save a link as a stream list. Returns null on success, else the reason. */
-    private fun addList(url: String, name: String): String? {
-        val l = SavedLists.add(this, url, name) ?: return "You can save up to ${SavedLists.MAX} stream lists. Remove one first."
+    private fun addList(url: String, name: String, sport: String): String? {
+        val l = SavedLists.add(this, url, name, sport) ?: return "You can save up to ${SavedLists.MAX} stream lists. Remove one first."
         runOnUiThread { renderLists(); refreshList(l.id) }
         return null
     }

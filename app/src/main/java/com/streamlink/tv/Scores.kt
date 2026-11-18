@@ -265,30 +265,53 @@ object ScoreText {
     }
 }
 
-/** Cached live scores for both leagues, refreshed in the background. */
+/**
+ * Cached scores and schedule for both leagues, refreshed in the background: today (and yesterday before 5 am,
+ * New York time) on the live timing, plus the next two days at most every 30 minutes, cached separately.
+ */
 object ScoreFeed {
     private const val LIVE_MS = 30_000L
     private const val IDLE_MS = 5 * 60_000L
     private const val BACKOFF_MS = 2 * 60_000L
+    private const val FUTURE_MS = 30 * 60_000L
     private val LEAGUES = listOf("nfl", "cfb")
     private val NY = ZoneId.of("America/New_York")
     private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
 
     private val lock = Any()
-    private var byLeague: Map<String, List<Game>> = emptyMap()
+    private var todayByLeague: Map<String, List<Game>> = emptyMap()
+    private var futureByLeague: Map<String, List<Game>> = emptyMap()
     private val lastOk = HashMap<String, Long>()
     private val lastFail = HashMap<String, Long>()
+    private val futureOk = HashMap<String, Long>()
+    private val futureFail = HashMap<String, Long>()
     private var running = false
 
-    fun latest(): List<Game> = synchronized(lock) { LEAGUES.flatMap { byLeague[it] ?: emptyList() } }
+    /** All known games: today's (and yesterday's before 5 am) plus the next two days, merged by game id. */
+    fun latest(): List<Game> = synchronized(lock) { LEAGUES.flatMap { merged(it) } }
+
+    private fun merged(league: String): List<Game> {
+        val m = LinkedHashMap<String, Game>()
+        for (g in todayByLeague[league] ?: emptyList()) m.putIfAbsent(g.id, g)
+        for (g in futureByLeague[league] ?: emptyList()) m.putIfAbsent(g.id, g)
+        return m.values.toList()
+    }
 
     private fun isDue(league: String, now: Long): Boolean {
         val ok = lastOk[league]
         val fail = lastFail[league]
         if (fail != null && (ok == null || fail > ok)) return now - fail >= BACKOFF_MS
         if (ok == null) return true
-        val live = byLeague[league]?.any { it.state == "in" } == true
+        val live = todayByLeague[league]?.any { it.state == "in" } == true
         return now - ok >= if (live) LIVE_MS else IDLE_MS
+    }
+
+    private fun isFutureDue(league: String, now: Long): Boolean {
+        val ok = futureOk[league]
+        val fail = futureFail[league]
+        if (fail != null && (ok == null || fail > ok)) return now - fail >= BACKOFF_MS
+        if (ok == null) return true
+        return now - ok >= FUTURE_MS
     }
 
     /** Call from the UI thread. Fetches in the background when due; onUpdate runs on the main thread if the games changed. */
@@ -296,7 +319,7 @@ object ScoreFeed {
         val now = System.currentTimeMillis()
         val due = synchronized(lock) {
             if (running) return
-            val d = LEAGUES.filter { isDue(it, now) }
+            val d = LEAGUES.filter { isDue(it, now) || isFutureDue(it, now) }.map { Triple(it, isDue(it, now), isFutureDue(it, now)) }
             if (d.isEmpty()) return
             running = true
             d
@@ -304,7 +327,10 @@ object ScoreFeed {
         val t = Thread {
             val before = latest()
             try {
-                for (league in due) fetch(league)
+                for ((league, today, future) in due) {
+                    if (today) fetchToday(league)
+                    if (future) fetchFuture(league)
+                }
             } finally {
                 synchronized(lock) { running = false }
             }
@@ -312,7 +338,7 @@ object ScoreFeed {
             if (after != before) {
                 val n = after.count { it.league == "nfl" }
                 val c = after.count { it.league == "cfb" }
-                Report.logOnce("scores-count-$n-$c", "Scores: $n NFL and $c college games today")
+                Report.logOnce("scores-count-$n-$c", "Scores: $n NFL and $c college games over 3 days")
                 Handler(Looper.getMainLooper()).post(onUpdate)
             }
         }
@@ -321,7 +347,7 @@ object ScoreFeed {
         t.start()
     }
 
-    private fun fetch(league: String) {
+    private fun fetchToday(league: String) {
         try {
             val now = ZonedDateTime.now(NY)
             val days = arrayListOf(now)
@@ -336,7 +362,7 @@ object ScoreFeed {
                 for (g in games) merged.putIfAbsent(g.id, g)
             }
             synchronized(lock) {
-                byLeague = byLeague + (league to merged.values.toList())
+                todayByLeague = todayByLeague + (league to merged.values.toList())
                 lastOk[league] = System.currentTimeMillis()
                 lastFail.remove(league)
             }
@@ -344,6 +370,26 @@ object ScoreFeed {
             synchronized(lock) { lastFail[league] = System.currentTimeMillis() }
             val why = e.javaClass.simpleName
             Report.logOnce("scores-fail-$league-$why", "Scores: couldn't reach ESPN ($why${e.message?.let { ": " + it.take(60) } ?: ""})")
+        }
+    }
+
+    /** The next two days. A failure here keeps what was known and never touches today's data. */
+    private fun fetchFuture(league: String) {
+        try {
+            val now = ZonedDateTime.now(NY)
+            val merged = LinkedHashMap<String, Game>()
+            for (k in 1L..2L) {
+                for (g in ScoreParse.parse(download(url(league, DAY.format(now.plusDays(k)))), league)) merged.putIfAbsent(g.id, g)
+            }
+            synchronized(lock) {
+                futureByLeague = futureByLeague + (league to merged.values.toList())
+                futureOk[league] = System.currentTimeMillis()
+                futureFail.remove(league)
+            }
+        } catch (e: Exception) {
+            synchronized(lock) { futureFail[league] = System.currentTimeMillis() }
+            val why = e.javaClass.simpleName
+            Report.logOnce("scores-fail-future-$league-$why", "Scores: couldn't get the coming days from ESPN ($why${e.message?.let { ": " + it.take(60) } ?: ""})")
         }
     }
 

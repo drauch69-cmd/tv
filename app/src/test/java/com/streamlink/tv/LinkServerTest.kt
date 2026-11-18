@@ -12,6 +12,8 @@ class LinkServerTest {
     private val links = CopyOnWriteArrayList<String>()
     private val commands = CopyOnWriteArrayList<Pair<String, String?>>()
     private val added = CopyOnWriteArrayList<Pair<String, String>>()
+    private val addedSport = CopyOnWriteArrayList<String>()
+    private val sported = CopyOnWriteArrayList<Pair<String, String>>()
     private val removed = CopyOnWriteArrayList<String>()
     private val refreshed = CopyOnWriteArrayList<String>()
     private val played = CopyOnWriteArrayList<Triple<String, String, Long?>>()
@@ -29,8 +31,9 @@ class LinkServerTest {
             report = { "report text" },
             lists = { "{\"lists\":[{\"id\":\"a1\"}]}" },
             list = { id -> if (id == "a1") "{\"id\":\"a1\",\"items\":[]}" else null },
-            onListAdd = { url, name -> added.add(url to name); if (url.contains("full")) "Too many lists" else null },
+            onListAdd = { url, name, sport -> added.add(url to name); addedSport.add(sport); if (url.contains("full")) "Too many lists" else null },
             onListRemove = { id -> removed.add(id); id == "a1" },
+            onListSport = { id, sport -> sported.add(id to sport); id == "a1" },
             onListRefresh = { id -> refreshed.add(id); id == "a1" },
             onListPlay = { id, url, start -> played.add(Triple(id, url, start)); id == "a1" },
         )
@@ -158,6 +161,19 @@ class LinkServerTest {
     }
 
     @Test
+    fun addListPassesSportAndSportCanBeChanged() {
+        post("/lists/add", form, "url=https%3A%2F%2Fevents.example&name=&sport=nfl")
+        assertEquals("nfl", addedSport.last())
+        post("/lists/add", form, "url=https%3A%2F%2Fevents.example&name=")
+        assertEquals("", addedSport.last())
+        assertTrue(post("/lists/sport", form, "id=a1&sport=cfb").startsWith("HTTP/1.1 200"))
+        assertTrue(post("/lists/sport", form, "id=a1&sport=").startsWith("HTTP/1.1 200"))
+        assertTrue(post("/lists/sport", form, "id=zz&sport=nfl").startsWith("HTTP/1.1 404"))
+        assertTrue(post("/lists/sport", form, "sport=nfl").startsWith("HTTP/1.1 404"))
+        assertEquals(listOf("a1" to "cfb", "a1" to "", "zz" to "nfl"), sported.toList())
+    }
+
+    @Test
     fun removeRefreshAndPlay() {
         assertTrue(post("/lists/remove", form, "id=a1").startsWith("HTTP/1.1 200"))
         assertTrue(post("/lists/remove", form, "id=zz").startsWith("HTTP/1.1 404"))
@@ -175,7 +191,7 @@ class LinkServerTest {
 
     @Test
     fun listChangesAreRefusedFromGetAndFromOtherWebsites() {
-        val routes = listOf("/lists/add" to "url=https%3A%2F%2Fevil.example", "/lists/remove" to "id=a1",
+        val routes = listOf("/lists/add" to "url=https%3A%2F%2Fevil.example", "/lists/remove" to "id=a1", "/lists/sport" to "id=a1&sport=nfl",
             "/list/refresh" to "id=a1", "/list/play" to "id=a1&url=https%3A%2F%2Fevil.example")
         for ((path, body) in routes) {
             // GET (even with the data in the query) is refused.
@@ -188,7 +204,7 @@ class LinkServerTest {
                 "Content-Type: $form\r\nContent-Length: ${body.length}\r\n\r\n$body")
             assertTrue(path, cross.startsWith("HTTP/1.1 403"))
         }
-        assertTrue(added.isEmpty() && removed.isEmpty() && refreshed.isEmpty() && played.isEmpty())
+        assertTrue(added.isEmpty() && sported.isEmpty() && removed.isEmpty() && refreshed.isEmpty() && played.isEmpty())
         // Our own page is fine.
         val ok = request("POST /list/refresh HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: http://192.168.1.50:8080\r\n" +
             "Sec-Fetch-Site: same-origin\r\nContent-Type: $form\r\nContent-Length: 5\r\n\r\nid=a1")
