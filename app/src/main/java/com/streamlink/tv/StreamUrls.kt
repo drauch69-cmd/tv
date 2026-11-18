@@ -49,13 +49,14 @@ object StreamUrls {
         ".woff", ".woff2", ".ttf", ".otf", ".eot", ".map", ".json", ".html", ".htm", ".xml",
         ".ts", ".m4s", ".mp4", ".m4v", ".m4a", ".aac", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4", ".vtt", ".webvtt", ".key",
     )
-    private val PLAYLIST_WORDS = setOf("playlist", "manifest", "chunklist", "master", "index")
+    private val PLAYLIST_WORDS = setOf("playlist", "manifest", "chunklist", "master", "index", "list")
 
     /**
      * A request that is not a stream by [classify] but whose address may still be a playlist in disguise,
      * e.g. "/playlist/60325/load-playlist" or "/hls/master.txt". True when the path is not an image, script,
      * style, font, media piece, data or page file (see [NOT_PLAYLIST_EXTENSIONS]) and some path segment
-     * holds one of the words playlist / manifest / chunklist / master / index as a whole word: segments are
+     * holds one of the words playlist / manifest / chunklist / master / index / list as a whole word, optionally
+     * followed by a number ("list2"): segments are
      * split at anything that is not a letter or digit, at lower-to-upper case changes ("loadPlaylist") and
      * before a trailing extension. "playlists", "indexed" and "reindex" do not count. "index.php" is a page, so
      * a segment that is exactly "index" with ".php"/".asp"/".aspx"/".jsp" does not count either. This only
@@ -75,7 +76,8 @@ object StreamUrls {
             val stem = if (dot > 0) segment.substring(0, dot) else segment
             val camel = stem.replace(Regex("([a-z0-9])([A-Z])"), "\$1 \$2")
             val words = camel.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
-            if (words.none { it in PLAYLIST_WORDS }) continue
+            // A trailing number counts as part of the word: "list2", "index1", "master3".
+            if (words.none { it.trimEnd { c -> c.isDigit() } in PLAYLIST_WORDS }) continue
             if (words == listOf("index") && ext in PAGE_EXTENSIONS) continue
             return true
         }

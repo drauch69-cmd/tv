@@ -79,7 +79,7 @@ Playback pipeline:
    into view, or a player box before its frame exists; tapped every nudge, max 6), blocks popups and redirects, and
    watches network requests
    for playlists (`StreamUrls.classify`, judged by path; addresses hidden inside other requests are extracted).
-   A sub-resource GET whose path has the whole word playlist / manifest / chunklist / master / index
+   A sub-resource GET whose path has the whole word playlist / manifest / chunklist / master / index / list (a trailing number counts, "list2")
    (`StreamUrls.isPossiblePlaylist`, e.g. `/playlist/1/load-playlist`) is a *possible* playlist (max 4 per run):
    a background download checks the content (`Verifier.confirmPossible`: starts with #EXTM3U or holds <MPD); if
    it passes, it becomes a normal stream (sets playlistSeen, starts the sibling wait), else it is dropped. Possibles

@@ -122,6 +122,17 @@ class StreamUrlsTest {
         assertEquals(true, possible("https://cdn.example.net/x/loadPlaylist"))
         assertEquals(true, possible("https://cdn.example.net/CHUNKLIST"))
         assertEquals(true, possible("https://cdn.example.net/live/index"))
+        assertEquals(true, possible("https://cdn.example.net/list2?_reload=1&_=2"))
+        assertEquals(true, possible("https://cdn.example.net/hls/index1.txt"))
+        assertEquals(true, possible("https://cdn.example.net/list"))
+    }
+
+    @Test
+    fun listWordsMustBeWholeWords() {
+        assertEquals(false, possible("https://cdn.example.net/listing/3"))
+        assertEquals(false, possible("https://cdn.example.net/wishlist"))
+        assertEquals(false, possible("https://cdn.example.net/lists/7"))
+        assertEquals(false, possible("https://cdn.example.net/list2/cover.png"))
     }
 
     @Test
