@@ -50,6 +50,22 @@ class ListActivity : Activity() {
     private var errorText: String? = null
     /** Score line of every row on screen, so a score update changes text in place (no rebuild, focus untouched). */
     private val scoreViews = ArrayList<Pair<ListItem, TextView>>()
+    /** Status and finished label (Final...) each row was drawn with, to see whether a score update moved anything. */
+    private val rowLook = HashMap<String, String>()
+    /** ESPN games of this list's sports (all sports when it has no tag). Status, badge and score line all use it, so they
+     *  always agree. Cached per ScoreFeed list instance (ScoreMatch caches matches per instance). */
+    private var gamesSrc: List<Game>? = null
+    private var gamesOfList: List<Game> = emptyList()
+    private fun games(): List<Game> {
+        val all = ScoreFeed.latest()
+        if (all !== gamesSrc) {
+            gamesSrc = all
+            gamesOfList = if (list.sports.isEmpty()) all else all.filter { list.has(it.league) }
+        }
+        return gamesOfList
+    }
+
+    private fun look(item: ListItem, now: Long): String = ScoreStatus.resolve(item, now, games()).let { it.status + "|" + (it.badge ?: "") }
 
     private val handler: (String, String?) -> Unit = { c, v ->
         when (c) {
@@ -292,9 +308,10 @@ class ListActivity : Activity() {
         val focus = currentFocus
         val hadFocusInRows = focus?.parent === rows
         val focusedUrl = if (hadFocusInRows) focus?.tag as? String else null
-        val items = cached?.let { ListJson.visible(it.result.items, now) } ?: emptyList()
+        val items = cached?.let { ListJson.visible(it.result.items, now, games()) } ?: emptyList()
         rows.removeAllViews()
         scoreViews.clear()
+        rowLook.clear()
         if (items.isEmpty()) {
             val msg = when {
                 reading && cached == null -> "Reading events…"
@@ -310,7 +327,7 @@ class ListActivity : Activity() {
         var focusTarget: View? = null
         var firstRow: View? = null
         var first = true
-        for (section in ListSections.group(items, now)) {
+        for (section in ListSections.group(items, now, games())) {
             val color = if (section.status == ListStatus.LIVE) Ui.LIVE_TEXT else Ui.TEXT_2
             rows.addView(Ui.sectionLabel(this, section.label, color), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = if (first) 0 else dp(8); bottomMargin = dp(6)
@@ -336,23 +353,24 @@ class ListActivity : Activity() {
         selected = item
         selectedUrl = item.url
         panel.visibility = View.VISIBLE
-        val st = ListStatus.of(item, now)
-        val b = ListSections.badge(item, now)
+        val r = ScoreStatus.resolve(item, now, games())
+        val st = r.status
+        val b = ListSections.badge(item, now, games())
         val label = when (st) {
             ListStatus.LIVE, ListStatus.SOON -> b.text
-            ListStatus.UPCOMING -> item.startMillis?.let { ListText.whenText(it, now, java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: b.text
-            else -> ListSections.label(st)
+            ListStatus.UPCOMING -> r.item.startMillis?.let { ListText.whenText(it, now, java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: b.text
+            else -> r.badge?.uppercase() ?: ListSections.label(st)
         }
         pBadgeHolder.removeAllViews()
         pBadgeHolder.addView(Ui.badge(this, label, st == ListStatus.LIVE))
         pTitle.text = ListText.displayTitle(item)
-        pMeta.text = ListSections.meta(item, now).replaceFirstChar { it.uppercase() }
+        pMeta.text = ListSections.meta(item, now, games = games()).replaceFirstChar { it.uppercase() }
         pMeta.visibility = if (pMeta.text.isEmpty()) View.GONE else View.VISIBLE
         fillScoreBlock(item)
     }
 
     private fun gameFor(item: ListItem): Game? =
-        try { ScoreMatch.find(ListText.displayTitle(item), item.startMillis, ScoreFeed.latest().filter { list.sports.isEmpty() || list.has(it.league) }) } catch (_: Exception) { null }
+        try { ScoreMatch.find(ListText.displayTitle(item), item.startMillis, games()) } catch (_: Exception) { null }
 
     private fun fillScoreBlock(item: ListItem) {
         pScore.removeAllViews()
@@ -373,8 +391,16 @@ class ListActivity : Activity() {
         v.visibility = View.VISIBLE
     }
 
-    /** New scores arrived: change the score texts in place, leaving rows and focus alone. */
+    /**
+     * New scores arrived. If a row's status or badge changed (ESPN says it is live, final...), rebuild
+     * the list (render keeps focus by link); otherwise change the score texts in place.
+     */
     private fun updateScores() {
+        val now = System.currentTimeMillis()
+        if (scoreViews.any { (item, _) -> rowLook[item.url]?.let { it != look(item, now) } == true }) {
+            render()
+            return
+        }
         for ((item, v) in scoreViews) applyScore(item, v)
         selected?.let { fillScoreBlock(it) }
     }
@@ -399,14 +425,15 @@ class ListActivity : Activity() {
         }
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(text(ListText.displayTitle(item), 16f, Ui.TEXT, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
-        val meta = ListSections.meta(item, now)
+        val meta = ListSections.meta(item, now, games = games())
         if (meta.isNotEmpty()) col.addView(text(meta, 11f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
         val scoreLine = text("", 11f, Ui.TEXT_2, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0); visibility = View.GONE }
         col.addView(scoreLine)
         applyScore(item, scoreLine)
         scoreViews.add(item to scoreLine)
+        rowLook[item.url] = look(item, now)
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(14) })
-        val b = ListSections.badge(item, now)
+        val b = ListSections.badge(item, now, games())
         val right: View = if (b.pill) Ui.badge(this, b.text, b.live) else text(b.text, 11f, Ui.TEXT_2, bold = true)
         row.addView(right)
         return row

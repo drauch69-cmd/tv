@@ -76,6 +76,27 @@ class MainActivity : Activity() {
             main.postDelayed(this, HOME_TICK_MS)
         }
     }
+    /** Every 5 s while the home screen is in front: lets the 30 s live-score cadence run. */
+    private val scoreTick = object : Runnable {
+        override fun run() {
+            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && resumed) scoresChanged() }
+            main.postDelayed(this, SCORE_TICK_MS)
+        }
+    }
+    /** What the home screen showed last (statuses and badges), so a score update only redraws when it changes something. */
+    private var homeLook = ""
+    private fun currentHomeLook(): String {
+        val now = System.currentTimeMillis()
+        val games = ScoreFeed.latest()
+        val cached = SavedLists.all(this).mapNotNull { l -> SavedLists.cached(this, l.id)?.let { l to it } }
+        val sb = StringBuilder()
+        for (e in HomeFeed.liveRow(cached.map { it.first to it.second.result.items }, now, games = games)) sb.append(e.item.url).append('|').append(e.status).append('|').append(e.item.startMillis).append(';')
+        for ((_, c) in cached) sb.append(HomeFeed.countsText(HomeFeed.counts(c.result.items, now, games))).append(';')
+        return sb.toString()
+    }
+    private fun scoresChanged() {
+        if (currentHomeLook() != homeLook) renderLists() // focus is kept by renderLive/renderLists as on the 60 s tick
+    }
     private val updateTick = object : Runnable {
         override fun run() {
             Updater.checkIfDue(this@MainActivity) // checks at most every 12 h, and not while something plays
@@ -159,6 +180,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         resumed = false
+        main.removeCallbacks(scoreTick)
         prefetcher.setActive(false)
         super.onPause()
     }
@@ -166,6 +188,8 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        main.removeCallbacks(scoreTick)
+        main.post(scoreTick)
         prefetcher.setActive(true)
         renderUpdate() // the user may just have allowed installs in Settings
         showAddress()
@@ -374,7 +398,8 @@ class MainActivity : Activity() {
 
     /** The list tiles and the "Live now" row (both come from the saved lists). */
     private fun renderLists() {
-        renderSports()
+        renderSports() // also draws "Live now" (renderLive)
+        homeLook = currentHomeLook()
         val focusedId = listRow.focusedChild?.tag as? String
         val addFocused = listRow.focusedChild?.tag == ADD_TAG
         listRow.removeAllViews()
@@ -819,6 +844,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val HOME_TICK_MS = 60_000L
+        const val SCORE_TICK_MS = 5_000L
         /** Lists older than this are re-read in the background while the home screen is shown. */
         const val STALE_MS = 10 * 60_000L
         const val ADD_TAG = "add-list"

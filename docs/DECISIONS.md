@@ -5,6 +5,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **The user runs StreamLink Sports** (build 174 on 2026-11-18), not StreamLink Test. Work aimed at the user's TV goes to
+  `sports` (merge `test` into it; never the other way without the user's OK). `test` was merged into `sports` on
+  2026-11-18 (list reader fixes, stale markers, countdowns, ESPN-driven status).
 - **Sports folders** (2026-11-17, branch `sports` only): built (sport tags on the phone page, 3-day ESPN schedule,
   game matching, home Sports + Live games rows, 24/7 tile, sport screen with "All games", game/24/7 streams screen).
   Separate app "StreamLink Sports" (`com.streamlink.tv.sports`, release `sports-latest`) so `test` and `main` stay
@@ -14,10 +17,41 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   page's sport pickers. Known rough edges: the phone's per-list Refresh doesn't reach the sport screen; home and the
   sport screen can read the same list at once (harmless); a game that leaves the schedule leaves its screen with
   nothing to focus (Back works). Later, not now: Source panel offering the same game's streams from other pages.
-- **Live scores on the list screen** (2026-11-17): built (NFL + college football from ESPN). Untested on the TV.
+- **Pull streams from the six index sites** (user, 2026-11-18). Inspected one live game on each in the desktop browser
+  (not on the TV); plan offered, waiting for "go":
+  - TheTVApp and Buffstreams: same player provider; disguised playlist `/playlist/<id>/load-playlist` (already caught
+    since build 160), segments are MPEG-TS named .txt; the player needs a second tap (first tap opens an ad popup).
+  - Reed: player two frames deep; default source is a plain .m3u8 (480p); 9 source buttons.
+  - Roxie: Clappr player right in the page, plain .m3u8 on rotating domains, autoplays; the page loads the
+    "disable-devtool" library (it closed the desktop browser pane), which might misfire in the TV's hidden browser.
+  - CrackStreams: player page only loads with CrackStreams as referer (fine inside the page); its playlist address
+    has no playlist word (`/ziangel6/application5`, served as application/vnd.apple.mpegurl, refetched every ~6 s), so
+    the finder likely misses it. Proposed: count a request that repeats every few seconds as a possible playlist
+    (confirmed by content as today).
+  - StreamEast: a console-timing devtools trap sends the page home in the desktop browser (should not fire on the
+    TV); the player frame is named "ClearKeyEmbed" (possibly ClearKey-encrypted video); could not inspect further.
+- **List reader fixes for those six sites** (2026-11-18): built (titles from name pairs / overlay links, league labels
+  and emoji skipped, table rows, prose links not games, countdowns, sectioned cards, content-visibility rows). Checked
+  against the live pages in the desktop browser at 1280x720 (all six read correctly); not tested on the TV.
+  Known leftovers: Buffstreams' machine time has no zone (it is UTC) and is read in the TV's zone (6 h off; ESPN fixes
+  matched games); live cards that show only a game clock (Reed college games) get no start time.
+- **Roxie football: "Live" next to a "Final" score** (Sports build 174, reported 2026-11-17): cause found 2026-11-18.
+  The user runs the StreamLink Sports app; `sports` branched before ESPN-driven status existed, so it showed ESPN's
+  score but took Live from the site's stuck marker. Fixed by merging `test` into `sports` (ESPN-driven status, now
+  scoped to the list's sport tags on the list screen and phone page) plus the stale-marker rule. Untested on the TV.
+- **List reading speed** (offered 2026-11-17): quick read of the page's plain text first, stop waiting once the list
+  stops changing, show the last list instantly. To do after the fixes; confirm with the user before starting.
+
+- **Empty player box pages** (2026-11-17): built (source-switch.js anchor, hidden search presses source 1 then 2, site player
+  presses source 1; chat-like narrow frames ignored). Not compiled or tested on the TV. Next: the user opens such a page and
+  sends the report; look for "pressing source button" lines.
+- **Live scores on the list screen** (2026-11-17): built (NFL + college football + NBA from ESPN). Untested on the TV.
   Next: the user opens a list during a game; if a game should match and doesn't (or matches wrongly), ask for the
   item's title as shown and the "Scores:" report lines. Not checked yet against the live API: the college
   `groups=80` setting and ESPN's live clock wording.
+- **ESPN-driven Live status** (2026-11-17): built (list, home row, phone page). Untested on the TV. Check during
+  games: a final game moves to the bottom as "Final"; a long game stays Live past 4 h; no focus jumps on the home
+  screen or the list when scores update.
 - **Slow fallback on sites the finder can't catch** (e.g. a list event with no start time on a site with 5 misses
   in a row: site player only at 36 s, two searches plus a 15 s wait). Offered, not approved: treat "Live" in the
   list as started (fall back after the first check), and fall back right after the first search on sites with 3+
@@ -52,9 +86,15 @@ Reminder: lay out options and get a "go" before starting any of these.
   games with streams by default, with an "All games" toggle. Game screen: score card plus stream options. Opening a
   sport re-reads its pages (cached results first). Saved lists and the phone link stay as they are. Later, not
   now: the player's Source panel offering the same game's streams from other pages.
-- **Live scores** (2026-11-17): NFL and college football only; scores shown by default (no spoiler hiding); on the
+- **Stale site live markers** (2026-11-18): a site's own LIVE marker counts only until 4 h after the listed start
+  (Roxie never takes it down); with no start time it is trusted. ESPN still overrides for matched games.
+- **Countdowns** (2026-11-18): read "Starts in 1d 19h"-style countdowns as a backup start time; ESPN's kickoff wins
+  when the game matches.
+- **Live scores** (2026-11-17): NFL, college football and NBA (NBA added 2026-11-17 at the user's OK); scores shown by default (no spoiler hiding); on the
   list rows (short line) and the details card (full block); no team logos for now. A game matches only when both
   teams are named; ties broken by start time, else nothing shown.
+- **ESPN decides Live/Final** for matched games, on every screen (list, home "Live now", phone page), over the
+  site's own live marker (2026-11-17). Unmatched items keep the start-time rules.
 - **Home screen:** TV-home-style dashboard, plus all the other mockup changes (list, player overlay, loading
   screen, phone page).
 - **Audio sync adjustment:** built, then reverted at the user's request as clunky. The real cause was a TV audio

@@ -92,6 +92,13 @@ Playback pipeline:
    A playlist address found only inside another request (an analytics ping) usually lacks the player's signed
    access code (`t=` query): the sniffer waits up to 8 s for the player's own request, which replaces the copy
    (`StreamUrls.sameStream`) and is checked first; embedded-only stays as the last resort.
+   **Empty player box.** Some pages show an empty 16:9 box that only loads video after one of the page's own source
+   buttons is pressed. If ~5 s after the page loads (primary search only, not the links run or light runs) there is
+   still no player (or only a player box with no frame) and no playlist, the sniffer presses source button 1
+   (`SourcePress.kt`: `source-switch.js` `find`, then `click 0`; a coordinate tap if the click fails); ~10 s later,
+   if still nothing, button 2 (max 2 presses). Report line: "No player on the page yet; pressing source button N of M".
+   Tall/narrow frames (chat panels, width/height < 1.1) are never taken for the player (NUDGE_JS, source-switch.js,
+   site player). The normal nudge/tap search then carries on with whatever player appears.
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
    being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
    (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play.
@@ -124,23 +131,34 @@ Remote tabs; prefetch toggle).
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
   by the keyword's trailing number, joined, base64-decoded). A counter of undecodable segments triggers the
   site-player fallback.
-- **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Links mode
+- **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Its anchor is the largest visible landscape
+  (width/height >= 1.1) video/iframe; with none, the largest visible EMPTY player-shaped box (div/section/figure, aspect
+  1.3-2.4, no video/iframe/canvas/object/embed inside, <= 200 chars of text, not pinned, not in nav/header/footer), and
+  `find` then answers `empty: true`. Buttons that carry sequential number badges (1, 2, 3) count as a numbered row. Links mode
   clicks each link and records each new player frame; once a playlist is seen, everything else is blocked.
   `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open. It also builds the "open page"
   entries (`openPageEntry`, label ending " · site player") and keeps them out of automatic source fallback
   (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
-  events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
+  events sort before always-on ones. A site's own live marker counts only until 4 h after the listed start (some
+  sites never take it down); with no start time it is trusted. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
+  Reader rules (structure only): a line identical in nearly every row of a 3+ row group (league label, "Watch") is a
+  label, never a title; lines with no letters and button text are not titles and button text is never a live marker;
+  two same-style name lines with only short parts between them (VS, score, time, status, countdown) or sharing one
+  class become "A vs B"; an empty full-card link's aria-label/title is the title; table cells are separate lines;
+  a live marker or `data-time` counts like a clock when scoring rows; links inside running text are not rows; a group
+  with no time/live marker needs 4+ rows (or a date heading); same-shaped containers in sibling sections merge;
+  header/form rows are penalized; "STARTS IN" + "1d 19h" is one time text (`DateGuess` reads compact countdowns).
 - **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL,
   college football (all FBS games: `groups=80`) and the NBA for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. The next two days are fetched too
   (schedule for the sports folders), cached separately and refreshed at most every 30 min; a failure there never
   discards today's data. `ScoreFeed.latest()` returns all of it (3 days), merged by game id. `ScoreMatch` matches a list title to
   a game only if BOTH teams are named (full name, school/city, nickname or abbreviation, whole words; a name inside a
-  longer team name doesn't count; NFL and NBA cities shared by two teams are ignored, e.g. Los Angeles Lakers/Clippers), within 18 h of the event's start; if
+  longer team name doesn't count; a city shared by two teams of the same pro league (NFL or NBA, e.g. Los Angeles) is ignored as a name, worked out per league), within 18 h of the event's start; if
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
-  · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
+  · Q3 8:42", "Final · …"; NBA overtime reads OT, 2OT…), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Sports folders** (`Games.kt`, pure Kotlin; logic only so far, screens come separately). A saved list carries a
@@ -165,6 +183,18 @@ Remote tabs; prefetch toggle).
   rebuilds from caches + `ScoreFeed` and uses `Prefetcher` head start. Both new screens use `Session.mode = "list"` (so the
   phone's stop works and head start is allowed). Pure text lives in `SportsText.kt` (`SportsTextTest`); `SportsData.kt`
   loads folders from caches.
+- **ESPN-driven status** (`ScoreStatus.resolve`). Every status, badge and start time (list screen, home "Live now"
+  row and counts, phone page, prefetcher) goes through it. The list screen and the phone page's list view use only the games of the list's sport
+  tags (same as its score lines), so status and score always agree. For an item that matches a game: in progress = Live (any
+  length, ignores the site's marker), final = Finished with badge "Final", postponed/canceled = Finished with that
+  badge, not started = normal time windows using ESPN's kickoff as the start (the site's "live" marker is ignored). Unmatched items, or no fresh scores (a league's last fetch of today over 15 min old drops today's games; the 2-day schedule keeps only games not started), use
+  `ListStatus.byTime`, the old rules. Matching is cached per games list. The home screen fetches scores too (5 s tick
+  while in front) and redraws only when a status changes; the list screen rebuilds (keeping focus) only when a row's
+  status or badge changes.
+- **Site player** (`SitePlayerActivity`, `FOCUS_JS`): picks the biggest landscape video/frame and fills the screen with
+  it; portrait/narrow frames (chat) score 0. If no candidate is left after a few ticks (an empty player box), it presses
+  source button 1 once per page (max 2 per visit) via `SourcePress`; report line "Site player: pressed source button N
+  of M (the player was empty)". Not yet tested on the TV.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).

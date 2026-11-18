@@ -159,6 +159,65 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   r = await run(page, 'portal.html', null, ['div.nothing > a.x']);
   eq('learned shape ignored when a list is found', r.items.length, 3);
 
+  // ---- (f) layouts seen on live index pages (invented names, same markup shapes)
+  // cards where an emoji and a repeated league label used to beat the matchup
+  r = await run(page, 'cards-badges.html');
+  console.log(r.debug);
+  eq('badges: titles are the matchups', r.items.map(i => i.title), ['Team A vs Team B', 'Team C vs Team D', 'Team E vs Team F', 'Team G vs Team H', 'Team I vs Team J', 'Team K vs Team L']);
+  eq('badges: live and times', r.items.map(i => [i.liveHint, i.timeText]), [[true, ''], [true, ''], [false, '7:00 PM ET Nov 18'], [false, '7:30 PM ET Nov 18'], [false, '8:00 PM ET Nov 18'], [false, '10:00 PM ET Nov 18']]);
+  eq('badges: sections on every row', r.items.map(i => i.section), ['Hot Games (2)', 'Hot Games (2)', 'Upcoming (4)', 'Upcoming (4)', 'Upcoming (4)', 'Upcoming (4)']);
+  eq('badges: Watch is not the subtitle', r.items.every(i => i.subtitle !== 'Watch' && i.subtitle !== 'NBA'), true);
+  // an article with links inside paragraphs: no events
+  r = await run(page, 'article.html');
+  console.log(r.debug);
+  eq('article: no items', r.items.length, 0);
+  // table rows: the row is the item, cells are separate lines
+  r = await run(page, 'table-rows.html');
+  console.log(r.debug);
+  eq('table: titles', r.items.map(i => i.title), ['Team A vs Team B', 'Team C vs Team D', 'Team E vs Team F', 'Team G vs Team H', 'Team I vs Team J']);
+  eq('table: times from the date cell', r.items.map(i => i.timeText), ['Nov 17, 2026, 6:30 PM', 'Nov 17, 2026, 7:00 PM', 'Nov 17, 2026, 8:00 PM', 'Nov 17, 2026, 9:30 PM', 'Nov 18, 2026, 7:00 PM']);
+  eq('table: urls and live', r.items.map(i => [i.url.replace(/^.*\//, ''), i.liveHint]), [['nba-streams-1', true], ['nba-streams-2', false], ['nba-streams-3', false], ['nba-streams-4', false], ['nba-streams-5', false]]);
+  eq('table: no click rows', r.items.some(i => i.url.indexOf('#sl-click=') >= 0), false);
+  // two team names with VS / score / countdown between them
+  for (const w of [1280, 800]) {
+    await page.setViewport({ width: w, height: 720 });
+    r = await run(page, 'cards-matchcard.html');
+    console.log(r.debug);
+    eq('matchcards ' + w + ': titles', r.items.map(i => i.title), ['Team One vs Team Two', 'Team Three vs Team Four', 'Team Five vs Team Six', 'Team Seven vs Team Eight', 'Team Nine vs Team Ten', 'Team Eleven vs Team Twelve']);
+  }
+  await page.setViewport({ width: 1280, height: 720 });
+  eq('matchcards: countdown kept as the time', r.items.slice(0, 3).map(i => i.timeText), ['STARTS IN 1d 19h', 'STARTS IN 4d 12h', 'STARTS IN 2h 05m']);
+  eq('matchcards: no score digits in titles or times', r.items.slice(3, 5).map(i => [/\d/.test(i.title), i.timeText]), [[false, ''], [false, '']]);
+  eq('matchcards: urls', r.items.map(i => i.url.replace(/^.*\/watch\//, '')).slice(0, 2), ['team-two-at-team-one', 'team-four-at-team-three']);
+  // names on both sides of a time, button text is not "live"
+  r = await run(page, 'list-sides.html');
+  console.log(r.debug);
+  eq('sides: titles', r.items.map(i => i.title), ['Team A vs Team B', 'Team C vs Team D', 'Team E vs Team F', 'Team G vs Team H']);
+  eq('sides: time', r.items.map(i => i.timeText), ['12:00 AM', '1:30 AM', '3:00 AM', '4:00 AM']);
+  eq('sides: datetime passed through', r.items[0].datetime, '2026-11-19 00:00:00');
+  eq('sides: button text does not make rows live', r.items.map(i => i.liveHint), [false, false, false, false]);
+  eq('sides: no subtitle', r.items.map(i => i.subtitle), ['', '', '', '']);
+  // cards in several sections, each card with an empty overlay link carrying aria-label
+  r = await run(page, 'cards-matchcard-live.html');
+  console.log(r.debug);
+  eq('live matchcards: titles (league label and viewer count are not titles)', r.items.map(i => i.title), ['Red Hawks vs Blue Jays', 'North State Owls vs South Tech Foxes', 'Harbor Kings vs River Cats', 'Stone Bears vs Iron Wolves']);
+  eq('live matchcards: countdowns', r.items.slice(2).map(i => i.timeText), ['STARTS IN 33m', 'STARTS IN 18h 3m']);
+  r = await run(page, 'cards-sections.html');
+  console.log(r.debug);
+  eq('sections: all 19 cards (content-visibility:auto cards off screen still read)', r.items.length, 19);
+  eq('sections: titles from the overlay link', [r.items[0].title, r.items[1].title, r.items[18].title], ['Alpha1 vs Beta1', 'Alpha2 vs Beta2', 'Alpha19 vs Beta19']);
+  eq('sections: section = the heading text', [r.items[0].section, r.items[5].section, r.items[18].section], ['Basketball', 'Soccer', 'Other']);
+  eq('sections: live cards', r.items.slice(0, 4).map(i => i.liveHint), [true, false, false, true]);
+  eq('sections: epoch seconds become an instant', [r.items[0].datetime, r.items[1].datetime], ['2026-11-18T04:00:00.000Z', '2026-11-19T02:00:00.000Z']);
+  eq('sections: upcoming time text', r.items[1].timeText, 'Tomorrow 6:00 PM');
+  eq('sections: no header rows', r.items.some(i => /^(Basketball|Soccer|Other)$/.test(i.title)), false);
+  // cards with title + "Start time:" subtitle under date headings (kept as is)
+  r = await run(page, 'cards-subtitle.html');
+  console.log(r.debug);
+  eq('subtitle cards: titles', r.items.map(i => i.title), ['Team A vs Team B', 'Team C vs Team D', 'Team E vs Team F', 'Team G vs Team H']);
+  eq('subtitle cards: sections', r.items.map(i => i.section), ['Tuesday, November 17, 2026', 'Tuesday, November 17, 2026', 'Wednesday, November 18, 2026', 'Wednesday, November 18, 2026']);
+  eq('subtitle cards: time', r.items.map(i => i.timeText), ['Start time: 7:00 PM ET', 'Start time: 8:00 PM ET', 'Start time: 7:30 PM ET', 'Start time: 9:00 PM ET']);
+
   await browser.close(); server.close(); server2.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');
   process.exit(fails ? 1 : 0);

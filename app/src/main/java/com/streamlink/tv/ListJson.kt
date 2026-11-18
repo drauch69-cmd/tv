@@ -38,7 +38,7 @@ object ListJson {
      * What the TV shows and the phone lists: sorted. Events that look finished are kept (last, marked
      * "Maybe ended"): the page still lists them, and a misread start time must not make an event vanish.
      */
-    fun visible(items: List<ListItem>, now: Long): List<ListItem> = ListStatus.sorted(items, now)
+    fun visible(items: List<ListItem>, now: Long, games: List<Game> = ScoreFeed.latest()): List<ListItem> = ListStatus.sorted(items, now, games)
 
     /** GET /lists */
     fun listsForPhone(lists: List<SavedList>, cache: (String) -> CachedList?, busy: (String) -> Boolean,
@@ -60,11 +60,14 @@ object ListJson {
     fun listForPhone(l: SavedList, c: CachedList?, refreshing: Boolean, error: String?, now: Long): String {
         val items = JSONArray()
         c?.let { cl ->
-            for (i in visible(cl.result.items, now)) {
+            // one snapshot so order, status and badge agree; only the list's own sports (like the TV list screen)
+            val games = ScoreFeed.latest().let { all -> if (l.sports.isEmpty()) all else all.filter { l.has(it.league) } }
+            for (i in visible(cl.result.items, now, games)) {
+                val r = ScoreStatus.resolve(i, now, games)
                 items.put(JSONObject().apply {
                     put("title", ListText.displayTitle(i)); put("subtitle", i.subtitle); put("url", i.url); put("section", i.section)
-                    put("start", i.startMillis ?: JSONObject.NULL)
-                    put("status", ListStatus.of(i, now)); put("badge", ListText.badge(i, now))
+                    put("start", r.item.startMillis ?: JSONObject.NULL)
+                    put("status", r.status); put("badge", ListText.badge(i, now, games = games))
                 })
             }
         }

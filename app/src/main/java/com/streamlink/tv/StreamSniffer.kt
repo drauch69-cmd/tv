@@ -186,6 +186,35 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         log("The click did not open anything; tapping the row")
         tap(wv, clickX, clickY)
     }
+    /**
+     * Primary search only: a player box that stays empty until one of the page's own source buttons is pressed
+     * (see assets/source-switch.js). Runs ~5 s after the page loads; if there is still no player or playlist
+     * ~10 s after a press, presses the next button (at most [MAX_SOURCE_PRESSES] in all).
+     */
+    private val sourceStep = Runnable { pressSource() }
+    private var sourceScheduled = false
+    private var sourceNext = 0
+    private var sourcePresses = 0
+
+    private fun pressSource() {
+        val wv = webView ?: return
+        if (done || verifying || linksMode || light || clickRef != null || sourcePresses >= MAX_SOURCE_PRESSES) return
+        if (candidates.isNotEmpty() || playlistSeen) return
+        // A real player (video or frame) is on the page: the normal nudge and tap search carries on with it.
+        if (playerX > 0 && playerKind != "box") return
+        val gen = generation
+        val stillWanted = { !done && !verifying && gen == generation && candidates.isEmpty() && !playlistSeen && !(playerX > 0 && playerKind != "box") }
+        SourcePress.press(context, wv, sourceNext, stillWanted) { pressed ->
+            if (gen != generation || done || verifying) return@press
+            if (pressed != null) {
+                sourceNext = pressed.index + 1
+                sourcePresses++
+                log("No player on the page yet; pressing source button ${pressed.index + 1} of ${pressed.count}")
+            }
+            if (sourcePresses < MAX_SOURCE_PRESSES) main.postDelayed(sourceStep, SOURCE_RETRY_MS)
+        }
+    }
+
     private val nudger = object : Runnable {
         override fun run() {
             if (done || verifying) return
@@ -243,6 +272,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         } else TIMEOUT_MS
         timeoutMs = if (ref != null) base + CLICK_EXTRA_MS else base
         nudgeCount = 0
+        sourceScheduled = false
+        sourceNext = 0
+        sourcePresses = 0
         playerX = -1f
         playerY = -1f
         playerKind = ""
@@ -276,6 +308,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
+        main.removeCallbacks(sourceStep)
         destroyWebView()
     }
 
@@ -417,6 +450,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
+        main.removeCallbacks(sourceStep)
         // Real requests first: they carry the access code; copies found inside other requests are the last resort.
         // Order: direct requests, then copies found inside other requests, then possible playlists (disguised addresses).
         val list = candidates.values.sortedWith(compareBy<StreamCandidate>({ it.possible }, { it.embedded }))
@@ -503,6 +537,10 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     clickLoadedAt = System.currentTimeMillis()
                     main.postDelayed(settle, 1000)
                     return
+                }
+                if (!sourceScheduled && !linksMode && !light && clickRef == null) {
+                    sourceScheduled = true
+                    main.postDelayed(sourceStep, SOURCE_FIRST_MS)
                 }
                 nudge()
             }
@@ -889,6 +927,10 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         /** When only copies found inside other requests are known: how long to wait for the player's own request. */
         private const val EMBEDDED_WAIT_MS = 8_000L
         private const val FIRST_NUDGE_MS = 1_500L
+        /** Empty player box (primary search): how long after the page loads before the first source button is pressed, and between presses. */
+        private const val SOURCE_FIRST_MS = 5_000L
+        private const val SOURCE_RETRY_MS = 10_000L
+        private const val MAX_SOURCE_PRESSES = 2
         /** Taps on a found player, at most (one per nudge, 2.5 s apart). */
         private const val MAX_PLAYER_TAPS = 6
         private const val MAX_CANDIDATES = 12
@@ -961,21 +1003,22 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 for(var pn=e;pn&&pn!==document.body;pn=pn.parentElement){var pp=getComputedStyle(pn).position;if(pp==='fixed'||pp==='sticky')return false;}
                 return true;
               };
-              var pick=function(sel,minA){
+              var pick=function(sel,minA,landscape){
                 var b=null,ba=0;
                 document.querySelectorAll(sel).forEach(function(e){
                   if(!vis(e))return;
                   var r=e.getBoundingClientRect(), a=r.width*r.height;
+                  if(landscape&&r.width/r.height<1.1)return; // a tall narrow panel (chat) is not the player
                   if(r.width>=200&&r.height>=120&&a>=minA&&a>ba){ba=a;b=e;}
                 });
                 return b;
               };
               var kind='video', el=pick('video',40000);
-              if(!el){ el=pick('iframe',40000); kind='frame'; }
+              if(!el){ el=pick('iframe',40000,true); kind='frame'; }
               if(!el){
                 kind='box';
                 ['#videoPlayer','#player','.iframe-placeholder','.player-container','.video-player','[class*="player-wrap" i]','[id*="player" i]']
-                .some(function(sel){ var e=pick(sel,60000); if(e&&e.getBoundingClientRect().height<=innerHeight*1.2){el=e;return true;} return false; });
+                .some(function(sel){ var e=pick(sel,60000,true); if(e&&e.getBoundingClientRect().height<=innerHeight*1.2){el=e;return true;} return false; });
               }
               var res={v:out, iw:innerWidth};
               if(el){

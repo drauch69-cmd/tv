@@ -3,19 +3,21 @@
  *
  * ONE function expression. StreamSniffer.kt evaluates it as  (<this file>)("find")  or
  * (<this file>)("click 2")  in the TOP document and gets a JSON string back:
- *   find  -> { found: true, count, active (index or -1), labels: [...], xs: [...], ys: [...], iw }
+ *   find  -> { found: true, count, active (index or -1), labels: [...], xs: [...], ys: [...], iw, empty }
  *            xs/ys = centre of each item in CSS px of the window (Kotlin can tap there), iw = innerWidth
  *            { found: false, why: "..." } when there is no switcher
  *   click -> { ok: true } | { ok: false, why: "..." }
  *
  * Detected by STRUCTURE only, never by wording: 2..8 clickable siblings of similar height and shape with
  * short text, sitting within ~350 px above/below (or overlapping the edge of) the largest visible
- * video/iframe, outside nav/header/footer/aside-like containers, and not links to other sites (ads).
+ * landscape video/iframe (portrait panels such as chat are ignored; with none, the largest visible EMPTY
+ * 16:9-ish box with no media inside, reported as empty:true), outside nav/header/footer/aside-like containers, and not links to other sites (ads).
  * Labels are only returned for display.
  */
 (function (mode) {
   'use strict';
   var NEAR = 350, MIN_PLAYER_AREA = 40000, MAX_TEXT = 40;
+  var CLICKABLE_SEL = 'button,a[href],[role=button],[role=tab],[onclick],input[type=button],input[type=submit]';
 
   function run() {
     var m = /^click\s+(\d+)$/.exec(String(mode || ''));
@@ -75,18 +77,39 @@
     return false;
   }
 
-  function playerBox() {
-    var best = null, ba = 0, els = document.querySelectorAll('video,iframe');
-    for (var i = 0; i < els.length; i++) {
-      var r = visibleRect(els[i]);
-      if (!r || pinned(els[i])) continue;
-      var a = r.width * r.height;
-      if (a >= MIN_PLAYER_AREA && a > ba) { ba = a; best = r; }
+  /** Landscape video/iframe only: a tall narrow panel (chat, comments) is never the player. */
+  function landscape(r) { return r.width / r.height >= 1.1; }
+
+  /** Largest visible EMPTY player-shaped box: no media inside, little text, 16:9-ish, not pinned, not chrome. */
+  function emptyBox() {
+    var best = null, ba = 0, els = document.querySelectorAll('div,section,figure');
+    for (var i = 0; i < els.length && i < 6000; i++) {
+      var e = els[i], r = visibleRect(e);
+      if (!r) continue;
+      var a = r.width * r.height, asp = r.width / r.height;
+      if (a < MIN_PLAYER_AREA || a <= ba || asp < 1.3 || asp > 2.4) continue;
+      if (e.querySelector('video,iframe,canvas,object,embed')) continue;
+      if (textOf(e).length > 200) continue;
+      if (e.querySelectorAll(CLICKABLE_SEL).length > 2) continue; // a wrapper around the switcher, not the box
+      if (pinned(e) || chromeOf(e)) continue;
+      ba = a; best = r;
     }
     return best;
   }
 
-  var CLICKABLE_SEL = 'button,a[href],[role=button],[role=tab],[onclick],input[type=button],input[type=submit]';
+  function playerBox() {
+    var best = null, ba = 0, els = document.querySelectorAll('video,iframe');
+    for (var i = 0; i < els.length; i++) {
+      var r = visibleRect(els[i]);
+      if (!r || pinned(els[i]) || !landscape(r)) continue;
+      var a = r.width * r.height;
+      if (a >= MIN_PLAYER_AREA && a > ba) { ba = a; best = r; }
+    }
+    if (best) return { rect: best, empty: false };
+    var eb = emptyBox();
+    return eb ? { rect: eb, empty: true } : null;
+  }
+
   function clickables(box) {
     var set = [], seen = new Set(), i, e;
     var lo = box.top - NEAR - 60, hi = box.bottom + NEAR + 60;
@@ -132,6 +155,20 @@
     return !!t;
   }
   var RE_STATE_CLASS = /(^|[\s_-])(active|selected|current|on|checked)([\s_-]|$)/i;
+
+  /** Each item carries a small badge that is only a number, and the badges run n, n+1, n+2 ... in order. */
+  function badgeSequence(items) {
+    var nums = items.map(function (it) {
+      var ds = it.unit.querySelectorAll('*');
+      for (var d = 0; d < ds.length && d < 20; d++) {
+        if (ds[d].children.length === 0 && /^\d{1,2}$/.test(textOf(ds[d]))) return parseInt(textOf(ds[d]), 10);
+      }
+      return -1;
+    });
+    if (nums[0] < 0) return false;
+    for (var k = 1; k < nums.length; k++) if (nums[k] !== nums[k - 1] + 1) return false;
+    return true;
+  }
 
   function analyse(items, box) {
     // Similar size and shape, short text.
@@ -186,14 +223,16 @@
     // Labels that differ only in their numbers ("A-1", "A-2", ...): a numbered row of alternatives.
     var norm = items.map(function (i) { return i.text.replace(/\d+/g, '#'); });
     var numbered = norm.every(function (s) { return s === norm[0]; }) && /#/.test(norm[0]);
+    if (!numbered) numbered = badgeSequence(items);
     if (active < 0 && !numbered) return null; // a row of unrelated buttons (share, like, report ...)
     var score = (active >= 0 ? 40 : 0) + (numbered ? 30 : 0) + (n >= 3 && n <= 6 ? 10 : 0) + (oneDifferent ? 10 : 0) + (NEAR - gap) / NEAR * 20;
     return { active: active, score: score };
   }
 
   function find() {
-    var box = playerBox();
-    if (!box) return { found: false, why: 'no player box' };
+    var pb = playerBox();
+    if (!pb) return { found: false, why: 'no player box' };
+    var box = pb.rect;
     var cl = clickables(box);
     if (cl.length < 2) return { found: false, why: 'fewer than 2 clickable elements near the player' };
     var set = new Set(cl);
@@ -227,7 +266,8 @@
       labels: best.items.map(function (i) { return i.text; }),
       xs: best.items.map(function (i) { return Math.round(i.rect.left + i.rect.width / 2); }),
       ys: best.items.map(function (i) { return Math.round(i.rect.top + i.rect.height / 2); }),
-      iw: innerWidth
+      iw: innerWidth,
+      empty: pb.empty
     };
   }
 

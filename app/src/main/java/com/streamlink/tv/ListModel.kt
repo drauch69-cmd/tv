@@ -29,19 +29,25 @@ object ListStatus {
     const val UNKNOWN = "unknown"
 
     private const val LIVE_WINDOW_MS = 4 * 60 * 60 * 1000L
-    private const val SOON_MS = 30 * 60 * 1000L
+    const val SOON_MS = 30 * 60 * 1000L
     const val ALWAYS_ON_MS = 24 * 60 * 60 * 1000L
 
     /** A start more than 24 h ago means a channel, not a one-time event: "always on". */
     fun isAlwaysOn(start: Long, nowMillis: Long): Boolean = nowMillis - start > ALWAYS_ON_MS
 
-    /** live: liveHint, started less than 4h ago, or started more than 24h ago (always on); soon: starts
+    /** live: liveHint (until 4h after the start), started less than 4h ago, or started more than 24h ago (always on); soon: starts
      *  within 30 min; upcoming: later; finished: started 4h..24h ago; unknown: no time and no liveHint.
      *  Index pages drop real one-time events once they are over, so an entry still listed a day or more
      *  after its start is treated as a channel. */
-    fun of(item: ListItem, nowMillis: Long): String {
-        if (item.liveHint) return LIVE
-        val start = item.startMillis ?: return UNKNOWN
+    fun of(item: ListItem, nowMillis: Long, games: List<Game> = ScoreFeed.latest()): String =
+        ScoreStatus.resolve(item, nowMillis, games).status
+
+    /** The status from the item's own time and marker only (no scores). */
+    fun byTime(item: ListItem, nowMillis: Long): String {
+        val start = item.startMillis
+        // A site's live marker counts until 4 h after the listed start; some sites never take it down.
+        if (item.liveHint && (start == null || nowMillis - start < LIVE_WINDOW_MS)) return LIVE
+        if (start == null) return UNKNOWN
         val delta = start - nowMillis
         return when {
             delta > SOON_MS -> UPCOMING
@@ -60,14 +66,15 @@ object ListStatus {
      * Sort for display: live first (earliest start first, unknown start last), then soon and
      * upcoming (by start), unknown (page order kept), finished last (most recent first).
      */
-    fun sorted(items: List<ListItem>, nowMillis: Long): List<ListItem> {
-        val tagged = items.map { it to of(it, nowMillis) }
-        val cmp = Comparator<Pair<ListItem, String>> { a, b ->
+    fun sorted(items: List<ListItem>, nowMillis: Long, games: List<Game> = ScoreFeed.latest()): List<ListItem> {
+        // Matched items sort by ESPN's status and kickoff; the original items are returned.
+        val tagged = items.map { val r = ScoreStatus.resolve(it, nowMillis, games); Triple(it, r.status, r.item.startMillis) }
+        val cmp = Comparator<Triple<ListItem, String, Long?>> { a, b ->
             val ra = rank(a.second)
             val rb = rank(b.second)
             if (ra != rb) return@Comparator ra.compareTo(rb)
-            val sa = a.first.startMillis
-            val sb = b.first.startMillis
+            val sa = a.third
+            val sb = b.third
             // Real live events before always-on channels.
             if (a.second == LIVE && sa != null && sb != null) {
                 val aa = isAlwaysOn(sa, nowMillis)

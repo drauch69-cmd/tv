@@ -36,6 +36,7 @@ data class Game(
     val home: TeamSide,
     val away: TeamSide,
     val broadcast: String,
+    val statusName: String = "", // ESPN status.type.name, e.g. "STATUS_POSTPONED"
 )
 
 /** Reads ESPN's scoreboard JSON. Never throws. */
@@ -94,6 +95,7 @@ object ScoreParse {
             period = status?.optInt("period", 0) ?: 0,
             clock = str(status, "displayClock"),
             home = home, away = away, broadcast = broadcast,
+            statusName = str(type, "name"),
         )
     }
 
@@ -132,8 +134,11 @@ object ScoreParse {
 object ScoreMatch {
     private const val DAY_WINDOW_MS = 18 * 60 * 60 * 1000L
     private const val START_WINDOW_MS = 90 * 60 * 1000L
+    private val SHARED_CITY_LEAGUES = listOf("nfl", "nba")
 
     /** Lowercase, no accents, everything but letters and digits becomes one space. */
+    private val SPACES = Regex(" +")
+
     fun norm(s: String): String {
         val d = Normalizer.normalize(s, Normalizer.Form.NFD)
         val sb = StringBuilder(d.length)
@@ -141,7 +146,7 @@ object ScoreMatch {
             if (Character.getType(ch) == Character.NON_SPACING_MARK.toInt()) continue
             if (ch.isLetterOrDigit()) sb.append(ch.lowercaseChar()) else sb.append(' ')
         }
-        return sb.toString().trim().replace(Regex(" +"), " ")
+        return sb.toString().trim().replace(SPACES, " ")
     }
 
     private class Occ(val start: Int, val end: Int) // end exclusive, in the padded title
@@ -159,7 +164,7 @@ object ScoreMatch {
         return out
     }
 
-    private fun names(t: TeamSide, league: String, ambiguousLocations: Set<String>): Set<String> {
+    private fun names(t: TeamSide, ambiguousLocations: Set<String>): Set<String> {
         val loc = norm(t.location)
         val nick = norm(t.nickname)
         val out = LinkedHashSet<String>()
@@ -169,28 +174,56 @@ object ScoreMatch {
         out.add(norm(t.shortName))
         val abbr = norm(t.abbr)
         if (abbr.length >= 2 && !abbr.contains(' ')) out.add(abbr)
-        if (loc.isNotEmpty() && (!(league == "nfl" || league == "nba") || loc !in ambiguousLocations)) out.add(loc)
+        if (loc.isNotEmpty() && loc !in ambiguousLocations) out.add(loc)
         out.removeAll { it.length < 2 }
         return out
     }
 
+    // Matching runs many times per render, so answers are remembered per (title, start) for one games list.
+    // The cache is dropped when the games list instance changes (ScoreFeed keeps one instance until data changes).
+    private const val CACHE_MAX = 500
+    private val cacheLock = Any()
+    private var cacheGames: List<Game>? = null
+    private val cache = HashMap<String, Game?>()
+
     fun find(title: String, itemStartMillis: Long?, games: List<Game>): Game? {
         val t = norm(title)
         if (t.isEmpty() || games.isEmpty()) return null
+        val key = "$t|${itemStartMillis ?: ""}"
+        synchronized(cacheLock) {
+            if (cacheGames !== games) { cache.clear(); cacheGames = games }
+            if (cache.containsKey(key)) return cache[key]
+        }
+        val found = compute(t, itemStartMillis, games)
+        synchronized(cacheLock) {
+            if (cacheGames === games) {
+                if (cache.size >= CACHE_MAX) cache.clear()
+                cache[key] = found
+            }
+        }
+        return found
+    }
+
+    private fun compute(t: String, itemStartMillis: Long?, games: List<Game>): Game? {
         val pool = if (itemStartMillis != null) games.filter { Math.abs(it.startMillis - itemStartMillis) <= DAY_WINDOW_MS } else games
         if (pool.isEmpty()) return null
         val padded = " $t "
 
-        // NFL and NBA locations shared by two teams in the list ("New York", "Los Angeles") are not used.
-        val teamsByLocation = HashMap<String, MutableSet<String>>()
-        for (g in pool) if (g.league == "nfl" || g.league == "nba") for (s in listOf(g.home, g.away)) {
-            val loc = norm(s.location)
-            if (loc.isNotEmpty()) teamsByLocation.getOrPut(loc) { HashSet() }.add(norm(s.abbr).ifEmpty { norm(s.displayName) })
+        // Locations shared by two teams of the same pro league in the list ("New York", "Los Angeles") are not
+        // used as names. Worked out per league, so an NFL city never blocks an NBA name or the other way round.
+        val ambiguousByLeague = HashMap<String, Set<String>>()
+        for (lg in SHARED_CITY_LEAGUES) {
+            val teamsByLocation = HashMap<String, MutableSet<String>>()
+            for (g in pool) if (g.league == lg) for (s in listOf(g.home, g.away)) {
+                val loc = norm(s.location)
+                if (loc.isNotEmpty()) teamsByLocation.getOrPut(loc) { HashSet() }.add(norm(s.abbr).ifEmpty { norm(s.displayName) })
+            }
+            ambiguousByLeague[lg] = teamsByLocation.filter { it.value.size >= 2 }.keys
         }
-        val ambiguous = teamsByLocation.filter { it.value.size >= 2 }.keys
 
-        val perTeam = HashMap<TeamSide, Set<String>>()
-        fun namesOf(s: TeamSide, league: String) = perTeam.getOrPut(s) { names(s, league, ambiguous) }
+        val perTeam = HashMap<Pair<String, TeamSide>, Set<String>>()
+        fun namesOf(s: TeamSide, league: String) =
+            perTeam.getOrPut(league to s) { names(s, ambiguousByLeague[league] ?: emptySet()) }
 
         // Every place any known team name appears; a match inside a longer one is not a match
         // ("Michigan" inside "Michigan State").
@@ -227,7 +260,13 @@ object ScoreText {
             isHalf(g) -> if (sep == " ") "Half" else "Halftime"
             d.contains("end", ignoreCase = true) || d.contains("delay", ignoreCase = true) -> d
             g.period in 1..4 -> "Q${g.period}$sep${g.clock}".trimEnd(' ', '·')
-            g.period > 4 -> if ((g.league == "nfl" || g.league == "nba") && g.clock.isNotBlank()) "OT$sep${g.clock}" else d.ifBlank { "OT" }
+            g.league == "nba" && g.period > 4 -> {
+                // NBA: 4 quarters, then OT, 2OT, 3OT...
+                val ot = g.period - 4
+                val label = if (ot == 1) "OT" else "${ot}OT"
+                "$label$sep${g.clock}".trimEnd(' ', '·')
+            }
+            g.period > 4 -> if (g.league == "nfl" && g.clock.isNotBlank()) "OT$sep${g.clock}" else d.ifBlank { "OT" }
             d.isNotBlank() -> d
             else -> "Live"
         }
@@ -239,6 +278,7 @@ object ScoreText {
 
     /** One short line for a list row; null before the game starts. */
     fun rowLine(g: Game): String? {
+        ScoreStatus.cancelLabel(g)?.let { return it }
         val score = "${tag(g.away)} ${pts(g.away)} – ${tag(g.home)} ${pts(g.home)}"
         return when (g.state) {
             "in" -> "$score · ${liveStatus(g, " ")}"
@@ -250,7 +290,12 @@ object ScoreText {
     /** Lines for the details card; the first one is the headline. Kickoff is shown in [zone] (the TV's own). */
     fun cardLines(g: Game, zone: ZoneId = ZoneId.systemDefault()): List<String> {
         val out = ArrayList<String>()
-        if (g.state == "in" || g.state == "post") {
+        val cancelled = ScoreStatus.cancelLabel(g)
+        if (cancelled != null) {
+            fun side(s: TeamSide) = if (s.record.isBlank()) name(s) else "${name(s)} (${s.record})"
+            out.add("${side(g.away)} at ${side(g.home)}")
+            out.add(cancelled)
+        } else if (g.state == "in" || g.state == "post") {
             out.add("${name(g.away)} ${pts(g.away)} – ${name(g.home)} ${pts(g.home)}")
             out.add(if (g.state == "in") liveStatus(g, " · ") else finalStatus(g))
             val extra = listOf(g.away.record, g.home.record, g.broadcast).filter { it.isNotBlank() }
@@ -278,22 +323,44 @@ object ScoreFeed {
     private val NY = ZoneId.of("America/New_York")
     private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
 
+    /** Games older than this (no successful fetch since) are ignored, so an old "in" never keeps an item live. */
+    const val MAX_AGE_MS = 15 * 60_000L
+
+    /** Pure: is a fetch made at [lastOk] still good at [now]? */
+    fun isFresh(lastOk: Long?, now: Long): Boolean = lastOk != null && now - lastOk <= MAX_AGE_MS
+
     private val lock = Any()
     private var todayByLeague: Map<String, List<Game>> = emptyMap()
     private var futureByLeague: Map<String, List<Game>> = emptyMap()
+    private var version = 0
+    private var cachedKey = ""
+    private var cachedList: List<Game> = emptyList()
     private val lastOk = HashMap<String, Long>()
     private val lastFail = HashMap<String, Long>()
     private val futureOk = HashMap<String, Long>()
     private val futureFail = HashMap<String, Long>()
     private var running = false
 
-    /** All known games: today's (and yesterday's before 5 am) plus the next two days, merged by game id. */
-    fun latest(): List<Game> = synchronized(lock) { LEAGUES.flatMap { merged(it) } }
+    /**
+     * All known games: today's (and yesterday's before 5 am) plus the next two days, merged by game id. Today's games
+     * of a league are left out when its last good fetch is older than [MAX_AGE_MS], so an old "in" never keeps an item
+     * live. The same List instance is returned until the data (or which leagues are fresh) changes (ScoreMatch caches
+     * per instance).
+     */
+    fun latest(now: Long = System.currentTimeMillis()): List<Game> = synchronized(lock) {
+        val fresh = LEAGUES.filter { isFresh(lastOk[it], now) }
+        val key = "$version:${fresh.joinToString(",")}"
+        if (key != cachedKey) {
+            cachedList = LEAGUES.flatMap { merged(it, it in fresh) }
+            cachedKey = key
+        }
+        cachedList
+    }
 
-    private fun merged(league: String): List<Game> {
+    private fun merged(league: String, todayFresh: Boolean): List<Game> {
         val m = LinkedHashMap<String, Game>()
-        for (g in todayByLeague[league] ?: emptyList()) m.putIfAbsent(g.id, g)
-        for (g in futureByLeague[league] ?: emptyList()) m.putIfAbsent(g.id, g)
+        if (todayFresh) for (g in todayByLeague[league] ?: emptyList()) m.putIfAbsent(g.id, g)
+        for (g in futureByLeague[league] ?: emptyList()) if (g.state == "pre" || todayFresh) m.putIfAbsent(g.id, g)
         return m.values.toList()
     }
 
@@ -363,7 +430,8 @@ object ScoreFeed {
                 for (g in games) merged.putIfAbsent(g.id, g)
             }
             synchronized(lock) {
-                todayByLeague = todayByLeague + (league to merged.values.toList())
+                val list = merged.values.toList()
+                if (todayByLeague[league] != list) { todayByLeague = todayByLeague + (league to list); version++ }
                 lastOk[league] = System.currentTimeMillis()
                 lastFail.remove(league)
             }
@@ -383,7 +451,8 @@ object ScoreFeed {
                 for (g in ScoreParse.parse(download(url(league, DAY.format(now.plusDays(k)))), league)) merged.putIfAbsent(g.id, g)
             }
             synchronized(lock) {
-                futureByLeague = futureByLeague + (league to merged.values.toList())
+                val list = merged.values.toList()
+                if (futureByLeague[league] != list) { futureByLeague = futureByLeague + (league to list); version++ }
                 futureOk[league] = System.currentTimeMillis()
                 futureFail.remove(league)
             }

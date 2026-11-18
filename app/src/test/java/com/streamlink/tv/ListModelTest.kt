@@ -27,6 +27,15 @@ class ListModelTest {
         assertEquals(ListStatus.FINISHED, ListStatus.of(item("a", now - 9 * hour), now))
     }
 
+    @Test fun staleLiveMarkerStopsCountingAfterFourHours() {
+        // some sites leave "LIVE" up for hours after the game; the marker counts only until 4 h after the start
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", now - 2 * hour, live = true), now))
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", now - 4 * hour + 1, live = true), now))
+        assertEquals(ListStatus.FINISHED, ListStatus.of(item("a", now - 6 * hour, live = true), now))
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", now - 30 * hour, live = true), now)) // listed for a day: always on
+        assertEquals(ListStatus.LIVE, ListStatus.of(item("a", null, live = true), now)) // no start time: trust the marker
+    }
+
     @Test fun sortOrder() {
         val items = listOf(
             item("finishedOld", now - 10 * hour),

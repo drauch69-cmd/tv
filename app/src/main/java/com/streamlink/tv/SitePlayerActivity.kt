@@ -92,6 +92,7 @@ class SitePlayerActivity : Activity() {
                 var r = e.getBoundingClientRect(); var a = r.width * r.height;
                 if (a < 40000) return 0;
                 var ar = r.width / Math.max(1, r.height);
+                if (ar < 1.1) return 0;   // a tall or narrow panel (chat, comments) is never the player
                 var shape = (ar > 1.2 && ar < 2.5) ? 1 : 0.15;   // chat boxes are tall and narrow
                 return a * shape * (e.tagName === 'VIDEO' ? 3 : 1) * hint(e);
               }
@@ -356,6 +357,10 @@ class SitePlayerActivity : Activity() {
     private var siteHost: String? = null
     private var videoPlaying = false
     private var clearedMisses = false
+    /** Times a source button was pressed because the page's player was empty (see [pressSourceIfEmpty]); at most 2 per visit. */
+    private var sourcePresses = 0
+    private var sourceBusy = false
+    private var sourcePressedOnPage = false
     private val streamsSeen = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
     /** Requests that only look like a playlist by their address words (see StreamUrls.isPossiblePlaylist); never fetched here. */
     private val possiblesSeen = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
@@ -466,6 +471,7 @@ class SitePlayerActivity : Activity() {
                 focusTries = 0
                 manualPick = false
                 lastHidden = -1
+                sourcePressedOnPage = false
                 main.removeCallbacks(focusTick)
                 main.post(focusTick)
             }
@@ -589,8 +595,26 @@ class SitePlayerActivity : Activity() {
                     }
                 }
                 if (res == "manual") manualPick = true
+                if (res == "none") pressSourceIfEmpty()
                 main.postDelayed(this, if (choosing && !manualPick) 2500 else 3000)
             }
+        }
+    }
+
+    /**
+     * No usable video or frame on the page (a player box that stays empty until one of the page's own source
+     * buttons is pressed): after a few ticks, press source button 1 (found by structure, see assets/source-switch.js).
+     * Once per page, at most 2 per visit; the next focus ticks then pick up whatever player appears.
+     */
+    private fun pressSourceIfEmpty() {
+        if (sourceBusy || sourcePressedOnPage || sourcePresses >= 2 || focusTries < 3 || videoPlaying) return
+        sourceBusy = true
+        SourcePress.press(this, web, 0, { !isFinishing && !isDestroyed && !videoPlaying }) { pressed ->
+            sourceBusy = false
+            if (pressed == null || isFinishing || isDestroyed) return@press
+            sourcePresses++
+            sourcePressedOnPage = true
+            Report.log("Site player: pressed source button ${pressed.index + 1} of ${pressed.count} (the player was empty)")
         }
     }
 

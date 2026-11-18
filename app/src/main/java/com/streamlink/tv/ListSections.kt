@@ -16,9 +16,9 @@ object ListSections {
     }
 
     /** Groups already-sorted items (ListJson.visible order) into labelled sections; empty sections are left out. */
-    fun group(sorted: List<ListItem>, now: Long): List<Section> {
+    fun group(sorted: List<ListItem>, now: Long, games: List<Game> = ScoreFeed.latest()): List<Section> {
         val order = listOf(ListStatus.LIVE, ListStatus.SOON, ListStatus.UPCOMING, ListStatus.UNKNOWN, ListStatus.FINISHED)
-        val by = sorted.groupBy { ListStatus.of(it, now) }
+        val by = sorted.groupBy { ListStatus.of(it, now, games) }
         return order.mapNotNull { st -> by[st]?.takeIf { it.isNotEmpty() }?.let { Section(st, label(st), it) } }
     }
 
@@ -34,16 +34,19 @@ object ListSections {
     }
 
     /** Second line of a row: subtitle / section, then when. */
-    fun meta(item: ListItem, now: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String {
+    fun meta(item: ListItem, now: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault(),
+             games: List<Game> = ScoreFeed.latest()): String {
+        val r = ScoreStatus.resolve(item, now, games)
+        val status = r.status
         val parts = mutableListOf<String>()
         item.subtitle.trim().takeIf { it.isNotEmpty() }?.let { parts += it }
         item.section.trim().takeIf { it.isNotEmpty() && it != item.subtitle.trim() }?.let { parts += it }
-        val st = item.startMillis
+        val st = r.item.startMillis
         val whenPart = when {
             st == null -> item.timeText.trim().takeIf { it.isNotEmpty() }
-            ListStatus.of(item, now) == ListStatus.LIVE && st <= now && ListStatus.isAlwaysOn(st, now) -> "Always on"
-            ListStatus.of(item, now) == ListStatus.LIVE && st <= now -> startedAgo(st, now)
-            ListStatus.of(item, now) == ListStatus.FINISHED -> ListText.whenText(st, now, zone, locale)
+            status == ListStatus.LIVE && st <= now && ListStatus.isAlwaysOn(st, now) -> "Always on"
+            status == ListStatus.LIVE && st <= now -> startedAgo(st, now)
+            status == ListStatus.FINISHED -> ListText.whenText(st, now, zone, locale)
             else -> ListText.whenText(st, now, zone, locale)
         }
         whenPart?.let { parts += it }
@@ -53,11 +56,14 @@ object ListSections {
     /** Right-hand badge: (text, isLive, isPill). Pill false means plain secondary text. */
     data class Badge(val text: String, val live: Boolean, val pill: Boolean)
 
-    fun badge(item: ListItem, now: Long): Badge = when (ListStatus.of(item, now)) {
-        ListStatus.LIVE -> Badge("LIVE", true, true)
-        ListStatus.SOON -> Badge(inMinutes(item, now) ?: "SOON", false, true)
-        ListStatus.FINISHED -> Badge("Maybe ended", false, false)
-        else -> Badge("Wait for it", false, false)
+    fun badge(item: ListItem, now: Long, games: List<Game> = ScoreFeed.latest()): Badge {
+        val r = ScoreStatus.resolve(item, now, games)
+        return when (r.status) {
+            ListStatus.LIVE -> Badge("LIVE", true, true)
+            ListStatus.SOON -> Badge(inMinutes(r.item, now) ?: "SOON", false, true)
+            ListStatus.FINISHED -> Badge(r.badge ?: "Maybe ended", false, false)
+            else -> Badge("Wait for it", false, false)
+        }
     }
 }
 

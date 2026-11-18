@@ -30,6 +30,14 @@
 (function (recipeJson, learnedJson) {
   'use strict';
   var debug = [];
+  // Pages using content-visibility:auto leave off-screen rows unrendered, and their innerText is then empty
+  // (in the TV's hidden browser that can be every row). Render everything while reading.
+  var cvStyle = null;
+  try {
+    cvStyle = document.createElement('style');
+    cvStyle.textContent = '*{content-visibility:visible !important}';
+    (document.head || document.documentElement).appendChild(cvStyle);
+  } catch (e) { cvStyle = null; }
   try {
     return run();
   } catch (e) {
@@ -37,6 +45,8 @@
       pageTitle: safeTitle(), pageUrl: String(location.href), method: 'automatic', items: [], noLink: 0,
       debug: 'extractor error: ' + (e && e.message ? e.message : e), error: 'extractor error'
     });
+  } finally {
+    try { if (cvStyle && cvStyle.parentNode) cvStyle.parentNode.removeChild(cvStyle); } catch (e) { }
   }
 
   function safeTitle() { try { return String(document.title || '').trim(); } catch (e) { return ''; } }
@@ -109,7 +119,13 @@
     var RE_TIME12 = /\b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*[ap]\.?m\.?(?![a-z])/i;
     var RE_TIME24 = /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/;
     var RE_REL_DAY = /\b(?:today|tonight|tomorrow)\b/i;
-    var RE_REL_IN = /\bin\s+(?:about\s+)?(?:\d+|an?|half an)\s*(?:min|mins|minutes?|hours?|hrs?|h)\b/i;
+    // "in 2 hours", "in an hour", and compact countdowns: "in 1d 19h", "starts in 2h 05m", "in 45m", "in 3d"
+    var RE_REL_IN = /\bin\s+(?:about\s+)?(?:\d+\s*d(?:ays?)?\b(?:\s*\d+\s*h(?:ours?|rs?)?\b)?(?:\s*\d+\s*m(?:in(?:ute)?s?)?\b)?|\d+\s*h(?:ours?|rs?)?\b(?:\s*\d+\s*m(?:in(?:ute)?s?)?\b)?|\d+\s*m(?:in(?:ute)?s?)?\b|(?:an?|half an)\s*(?:hours?|hrs?|h|min(?:ute)?s?|m)\b)/i;
+    var RE_IN_WORD = /(?:^|\s)in$/i;                                   // "STARTS IN" (the count is in the next line)
+    var RE_COMPACT_ONLY = /^\d+\s*[dhm]\b(?:\s*\d+\s*[hm]\b)*$/i;     // "1d 19h", "2h 05m", "45m"
+    var RE_COUNTDOWN = /^\d+\s*[dhms]\b(?:\s*\d+\s*[hms]\b)*$|^\d{1,2}(?::\d{2}){1,2}$/i;
+    var RE_SEPARATOR = /^(vs\.?|v\.?|versus|-|\u2013|\u2014|@|at|x)$/i;
+    var RE_SCORE = /^\d{1,3}(?:\s*[:\-\u2013]\s*\d{1,3})?$/;
     var RE_NOISE = new RegExp(
       '\\b' + MONTHS + '\\b\\.?|\\b\\d{1,4}[\\/.\\-]\\d{1,2}[\\/.\\-]\\d{1,4}\\b|\\b(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\\b\\.?|' +
       '\\b(?:[01]?\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d)?\\b|\\b\\d{1,2}(?::\\d{2})?\\s*[ap]\\.?m\\.?(?![a-z])|\\b\\d{1,4}(?:st|nd|rd|th)?\\b|' +
@@ -207,9 +223,12 @@
       INPUT: 1, SELECT: 1, TEXTAREA: 1, IMG: 1, CANVAS: 1, IFRAME: 1, HEAD: 1, TITLE: 1, PATH: 1 };
     var RE_STATE_TOKEN = /^(active|selected|current|open|opened|closed|first|last|odd|even|hover|focus|focused|show|shown|visible|hidden|loaded|live|new|featured|highlight|highlighted|past|upcoming|ended|soon|ng-.*|is-.*|has-.*|js-.*)$/i;
     function tokens(el) {
-      var out = [], cl = el.classList;
-      for (var i = 0; i < cl.length; i++) if (!RE_STATE_TOKEN.test(cl[i])) out.push(cl[i]);
-      return out;
+      var out = [], mods = [], cl = el.classList;
+      for (var i = 0; i < cl.length; i++) {
+        if (RE_STATE_TOKEN.test(cl[i])) continue;
+        if (cl[i].indexOf('--') > 0) mods.push(cl[i]); else out.push(cl[i]); // "card--live" is a variant, not a different row shape
+      }
+      return out.length ? out : mods;
     }
     function jacc(a, b) {
       if (!a.length && !b.length) return 1;
@@ -261,7 +280,8 @@
         }
         if (!clusters.length) continue;
         var psig = sig(p);
-        var gp = p.parentElement ? uid(p.parentElement) : 0;
+        var gpe = p.parentElement;
+        var gp = gpe ? (gpe.parentElement ? uid(gpe.parentElement) : 0) + ':' + sig(gpe) : 0; // sections with distinct ids still merge
         for (var m = 0; m < clusters.length; m++) {
           var cl = clusters[m];
           var key = gp + '|' + psig + '|' + cl.tag + '.' + cl.tk.slice().sort().join('.');
@@ -298,16 +318,44 @@
     }
     function inMain(el) { return !!el.closest('main,[role=main]'); }
 
+    /** Cheap text lines of a row for scoring: table cells (tab-separated in innerText) are separate lines. */
+    function rowLines(el) {
+      var t = el.innerText;
+      if (t == null) t = el.textContent;
+      return String(t || '').split(/[\n\t]+/).map(oneLine).filter(function (l) { return l; });
+    }
+    /** A link inside running text (an <a> in a paragraph, or a paragraph/list item that is mostly prose around its link). */
+    function proseLink(el) {
+      var host = (/^(P|LI|DD|BLOCKQUOTE)$/.test(el.tagName) ? el : (el.tagName === 'A' ? el.parentElement && el.parentElement.closest('p,li,dd,blockquote') : null));
+      if (!host) return false;
+      var a = el.tagName === 'A' ? el : el.querySelector('a[href]');
+      if (!a) return false;
+      var hl = oneLine(txt(host)).length, al = oneLine(txt(a)).length;
+      return hl > al * 3 + 40;
+    }
+    /** True if the rows sit under a date heading (so a short list without clock times is still an agenda). */
+    function datedSection(g) {
+      try {
+        var set = {};
+        g.items.forEach(function (el) { set[uid(el)] = 1; });
+        var h = findSection(g.items[0], set);
+        return !!h && kinds(h).date;
+      } catch (e) { return false; }
+    }
     function scoreGroup(g) {
       var items = g.items, n = items.length;
       var sample = items.length > 60 ? items.slice(0, 60) : items;
-      var timed = 0, linked = 0, urls = {}, nUrls = 0, lenSum = 0, linesSum = 0, counts = 0;
+      var timed = 0, linked = 0, urls = {}, nUrls = 0, lenSum = 0, linesSum = 0, counts = 0, prose = 0, forms = 0;
       for (var i = 0; i < sample.length; i++) {
         var t = txt(sample[i]);
-        var lines = t.split('\n').map(oneLine).filter(function (l) { return l; });
+        var lines = rowLines(sample[i]);
         var hasTime = false;
         for (var j = 0; j < lines.length; j++) if (timeLineRank(lines[j]) > 0) { hasTime = true; break; }
+        // a "live" marker counts like a time (rows of a live section have no clock)
+        if (!hasTime && (dtAttr(sample[i]) || sample[i].querySelector('time[datetime]') || liveHintOf(sample[i], lines.map(function (x) { return { text: x }; }), -1))) hasTime = true;
         if (hasTime) timed++;
+        if (proseLink(sample[i])) prose++;
+        if (sample[i].querySelector('select,input,textarea')) forms++;
         var u = linkOf(sample[i], true, false);
         if (u) { linked++; var nu = normUrl(u); if (!urls[nu]) { urls[nu] = 1; nUrls++; } }
         var ol = oneLine(t);
@@ -332,6 +380,11 @@
       if (g.avgLen < 14 && g.timeFrac < 0.3) s -= 35;       // menus, chips: very short text
       if (counts / sn >= 0.6 && g.avgLen < 30) s -= 30;     // "Workshops 18"
       if (g.avgLen > 600) s -= 30;
+      if (/^T[DH]$/.test(items[0].tagName)) s -= 45;          // table cells: the row is the <tr>, never a single cell
+      if (prose / sn >= 0.5) s -= 60;                        // links inside running text are not rows
+      if (g.timeFrac === 0 && (prose / sn >= 0.25 || (n < 4 && !datedSection(g)))) s -= 40; // no time, no live marker: must be clearly list-like
+      if (forms / sn >= 0.5) s -= 50;                        // rows holding form controls (a section header with a filter)
+      if (items[0].tagName === 'HEADER' && g.timeFrac < 0.5) s -= 40; // section headers
       g.score = s;
       g.raw = s;
       return g;
@@ -371,12 +424,14 @@
       var cur = item, steps = 0;
       for (var level = 0; level < 6 && cur && cur !== document.body; level++) {
         for (var sib = cur.previousElementSibling; sib; sib = sib.previousElementSibling) {
-          if (itemSet[uid(sib)]) { steps++; continue; }
+          if (itemSet[uid(sib)]) continue;
           steps++;
           if (!txt(sib)) continue;
           if (isDateHeader(sib)) return headingText(sib);
           var hd = isHeadingEl(sib) ? sib : sib.querySelector('h1,h2,h3,h4,h5,h6,[role=heading]');
-          if (hd && !sib.querySelector('a[href]')) {
+          // a section heading may itself be a link ("Soccer" -> its page), if every link in the block sits inside the heading
+          var hdLinks = hd ? hd.querySelectorAll('a[href]').length : 0;
+          if (hd && (!sib.querySelector('a[href]') || (hdLinks > 0 && hdLinks <= 2 && sib.querySelectorAll('a[href]').length === hdLinks))) {
             var ht = headingText(hd);
             var dated = kinds(ht).date;
             // plain (non-date) headings count only when close to the list, and not the page's h1
@@ -445,21 +500,57 @@
         var cls = '', e = se;
         for (var d = 0; d < 3 && e && e !== item.parentElement; d++, e = e.parentElement) cls += ' ' + (typeof e.className === 'string' ? e.className : '');
         out[i].cls = cls;
+        var bt = false;
+        for (var b = out[i].el; b && b !== item && !bt; b = b.parentElement) {
+          if (b.tagName === 'BUTTON' || (b.getAttribute && b.getAttribute('role') === 'button')) bt = true;
+          else if (typeof b.className === 'string' && RE_BTN_CLASS.test(b.className)) bt = true;
+        }
+        out[i].btn = bt; // text of a button ("Live Streams", "Watch"): not a title, not a live marker
       }
       return out;
+    }
+    var RE_BTN_CLASS = /(^|[\s_-])(btn|button|cta)([\s_-]|$)/i;
+    var linesCache = {};
+    function linesOf(item) { var k = uid(item); return linesCache[k] || (linesCache[k] = collectLines(item)); }
+    var labelMap = {};
+    var RE_LETTER = null;
+    try { RE_LETTER = new RegExp('\\p{L}', 'u'); } catch (e) { RE_LETTER = /[A-Za-z\u00C0-\u024F\u0370-\u1FFF\u3040-\uD7FF]/; }
+    /** Lines whose text is the same in (nearly) every row of a group of 3+ rows are labels (league name, "Watch"), never titles. */
+    function computeLabels(all, selOf) {
+      var by = {};
+      all.forEach(function (el) { var k = selOf[uid(el)] || ''; (by[k] = by[k] || []).push(el); });
+      Object.keys(by).forEach(function (k) {
+        var rows = by[k];
+        if (rows.length < 3) return;
+        var sample = rows.slice(0, 60), cnt = {}, n = 0;
+        sample.forEach(function (r) {
+          var ls = linesOf(r);
+          if (ls.length < 2) return;
+          n++;
+          var seen = {};
+          ls.forEach(function (L) { var key = L.text.toLowerCase(); if (!seen[key]) { seen[key] = 1; cnt[key] = (cnt[key] || 0) + 1; } });
+        });
+        if (n < 3) return;
+        var need = Math.max(3, Math.ceil(n * 0.85)), set = {}, any = false;
+        Object.keys(cnt).forEach(function (key) { if (cnt[key] >= need) { set[key] = 1; any = true; } });
+        if (any) rows.forEach(function (r) { labelMap[uid(r)] = set; });
+      });
     }
 
     var RE_BADGE = /^(live|live now|on air|on-air|new|free|sold out|full|register|details|view|view all|more|read more|learn more|book now|get tickets|tickets|rsvp|today|tomorrow|tonight|upcoming|featured|popular)$/i;
     function isBadge(t) { return RE_BADGE.test(t.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '')); }
     var RE_TITLE_CLASS = /(^|[\s_-])(title|name|heading|headline|summary)([\s_-]|$)/i;
 
-    function pickTitle(lines, skip) {
+    function pickTitle(lines, skip, labels, loose) {
       var best = -1e9, bi = -1;
       for (var i = 0; i < lines.length; i++) {
         if (skip[i]) continue;
         var L = lines[i], t = L.text;
         if (t.length < 2) continue;
+        if (!loose && (!RE_LETTER.test(t) || (labels && labels[t.toLowerCase()]))) continue; // an icon, or a repeated label
         var s = 0;
+        if (L.btn) s -= 150;
+        if (RE_COUNTDOWN.test(t)) s -= 80;
         if (L.heading) s += 100;
         if (RE_TITLE_CLASS.test(L.cls)) s += 40;
         s += L.fs * 2;
@@ -482,7 +573,14 @@
         var tt = oneLine(txt(tEl));
         if (tt) {
           res.text = tt;
-          for (var i = 0; i < lines.length; i++) if (tEl.contains(lines[i].el)) res.idx[i] = 1;
+          for (var i = 0; i < lines.length; i++) if (tEl.contains(lines[i].el) || (lines[i].el.contains(tEl) && lines[i].text === tt)) res.idx[i] = 1;
+        }
+      }
+      if (!res.text && !(ov && ov.time)) { // "STARTS IN" and "1d 19h" in two lines: one time text
+        for (var w = 0; w + 1 < lines.length; w++) {
+          if (lines[w].text.length <= 16 && RE_IN_WORD.test(lines[w].text) && RE_COMPACT_ONLY.test(lines[w + 1].text)) {
+            res.text = lines[w].text + ' ' + lines[w + 1].text; res.idx[w] = 1; res.idx[w + 1] = 1; break;
+          }
         }
       }
       if (!res.text && !(ov && ov.time)) {
@@ -522,6 +620,7 @@
       if (titleIdx >= 0 && RE_LIVE_TITLE.test(lines[titleIdx].text)) return true;
       for (var i = 0; i < lines.length; i++) {
         if (i === titleIdx) continue;
+        if (lines[i].btn) continue;
         if (lines[i].text.length <= 24 && RE_LIVE.test(lines[i].text)) return true;
       }
       var els = [item], more = item.querySelectorAll('*');
@@ -564,32 +663,102 @@
       return '';
     }
 
+    function sepText(t) { return /^(vs\.?|v\.?|versus)$/i.test(t) ? t.toLowerCase() : t; }
+    function sameStyle(a, b) { return Math.abs(a.fs - b.fs) < 0.05 && Math.abs(a.fw - b.fw) < 100; }
+    function isTimeish(t) { return timeLineRank(t) > 0 || RE_COUNTDOWN.test(t) || RE_REL_IN.test(t); }
+    /** A line that can be one side of a matchup: has letters, is not a separator, score, time, badge or button. */
+    function nameLike(L, labels) {
+      var t = L.text;
+      return RE_LETTER.test(t) && !RE_SEPARATOR.test(t) && !RE_SCORE.test(t) && !isTimeish(t) && !isBadge(t) && !L.btn && !(labels && labels[t.toLowerCase()]);
+    }
+    /**
+     * Two team names with only short parts between them (VS, a score, a time, a status word) become "First vs Second".
+     * Returns { text, upto } or null; every line between is marked used by the caller.
+     */
+    function pairTitle(lines, ti, tmIdx, labels) {
+      var T = lines[ti];
+      if (!nameLike(T, labels)) return null;
+      var sep = '', between = 0;
+      for (var k = ti + 1; k < lines.length && k <= ti + 7; k++) {
+        var L = lines[k];
+        if (tmIdx[k] || L.btn || (labels && labels[L.text.toLowerCase()])) { between++; continue; }
+        if (RE_SEPARATOR.test(L.text)) { if (!sep) sep = L.text; between++; continue; }
+        if (sameStyle(L, T) && nameLike(L, labels) && L.text.toLowerCase() !== T.text.toLowerCase()) {
+          // adjacent same-style lines are a title and its subtitle, unless they share one class (two team names)
+          if (!between && !(typeof L.el.className === 'string' && L.el.className && L.el.className === T.el.className)) return null; // two lines of the very same class = two names
+          return { text: T.text + ' ' + (sep ? sepText(sep) : 'vs') + ' ' + L.text, upto: k };
+        }
+        if (L.text.length <= 12 || isTimeish(L.text) || RE_SCORE.test(L.text)) { between++; continue; }
+        return null;
+      }
+      return null;
+    }
+    /** An empty full-card link (the whole card is clickable) names the card in its aria-label / title. */
+    function overlayTitle(item) {
+      var as = item.querySelectorAll('a[href]');
+      for (var i = 0; i < as.length && i < 12; i++) {
+        var a = as[i];
+        if (oneLine(txt(a))) continue;
+        var lab = oneLine(a.getAttribute('aria-label') || a.getAttribute('title') || '');
+        if (lab.length < 4 || !RE_LETTER.test(lab)) continue;
+        if (layoutOk) {
+          var ra = a.getBoundingClientRect(), ri = item.getBoundingClientRect();
+          if (ra.width < ri.width * 0.7 || ra.height < ri.height * 0.7) continue;
+        }
+        return lab;
+      }
+      return '';
+    }
+
     /** ov: optional per-field overrides from a recipe (elements, plus section text / live boolean). */
     function readItem(item, ov, itemSet, strictLinks) {
       ov = ov || {};
-      var lines = collectLines(item);
+      var lines = linesOf(item);
       if (!lines.length) return null;
+      var labels = labelMap[uid(item)] || null;
       var tm = findTime(item, lines, ov);
-      var titleIdx = -1, title = '';
+      var titleIdx = -1, title = '', fromLabel = false;
       if (ov.title) {
         title = oneLine(txt(ov.title));
         for (var a = 0; a < lines.length; a++) if (ov.title.contains(lines[a].el)) { titleIdx = a; break; }
       }
       if (!title) {
+        var ot = overlayTitle(item);
+        if (ot) {
+          title = ot; fromLabel = true;
+          for (var oi = 0; oi < lines.length; oi++) if (lines[oi].text.toLowerCase() === ot.toLowerCase()) { titleIdx = oi; break; }
+        }
+      }
+      if (!title) {
         var skip = {}, key;
         for (key in tm.idx) skip[key] = 1;
-        titleIdx = pickTitle(lines, skip);
-        if (titleIdx < 0 && lines.length) titleIdx = pickTitle(lines, {});
+        titleIdx = pickTitle(lines, skip, labels, false);
+        if (titleIdx < 0) titleIdx = pickTitle(lines, skip, null, false);
+        if (titleIdx < 0) titleIdx = pickTitle(lines, {}, null, true);
         title = titleIdx >= 0 ? lines[titleIdx].text : '';
       }
       if (!title) return null;
       var used = {};
       if (titleIdx >= 0) used[titleIdx] = 1;
-      // teams split over several elements: "Team A" / "vs" / "Team B" become one title
-      if (!ov.title && titleIdx >= 0 && titleIdx + 2 < lines.length && /^(vs\.?|v\.?|versus|-|\u2013|\u2014|@|x)$/i.test(lines[titleIdx + 1].text) &&
-          !tm.idx[titleIdx + 2] && !isBadge(lines[titleIdx + 2].text)) {
-        title = title + ' ' + lines[titleIdx + 1].text + ' ' + lines[titleIdx + 2].text;
-        used[titleIdx + 1] = 1; used[titleIdx + 2] = 1;
+      if (!ov.title && !fromLabel && titleIdx >= 0) {
+        // teams split over several elements: "Team A" / "vs" / "Team B" (same style) become one title
+        if (titleIdx + 2 < lines.length && RE_SEPARATOR.test(lines[titleIdx + 1].text) && !tm.idx[titleIdx + 2] && !isBadge(lines[titleIdx + 2].text) &&
+            nameLike(lines[titleIdx + 2], labels) && sameStyle(lines[titleIdx + 2], lines[titleIdx])) {
+          title = title + ' ' + sepText(lines[titleIdx + 1].text) + ' ' + lines[titleIdx + 2].text;
+          used[titleIdx + 1] = 1; used[titleIdx + 2] = 1;
+        } else {
+          var pr = pairTitle(lines, titleIdx, tm.idx, labels);
+          if (!pr) {
+            // The picked line may be a small label above the names ("League" over "Team A … Team B"): a pair of
+            // same-style names anywhere in the row is the better title.
+            for (var pi = 0; pi < lines.length && !pr; pi++) {
+              if (pi === titleIdx || tm.idx[pi]) continue;
+              var p2 = pairTitle(lines, pi, tm.idx, labels);
+              if (p2) { pr = p2; delete used[titleIdx]; titleIdx = pi; used[pi] = 1; }
+            }
+          }
+          if (pr) { title = pr.text; for (var u = titleIdx + 1; u <= pr.upto; u++) used[u] = 1; }
+        }
       }
       var timeText = tm.text;
       if (!timeText && titleIdx >= 0) timeText = extractSub(lines[titleIdx].text); // "Match 8pm" as the only line
@@ -597,10 +766,10 @@
 
       var subtitle = '';
       if (ov.subtitle) subtitle = oneLine(txt(ov.subtitle));
-      else if (titleIdx >= 0) {
+      else if (titleIdx >= 0 && !fromLabel) {
         for (var s = titleIdx + 1; s < lines.length; s++) {
           var L = lines[s];
-          if (tm.idx[s] || used[s] || isBadge(L.text) || L.text === title) continue;
+          if (tm.idx[s] || used[s] || L.btn || RE_COUNTDOWN.test(L.text) || isBadge(L.text) || L.text === title || (labels && labels[L.text.toLowerCase()])) continue;
           if (L.text.length < 2) continue;
           subtitle = L.text.substring(0, 140);
           break;
@@ -717,6 +886,7 @@
     /** Reads rows into items: dedupes, keeps unlinked rows as click rows when they look like events. */
     function emit(all, selOf, itemSet, requireEventIfSomeLinked) {
       var read = [], linked = 0, k;
+      computeLabels(all, selOf);
       for (k = 0; k < all.length && read.length < MAX_ITEMS * 2; k++) {
         var rd = readItem(all[k], null, itemSet, true);
         if (!rd) continue;
