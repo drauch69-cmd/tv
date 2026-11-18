@@ -5,6 +5,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **NBA tile fixed** (user, 2026-11-18 03:59, Sports build 197): opens and works. The focus outline change in 197 looked
+  worse; the user chose a clean focus style: no growing, a crisp ring drawn on top of the card's content (inside its
+  bounds), brighter fill; the 197 clipping changes are reverted. In progress.
 - **NBA tile crash + outlines + crash recorder** (Sports build after 191, 2026-11-18): NBA tile "crashed" every time
   (NFL/CFB fine; NBA lists hold the most streams). Suspected freeze (ANR): sport screen matched every stream on the
   main thread and ScoreMatch's single cache slot thrashed against the home model. Fixed: sport/streams screens compute
