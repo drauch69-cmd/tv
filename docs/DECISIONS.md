@@ -5,6 +5,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **No problems since build 188** (user, 2026-11-18 02:55): no stalls or crashes reported after the home speed fix, so
+  the performance review batches are now preventive, not urgent.
 - **"Your lists" tab + list leftovers** (Sports build 191, 2026-11-18): lists moved off home into a top-bar tab next to
   "Send a link" (new lists screen); old learned list shapes forgotten (v2 key), learned rows must pass the fresh-read
   rules, a page that loads with no events now replaces the old list. Untested on the TV; check TheTVApp NFL/CFB.
