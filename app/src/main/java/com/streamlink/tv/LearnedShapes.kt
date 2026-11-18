@@ -11,7 +11,7 @@ import org.json.JSONObject
  */
 object LearnedShapes {
     private const val PREFS = "streamlink"
-    private const val KEY = "list_shapes"
+    internal const val KEY = "list_shapes_v2" // v2: forgets shapes learned by an older reader that picked up junk link groups
     private const val PER_HOST = 4
     private const val MAX_HOSTS = 60
 

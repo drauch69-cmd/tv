@@ -171,6 +171,16 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   r = await run(page, 'article.html');
   console.log(r.debug);
   eq('article: no items', r.items.length, 0);
+  // a junk row shape learned by an older reader must not bring the article links back
+  for (const sel of [['a'], ['a in p.p2'], ['p.p2 > a'], ['p.p2'], ['nav > a']]) {
+    r = await run(page, 'article.html', null, sel);
+    eq('article with learned ' + sel[0] + ': still no items', r.items.length, 0);
+  }
+  // real rows plus a learned shape still work (nothing else scores, the learned shape finds them)
+  r = await run(page, 'single-click.html', null, ['div.grid > div.card.ev']);
+  eq('learned shape on real rows still returns them', r.items.length, 1);
+  r = await run(page, 'lead.html');
+  eq('lead: shape reports a time share', r.shapeTimed >= 0.5, true);
   // table rows: the row is the item, cells are separate lines
   r = await run(page, 'table-rows.html');
   console.log(r.debug);

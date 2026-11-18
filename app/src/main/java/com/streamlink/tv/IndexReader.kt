@@ -135,7 +135,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private fun noEventsOnOriginal(): ListResult {
         val page = followedFrom ?: currentPage()
         Report.log("List: the embedded frame could not be read")
-        return ListResult(page, "", emptyList(), "automatic", "No events found on this page")
+        return ListResult(page, "", emptyList(), "automatic", ListResult.NO_EVENTS, noEvents = true)
     }
 
     private fun fail(msg: String): ListResult {
@@ -338,13 +338,13 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                 Report.log("List: by status " + counts.entries.joinToString(", ") { "${it.key} ${it.value}" } +
                     (counts[ListStatus.FINISHED]?.let { " (start read as 4-24h ago; shown last as \"Maybe ended\")" } ?: ""))
             }
-            // A real list (2+ rows) on this site: remember its row shape for sibling pages with a single event.
-            if (ex.shape.isNotEmpty() && parsed.items.size >= 2 && !parsed.method.startsWith("recipe")) {
+            // A real list (2+ rows, at least half with a time or live marker; never a timeless link group) on this site: remember its row shape for sibling pages with a single event.
+            if (ex.shape.isNotEmpty() && ex.shapeTimed >= 0.5 && parsed.items.size >= 2 && !parsed.method.startsWith("recipe")) {
                 LearnedShapes.remember(context, Uri.parse(currentPage()).host, ex.shape)
                 if (reqHost != Uri.parse(currentPage()).host) LearnedShapes.remember(context, reqHost, ex.shape)
             }
             val shown = followedFrom?.let { parsed.copy(pageUrl = it) } ?: parsed // keep the list page's own URL for display
-            val result = if (shown.items.isEmpty()) shown.copy(error = "No events found on this page") else shown
+            val result = if (shown.items.isEmpty()) shown.copy(error = ListResult.NO_EVENTS, noEvents = true) else shown
             finish(result)
         }
     }
@@ -468,6 +468,7 @@ return out.slice(0,1500000);
                 frames = frames,
                 clickRows = items.count { ClickRef.isClickUrl(it.url) },
                 shape = (root["shape"] as? String).orEmpty().take(300),
+                shapeTimed = (root["shapeTimed"] as? Double) ?: 0.0,
             )
         }
 
@@ -479,6 +480,7 @@ return out.slice(0,1500000);
             val frames: List<FramePick.Frame> = emptyList(),
             val clickRows: Int = 0,
             val shape: String = "",
+            val shapeTimed: Double = 0.0,
         )
     }
 }

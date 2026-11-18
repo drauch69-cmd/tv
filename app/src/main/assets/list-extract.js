@@ -874,6 +874,7 @@
       var selOf = {};
       chosen.forEach(function (g) { var sl = rowSelector(g.items); g.items.forEach(function (it) { selOf[uid(it)] = sl; }); });
       shape = shapeOf(best.items);
+      shapeTimed = best.timeFrac;
       var extra = stragglers(best, itemSet);
       if (extra.length) {
         debug.push(extra.length + ' event-like row(s) next to the list added');
@@ -921,6 +922,7 @@
 
     // ---------------------------------------------------------------- learned shapes, lone events, stragglers
     var shape = '';
+    var shapeTimed = 0; // share of the list's rows with a time or live marker (the app learns a shape only when this is >= 0.5)
     /** A row selector anchored at its container, specific enough to recognise the same rows on sibling pages. */
     function shapeOf(items) {
       var s = rowSelector(items);
@@ -967,8 +969,12 @@
       for (var i = 0; i < list.length && i < 6; i++) {
         var sel = String(list[i] || '');
         if (!sel) continue;
-        var rows = matchesOf(sel).filter(function (el) { return !chromeOf(el); });
+        // same quality rules as a fresh read: no chrome, no links inside running text, and a group with
+        // no time text and no live marker must be clearly list-like (4+ rows)
+        var rows = matchesOf(sel).filter(function (el) { return !chromeOf(el) && !proseLink(el); });
         if (!rows.length || rows.length > MAX_ITEMS) continue;
+        var lg = scoreGroup({ items: rows });
+        if (lg.timeFrac === 0 && rows.length < 4) { debug.push('learned row shape dropped (no time or live marker, under 4 rows): ' + sel); continue; }
         var itemSet = {}, selOf = {};
         rows.forEach(function (el) { itemSet[uid(el)] = 1; selOf[uid(el)] = sel; });
         var res = emit(rows, selOf, itemSet, false);
@@ -1145,7 +1151,7 @@
     var dg = diagnostics();
     return JSON.stringify({
       pageTitle: pageTitle.substring(0, 160), pageUrl: String(PAGE), method: method, debug: debug.join(' | '),
-      noLink: result.noLink, shape: shape, textLen: dg.textLen, loading: dg.loading, frames: dg.frames, clickRows: clickRows, items: result.items
+      noLink: result.noLink, shape: shape, shapeTimed: shapeTimed, textLen: dg.textLen, loading: dg.loading, frames: dg.frames, clickRows: clickRows, items: result.items
     });
   }
 })

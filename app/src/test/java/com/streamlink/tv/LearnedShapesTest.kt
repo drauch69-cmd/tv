@@ -17,4 +17,8 @@ class LearnedShapesTest {
         assertNull(LearnedShapes.norm(""))
         assertNull(LearnedShapes.norm(null))
     }
+
+    @Test fun storageKeyIsV2SoOldJunkShapesAreForgotten() {
+        assertEquals("list_shapes_v2", LearnedShapes.KEY.substringBefore(' '))
+    }
 }

@@ -184,7 +184,7 @@ object SavedLists {
     @Synchronized
     fun applyResult(ctx: Context, list: SavedList, result: ListResult, now: Long): String? {
         if (get(ctx, list.id) == null) return null // removed while reading
-        if (result.error == null || result.items.isNotEmpty()) saveCache(ctx, list.id, result, now)
+        if (ListCachePolicy.shouldSave(result)) saveCache(ctx, list.id, result, now)
         val err = result.error?.let { "Couldn't read events from ${Report.host(list.url)}: $it" }
         if (err == null) errors.remove(list.id) else errors[list.id] = err
         return err

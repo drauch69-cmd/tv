@@ -146,7 +146,11 @@ Remote tabs; prefetch toggle).
   entries (`openPageEntry`, label ending " · site player") and keeps them out of automatic source fallback
   (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
-  stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
+  stragglers.
+  Learned shapes (pref `list_shapes_v2`) are applied with the same quality rules as a fresh read (no chrome, no
+  links inside running text, a timeless group needs 4+ rows) and are only remembered when at least half the rows of
+  the read had a time or live marker (`shapeTimed`). A read that loaded but found no events (`ListResult.noEvents`)
+  replaces the cache with an empty list (`ListCachePolicy.shouldSave`); real load failures keep the old cache. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. A site's own live marker counts only until 4 h after the listed start (some
   sites never take it down); with no start time it is trusted. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
   Reader rules (structure only): a line identical in nearly every row of a 3+ row group (league label, "Watch") is a

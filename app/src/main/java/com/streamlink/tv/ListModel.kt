@@ -18,7 +18,16 @@ data class ListResult(
     val items: List<ListItem>,
     val method: String,       // "automatic" or "recipe:<host>"
     val error: String?,       // null on success; human-readable reason otherwise (items may be empty)
-)
+    val noEvents: Boolean = false, // the page loaded fine but holds no events (an error text is still set for display)
+) {
+    companion object { const val NO_EVENTS = "No events found on this page" }
+}
+
+/** Whether a finished read replaces the saved cache. Pure; unit tested. */
+object ListCachePolicy {
+    /** Events found: save. Loaded but empty: save the empty list (stops old junk showing). Real failure: keep the old cache. */
+    fun shouldSave(result: ListResult): Boolean = result.items.isNotEmpty() || result.error == null || result.noEvents
+}
 
 /** Live/upcoming status from an item and the current time. Pure, unit-tested. */
 object ListStatus {
