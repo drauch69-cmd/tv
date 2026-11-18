@@ -346,6 +346,8 @@ class SitePlayerActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var root: FrameLayout
     private lateinit var web: WebView
+    /** Set when the system killed the web view's renderer: the view is already destroyed. */
+    private var webDead = false
     private lateinit var pointer: PointerView
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
@@ -452,6 +454,18 @@ class SitePlayerActivity : Activity() {
             }
         }
         web.webViewClient = object : SafeWebViewClient(url, allowVideoAds = true) {
+            override fun onRendererGone(view: WebView?, didCrash: Boolean) {
+                main.post {
+                    if (webDead) return@post
+                    webDead = true
+                    main.removeCallbacks(focusTick)
+                    Report.log("Site player: the browser was shut down by the system" + if (didCrash) " (it crashed)" else " (low memory)")
+                    SafeWeb.dispose(view)
+                    Toast.makeText(this@SitePlayerActivity, "The page's browser was shut down by the system", Toast.LENGTH_LONG).show()
+                    finish()
+                }
+            }
+
             // Runs on a web view thread, for every request any frame makes.
             override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
@@ -771,10 +785,12 @@ class SitePlayerActivity : Activity() {
             Session.mode = "idle"
             AppStatus.text = "Waiting for a link"
         }
-        web.stopLoading()
-        web.loadUrl("about:blank")
-        root.removeView(web)
-        web.destroy()
+        if (!webDead) {
+            web.stopLoading()
+            web.loadUrl("about:blank")
+            root.removeView(web)
+            web.destroy()
+        }
         super.onDestroy()
     }
 

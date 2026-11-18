@@ -10,7 +10,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
+import android.view.ViewGroup
 import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import android.webkit.WebViewClient
@@ -42,6 +44,13 @@ object SafeWeb {
             WebSettingsCompat.setRequestedWithHeaderOriginAllowList(wv.settings, emptySet())
         }
     }
+}
+
+/** Takes a web view out of its parent and destroys it, without calling into the page (safe after the renderer died). */
+fun SafeWeb.dispose(view: WebView?) {
+    view ?: return
+    try { (view.parent as? ViewGroup)?.removeView(view) } catch (_: Throwable) {}
+    try { view.destroy() } catch (_: Throwable) {}
 }
 
 /** Refuses popups and new windows, and silently dismisses alert/confirm/prompt boxes. */
@@ -88,6 +97,18 @@ open class SafeWebViewClient(
     /** True to answer this request with an empty 204 (the background link finder skips media segments). */
     open fun blockResource(request: WebResourceRequest): Boolean = false
     open fun onLoaded() {}
+
+    /**
+     * The system shut down the web view's renderer (crash or low memory). The view is dead and must not be used again.
+     * Default: take it off the screen and destroy it. Subclasses may override this or [onRenderProcessGone] itself.
+     */
+    open fun onRendererGone(view: WebView?, didCrash: Boolean) { SafeWeb.dispose(view) }
+
+    override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+        val crashed = try { detail?.didCrash() ?: false } catch (_: Throwable) { false }
+        onRendererGone(view, crashed)
+        return true
+    }
 
     override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
         request ?: return true

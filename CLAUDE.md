@@ -214,6 +214,10 @@ Remote tabs; prefetch toggle).
   `ListStatus.byTime`, the old rules. Matching is cached per games list. The home screen fetches scores too (5 s tick
   while in front) and redraws only when a status changes; the list screen rebuilds (keeping focus) only when a row's
   status or badge changes.
+- **Renderer crashes** (`SafeWebViewClient.onRenderProcessGone`, always answers true): calls the open hook `onRendererGone(view,
+  didCrash)`; default removes and destroys the view (`SafeWeb.dispose`). `StreamSniffer` logs "The hidden browser was shut down by
+  the system" and ends the run as a failure (reason "web view crashed"); `SitePlayerActivity` logs, shows a short message and
+  finishes. `IndexReader` and `CleanPlayerActivity` override `onRenderProcessGone` with their own handling. Not yet tested on the TV.
 - **Site player** (`SitePlayerActivity`, `FOCUS_JS`): picks the biggest landscape video/frame and fills the screen with
   it; portrait/narrow frames (chat) score 0. If no candidate is left after a few ticks (an empty player box), it presses
   source button 1 once per page (max 2 per visit) via `SourcePress`; report line "Site player: pressed source button N
@@ -237,6 +241,14 @@ Remote tabs; prefetch toggle).
   `app/src/test/js/links/check-source-switch.js`. Run them whenever an asset script changes.
 - **Unit tests** run in CI on every branch (HeadersTest, CleanProxyTest, SourceLinksTest, HomeFeedTest,
   PngTextTest and others).
+- **Crash and freeze recorder** (`StreamLinkApp`, `CrashRecorder`, pure text in `CrashText`). An uncaught-exception handler
+  writes a compact record (exception, cause chain, first ~25 frames, all `com.streamlink` frames) to a file at once. On the
+  next start the app reads Android's own exit record (API 30+: crash, native crash, ANR, low memory, killed...) and pins
+  lines at the top of the report (they survive a new play): "Last exit: <reason> at <time>, was <importance> (<description>)",
+  for an ANR the main thread's stack (`  at ...`), then "Crash: <exception>: <message>", "Crash thread: <name>, at <time>",
+  stack lines `  at ...` and "Caused by: ...". Each exit is reported once (last timestamp kept); the crash file is deleted after
+  reporting. Also "Memory: system is low (level N)" (once per level per minute, from level 10 up, not UI-hidden).
+  Not yet tested on the TV.
 - **Report:** the in-app log the user copies from TV or phone. Look for "Links:" lines, per-link results, and
   Verifier failure details (size and first characters of the response).
 - **Save sample:** zip with list page and stream page snapshots plus the log. The stream page comes from the player

@@ -9,6 +9,7 @@
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
     <application
+        android:name=".StreamLinkApp"
         android:label="${appLabel}"
         android:icon="@drawable/icon"
         android:banner="@drawable/banner"

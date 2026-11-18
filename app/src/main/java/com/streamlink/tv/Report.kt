@@ -27,6 +27,14 @@ object Report {
         SampleRecorder.reset()
     }
 
+    /** Lines about the last exit/crash, found at app start; they survive [start] and print under the link line. */
+    private val pinned = ArrayList<String>()
+
+    @Synchronized
+    fun pin(msg: String) {
+        if (pinned.size < 120) pinned.add(msg)
+    }
+
     @Synchronized
     fun log(msg: String) {
         if (muted) return
@@ -55,6 +63,8 @@ object Report {
         val sb = StringBuilder()
         sb.append("StreamLink report (app build ").append(BuildConfig.VERSION_NAME).append(")\n")
         sb.append("Link: ").append(link.ifEmpty { "(none yet)" }).append("\n\n")
+        pinned.forEach { sb.append(it).append('\n') }
+        if (pinned.isNotEmpty()) sb.append('\n')
         lines.forEach { sb.append(it).append('\n') }
         if (blockedHosts.isNotEmpty()) {
             sb.append("\nBlocked ").append(blockedHosts.values.sum()).append(" requests to ")
