@@ -60,6 +60,10 @@ class MainActivity : Activity() {
     private lateinit var updateInfo: TextView
     private lateinit var liveRow: LinearLayout
     private lateinit var liveSub: TextView
+    private lateinit var liveGamesHeader: View
+    private lateinit var liveGamesScroll: View
+    private lateinit var liveGamesRow: LinearLayout
+    private lateinit var sportsRow: LinearLayout
     private lateinit var qrPanel: View
     private lateinit var sendLink: TextView
     private val homeTick = object : Runnable {
@@ -67,6 +71,7 @@ class MainActivity : Activity() {
             if (resumed) {
                 refreshStale()
                 renderLists() // statuses change with the clock: LIVE badges, "starts in"
+                refreshScores()
             }
             main.postDelayed(this, HOME_TICK_MS)
         }
@@ -95,6 +100,10 @@ class MainActivity : Activity() {
         updateInfo = findViewById(R.id.updateInfo)
         liveRow = findViewById(R.id.liveRow)
         liveSub = findViewById(R.id.liveSub)
+        liveGamesHeader = findViewById(R.id.liveGamesHeader)
+        liveGamesScroll = findViewById(R.id.liveGamesScroll)
+        liveGamesRow = findViewById(R.id.liveGamesRow)
+        sportsRow = findViewById(R.id.sportsRow)
         qrPanel = findViewById(R.id.qrPanel)
         sendLink = findViewById(R.id.sendLink)
         prefetchToggle = findViewById(R.id.prefetchToggle)
@@ -162,6 +171,7 @@ class MainActivity : Activity() {
         showAddress()
         renderLists()
         refreshStale()
+        refreshScores()
         if (Session.mode == "idle") statusView.text = lastStatusForScreen()
         // Back from playing with a "Live now" card still focused: no focus event comes, so start the 2 s again.
         (liveRow.focusedChild?.tag as? String)?.let { liveItems[it] }?.let { prefetcher.focus(it) }
@@ -364,7 +374,7 @@ class MainActivity : Activity() {
 
     /** The list tiles and the "Live now" row (both come from the saved lists). */
     private fun renderLists() {
-        renderLive()
+        renderSports()
         val focusedId = listRow.focusedChild?.tag as? String
         val addFocused = listRow.focusedChild?.tag == ADD_TAG
         listRow.removeAllViews()
@@ -444,13 +454,15 @@ class MainActivity : Activity() {
     }
 
     /** The "Live now" row: live events from every list, then ones starting soon. */
-    private fun renderLive() {
+    private fun renderLive(matched: Set<String> = emptySet()) {
         val focusedUrl = liveRow.focusedChild?.tag as? String
         liveRow.removeAllViews()
         val now = System.currentTimeMillis()
         val lists = SavedLists.all(this)
         val cached = lists.mapNotNull { l -> SavedLists.cached(this, l.id)?.let { l to it } }
-        val rows = HomeFeed.liveRow(cached.map { it.first to it.second.result.items }, now)
+        // Items already shown as a live game card are not shown a second time here.
+        fun shown(i: ListItem) = i.url !in matched && GameFolders.urlKey(i.url) !in matched
+        val rows = HomeFeed.liveRow(cached.map { it.first to it.second.result.items.filter { shown(it) } }, now)
         val oldest = cached.minOfOrNull { it.second.readAt }
         liveSub.text = when {
             lists.isEmpty() -> "add a list of events from your phone to see what's live"
@@ -512,6 +524,109 @@ class MainActivity : Activity() {
                 setPadding(dp(18), dp(16), dp(18), dp(16))
                 maxWidth = dp(560)
             })
+        }
+        focusTarget?.requestFocus()
+    }
+
+    /** Fetches scores when due (main thread callback); only the sports rows are rebuilt. */
+    private fun refreshScores() {
+        ScoreFeed.refreshIfDue { if (resumed && !isFinishing && !isDestroyed) renderSports() }
+    }
+
+    /** The "Live games" row, the "Sports" row, and "Live now" (which skips games shown as cards). */
+    private fun renderSports() {
+        val now = System.currentTimeMillis()
+        val folders = SportsData.both(this, now)
+        renderLiveGames(folders)
+        renderSportTiles(folders)
+        renderLive(LiveGames.matchedUrls(folders))
+    }
+
+    private fun renderLiveGames(folders: List<SportFolders>) {
+        val focusedId = liveGamesRow.focusedChild?.tag as? String
+        liveGamesRow.removeAllViews()
+        val games = LiveGames.sample(folders, 8)
+        val vis = if (games.isEmpty()) View.GONE else View.VISIBLE
+        liveGamesHeader.visibility = vis
+        liveGamesScroll.visibility = vis
+        var focusTarget: View? = null
+        for (gf in games) {
+            val g = gf.game
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = Ui.focusable(this@MainActivity, radiusDp = 12f)
+                setPadding(dp(15), dp(13), dp(15), dp(13))
+                isFocusable = true
+                isClickable = true
+                tag = g.id
+                setOnClickListener { startActivity(StreamsActivity.gameIntent(this@MainActivity, g.league, g.id)) }
+            }
+            Ui.growOnFocus(card)
+            val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+            top.addView(Ui.badge(this, "LIVE", true, 10f))
+            top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            top.addView(Ui.text(this, Sports.label(g.league), 10.5f, Ui.TEXT_3).apply { maxLines = 1 })
+            card.addView(top)
+            card.addView(Ui.text(this, SportsText.matchupShort(g), 17f, Ui.TEXT, bold = true).apply {
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(9), 0, 0)
+            })
+            card.addView(Ui.text(this, ScoreText.rowLine(g) ?: "", 11.5f, Ui.LIVE_TEXT).apply {
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setPadding(0, dp(5), 0, 0)
+            })
+            card.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+            card.addView(Ui.text(this, SportsText.streamsText(gf.streams.size), 11.5f, Ui.TEXT_2).apply { maxLines = 1 })
+            val lp = LinearLayout.LayoutParams(dp(230), dp(126))
+            lp.marginEnd = dp(15)
+            liveGamesRow.addView(card, lp)
+            if (g.id == focusedId) focusTarget = card
+        }
+        // The focused game ended or left the row: move focus to the sports tiles rather than losing it.
+        if (focusedId != null && focusTarget == null) focusTarget = sportsRow.getChildAt(0)
+        focusTarget?.requestFocus()
+    }
+
+    private fun renderSportTiles(folders: List<SportFolders>) {
+        val focusedTag = sportsRow.focusedChild?.tag as? String
+        sportsRow.removeAllViews()
+        val now = System.currentTimeMillis()
+        var focusTarget: View? = null
+        fun tile(key: String, name: String, line: String, foot: String, open: () -> Unit) {
+            val t = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = Ui.focusable(this@MainActivity, radiusDp = 11f)
+                setPadding(dp(15), dp(13), dp(15), dp(13))
+                isFocusable = true
+                isClickable = true
+                tag = key
+                setOnClickListener { open() }
+            }
+            Ui.growOnFocus(t)
+            t.addView(Ui.text(this, name, 15f, Ui.TEXT, bold = true).apply { maxLines = 1 })
+            val sb = SpannableStringBuilder(line)
+            val i = line.indexOf(" live")
+            if (i > 0) {
+                sb.setSpan(ForegroundColorSpan(Ui.LIVE_TEXT), 0, i + 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, i + 5, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            t.addView(Ui.text(this, sb, 11.5f, Ui.TEXT_2).apply { maxLines = 1; setPadding(0, dp(7), 0, 0) })
+            t.addView(Ui.text(this, foot, 10.5f, Ui.TEXT_3).apply { maxLines = 1; setPadding(0, dp(6), 0, 0) })
+            val lp = LinearLayout.LayoutParams(dp(210), ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.marginEnd = dp(15)
+            sportsRow.addView(t, lp)
+            if (key == focusedTag) focusTarget = t
+        }
+        for (f in folders) {
+            tile(f.league, Sports.label(f.league), SportsText.sportTileLine(SportsData.taggedCount(this, f.league), f), "Today and the next 2 days") {
+                startActivity(SportActivity.intent(this, f.league))
+            }
+        }
+        val n = AlwaysOn.collect(SportsData.lists(this), now).size
+        tile(ALWAYS_ON_TAG, "24/7", SportsText.alwaysOnLine(n), "From all your lists") {
+            startActivity(StreamsActivity.alwaysOnIntent(this))
         }
         focusTarget?.requestFocus()
     }
@@ -707,6 +822,7 @@ class MainActivity : Activity() {
         /** Lists older than this are re-read in the background while the home screen is shown. */
         const val STALE_MS = 10 * 60_000L
         const val ADD_TAG = "add-list"
+        const val ALWAYS_ON_TAG = "always-on"
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

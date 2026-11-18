@@ -106,7 +106,10 @@ Playback pipeline:
    in the back stack, stops playback in `onStop`); Back returns to it and it resumes at live. The new player is
    started with `isLinkPage` and runs no background link run of its own.
 
-Screens: `MainActivity` (TV-home-style dashboard; "Live now" row from `HomeFeed`, sections from `ListSections`),
+Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (live NFL/college games with streams), "Live now" row from
+`HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, 24/7 tiles), sections from `ListSections`),
+`SportActivity` (one sport: game sections, "All games" toggle, "Other" streams), `StreamsActivity` (one game's score card and
+streams, or the 24/7 channels),
 `Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
 Remote tabs; prefetch toggle).
 
@@ -150,6 +153,15 @@ Remote tabs; prefetch toggle).
   Tomorrow / weekday / Final sections (`withStreamsOnly` hides games without streams); `AlwaysOn.collect` gathers
   24/7 channels from all lists; `LiveGames.sample` / `matchedUrls` feed the home live row; `GameFolders.summary` is
   the quiet "Sports:" report line.
+  Screens: home "Live games" row (`LiveGames.sample`, cards open the game) and "Sports" row (tiles open `SportActivity` /
+  the 24/7 `StreamsActivity`); both are rebuilt (focus kept) on every list render and by `ScoreFeed.refreshIfDue` on resume
+  and the 60 s tick, and "Live now" skips `LiveGames.matchedUrls`. `SportActivity` shows cached lists at once, then re-reads
+  every list tagged with its sport one after another (own hidden `IndexReader`, 90 s watchdog, skips lists already busy,
+  not again within 60 s of the last round, then every 2 min while open; Menu forces); the "All games" choice is kept per
+  sport (pref `sport_all_games_<league>`, default off = games with streams only). `StreamsActivity` never reads lists; it
+  rebuilds from caches + `ScoreFeed` and uses `Prefetcher` head start. Both new screens use `Session.mode = "list"` (so the
+  phone's stop works and head start is allowed). Pure text lives in `SportsText.kt` (`SportsTextTest`); `SportsData.kt`
+  loads folders from caches.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).

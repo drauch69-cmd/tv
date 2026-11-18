@@ -34,6 +34,18 @@
             android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation" />
 
         <activity
+            android:name=".SportActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation" />
+
+        <activity
+            android:name=".StreamsActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|navigation" />
+
+        <activity
             android:name=".WaitingActivity"
             android:exported="false"
             android:screenOrientation="landscape"

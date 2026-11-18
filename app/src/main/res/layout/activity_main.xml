@@ -117,6 +117,53 @@
                 android:textColor="#FFA3ABB7"
                 android:textSize="13sp" />
 
+            <!-- Live games (live sports games with streams; hidden when there are none) -->
+            <LinearLayout
+                android:id="@+id/liveGamesHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:baselineAligned="true"
+                android:orientation="horizontal"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Live games"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="NFL and college football"
+                    android:textColor="#FFA3ABB7"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <HorizontalScrollView
+                android:id="@+id/liveGamesScroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:clipToPadding="false"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:scrollbars="none"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/liveGamesRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
             <!-- Live now -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -156,6 +203,35 @@
 
                 <LinearLayout
                     android:id="@+id/liveRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <!-- Sports -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="Sports"
+                android:textColor="#FFE8EAED"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <HorizontalScrollView
+                android:id="@+id/sportsScroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:clipToPadding="false"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/sportsRow"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
