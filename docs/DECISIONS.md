@@ -34,6 +34,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 - **Sources** have their own button and panel (not under Audio). **Pause** is the first button.
 - **"Jump to live"** is styled like the other buttons, not highlighted. The list's Play button stays highlighted.
 - **Extra sources:** gathered in the background while watching.
+- **Link sources that don't verify** stay in the Source list as "<label> · site player" and open as their own page
+  (clean player if a stream is found, else the site player); Back returns to the stream you were on (2026-11-17).
+  Untested on the TV.
 - **Origin header:** always derived from the referer being tried, not from what was captured.
 - **Tunneling:** auto-detect and switch off, not a manual setting only.
 - **Agent docs:** `CLAUDE.md` + this file in the repo are the source of truth (2026-11-17). The user's Claude Doc

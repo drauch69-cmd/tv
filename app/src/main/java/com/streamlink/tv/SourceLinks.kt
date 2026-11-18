@@ -67,6 +67,40 @@ object LinkOrder {
     fun sourceLabel(linkLabel: String, host: String, kind: String, responded: Boolean): String =
         (if (linkLabel.isNotBlank()) linkLabel else host) + " · " + kind + (if (responded) "" else " · didn't respond")
 
+    /** "<link label> · site player": the Source entry of a link whose player gave no verified stream. */
+    fun openPageLabel(linkLabel: String, host: String): String =
+        (if (linkLabel.isNotBlank()) linkLabel else host) + " · site player"
+
+    /** [label] made distinct among the labels already in the Source list: "X", "X (2)", "X (3)". */
+    fun distinctLabel(label: String, existing: List<String>): String {
+        if (label !in existing) return label
+        var n = 2
+        while ("$label ($n)" in existing) n++
+        return "$label ($n)"
+    }
+
+    /**
+     * The "open page" entry for a link player whose light sniff gave [verifiedCount] verified streams, or null when
+     * it gave some (those are added as normal sources) or the player address is not a real http(s) page.
+     */
+    fun openPageEntry(linkLabel: String, playerUrl: String, verifiedCount: Int, existingLabels: List<String>): Source? {
+        if (verifiedCount > 0) return null
+        if (!(playerUrl.startsWith("http://") || playerUrl.startsWith("https://"))) return null
+        val label = distinctLabel(openPageLabel(linkLabel, hostOf(playerUrl) ?: ""), existingLabels)
+        return Source(playerUrl, emptyMap(), emptyList(), label, isDefaultLink = false, verified = false,
+            note = "opens as its own page", playerUrl = playerUrl, openPage = true)
+    }
+
+    /** Index of the first source that can be played directly (not an "open page" entry), or null. */
+    fun firstPlayable(sources: List<Source>): Int? = sources.indexOfFirst { !it.openPage }.takeIf { it >= 0 }
+
+    /** The next directly playable source after [current] (automatic fallback never lands on an "open page" entry), or null. */
+    fun nextPlayable(sources: List<Source>, current: Int): Int? =
+        (current + 1 until sources.size).firstOrNull { !sources[it].openPage }
+
+    /** Whether the access-code renewal may run for this source: only real streams that came with a signed address. */
+    fun canRenew(src: Source): Boolean = !src.openPage
+
     private fun hostOf(url: String): String? = try { java.net.URI(url).host?.lowercase() } catch (_: Exception) { null }
 
     private fun noFragment(url: String) = url.substringBefore('#')

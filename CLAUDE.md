@@ -88,7 +88,13 @@ Playback pipeline:
 4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
 5. **Extra sources.** After 10 s of stall-free play, a background run finds the page's other link buttons and sniffs
-   each player (light mode); verified ones appear in the Source panel.
+   each player (light mode); verified ones appear in the Source panel. A link whose player gives no verified stream
+   (embed-protected, 403, timeout) still gets one entry, "<label> · site player" (`Source.openPage`, its `playerUrl`
+   is the link's player page). Choosing it never plays in ExoPlayer: `PlayerActivity.openLinkPage` starts the loading
+   screen (`WaitingActivity.linkPageIntent`) on that page with the original page as referer: full stream search, clean
+   player if verified, else `SitePlayerActivity` (sent the same referer). The first player is not finished (it stays
+   in the back stack, stops playback in `onStop`); Back returns to it and it resumes at live. The new player is
+   started with `isLinkPage` and runs no background link run of its own.
 
 Screens: `MainActivity` (TV-home-style dashboard; "Live now" row from `HomeFeed`, sections from `ListSections`),
 `Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
@@ -97,8 +103,9 @@ Remote tabs; prefetch toggle).
 ## Key mechanisms
 
 - **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site, its search shortens to 15 s; the count is cleared
-  when the site player shows the page loaded a playlist the app can see. A player frame from another site that shows
-  no stream 8 s after the first tap ends the search early (not before 12 s into the run; normal runs only). `Prefetcher` gives
+  when the site player shows the page loaded a playlist the app can see. The early give-up on a
+  player frame from another site (8 s after the first tap) was removed (f396b92): those players often need 10-15 s.
+  `Prefetcher` gives
   Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block images,
   fonts and similar.
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
@@ -106,7 +113,9 @@ Remote tabs; prefetch toggle).
   site-player fallback.
 - **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Links mode
   clicks each link and records each new player frame; once a playlist is seen, everything else is blocked.
-  `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open.
+  `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open. It also builds the "open page"
+  entries (`openPageEntry`, label ending " · site player") and keeps them out of automatic source fallback
+  (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.

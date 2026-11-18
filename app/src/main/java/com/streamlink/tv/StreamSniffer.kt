@@ -30,6 +30,12 @@ data class Source(
     val note: String = "",
     /** The player frame this source was found on (a link player), or "" for the page itself; used to get a fresh address when its access code expires. */
     val playerUrl: String = "",
+    /**
+     * A link whose player gave no verified stream: [url] is the link's player page, not a playlist. Choosing it
+     * opens that page as its own page (clean player or site player); it is never played in ExoPlayer, never picked
+     * by automatic source fallback and never renewed.
+     */
+    val openPage: Boolean = false,
 )
 
 /** Everything found on a page. Empty [sources] means no stream was found. */

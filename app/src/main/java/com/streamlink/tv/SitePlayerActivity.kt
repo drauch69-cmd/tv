@@ -37,6 +37,7 @@ class SitePlayerActivity : Activity() {
 
     companion object {
         private const val EXTRA_URL = "url"
+        private const val EXTRA_REFERER = "referer"
 
         /**
          * Sites start videos muted (browsers only allow muted autoplay) and wait for a click on the
@@ -65,8 +66,9 @@ class SitePlayerActivity : Activity() {
             })();
         """
 
-        fun intent(ctx: Context, url: String): Intent =
-            Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url)
+        /** [referer]: the page the link came from (a link's player page is opened claiming it, as when it is embedded). */
+        fun intent(ctx: Context, url: String, referer: String? = null): Intent =
+            Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url).apply { if (referer != null) putExtra(EXTRA_REFERER, referer) }
 
         /**
          * Pick the part of the page most likely to be the video player and make it fill the screen.
@@ -480,7 +482,8 @@ class SitePlayerActivity : Activity() {
             prefs.edit().putBoolean("pointer_hint_shown", true).apply()
             Toast.makeText(this, "Press ▲ for a pointer", Toast.LENGTH_LONG).show()
         }
-        web.loadUrl(url)
+        val ref = intent.getStringExtra(EXTRA_REFERER)
+        if (ref != null && (ref.startsWith("http://") || ref.startsWith("https://"))) web.loadUrl(url, mapOf("Referer" to ref)) else web.loadUrl(url)
     }
 
     private val videoCheck = Runnable {

@@ -148,4 +148,44 @@ class SourceLinksTest {
         assertEquals(listOf("A-1", "A-2", "A-6"), LinkOrder.playersToOpen("", players).map { it.first })
         assertEquals(1, LinkOrder.playersToOpen("", players, max = 1).size)
     }
+
+    @Test fun openPageEntryOnlyWhenNothingVerified() {
+        assertNull(LinkOrder.openPageEntry("Link-2", "https://p2.example/embed/2", 1, emptyList()))
+        val e = LinkOrder.openPageEntry("Link-2", "https://p2.example/embed/2", 0, listOf("cur"))!!
+        assertEquals("Link-2 · site player", e.label)
+        assertEquals(true, e.openPage)
+        assertEquals("https://p2.example/embed/2", e.url)
+        assertEquals("https://p2.example/embed/2", e.playerUrl)
+        assertEquals(false, e.verified)
+        assertEquals(false, e.isDefaultLink)
+        assertNull(LinkOrder.openPageEntry("L", "about:blank", 0, emptyList()))
+        assertNull(LinkOrder.openPageEntry("L", "javascript:void(0)", 0, emptyList()))
+    }
+
+    @Test fun openPageLabelFallsBackToHostAndStaysDistinct() {
+        assertEquals("p2.example · site player", LinkOrder.openPageEntry(" ", "https://p2.example/e/2", 0, emptyList())!!.label)
+        val first = "A · site player"
+        assertEquals("A · site player (2)", LinkOrder.openPageEntry("A", "https://p.example/1", 0, listOf(first))!!.label)
+        assertEquals("A · site player (3)", LinkOrder.openPageEntry("A", "https://p.example/1", 0, listOf(first, "$first (2)"))!!.label)
+    }
+
+    @Test fun openPageEntriesSurviveMergeAndAreNotDuplicated() {
+        val have = listOf(src("https://a.example/p/1.m3u8", "cur"))
+        val e = LinkOrder.openPageEntry("B", "https://p2.example/embed/2", 0, emptyList())!!
+        val m = LinkOrder.mergeExtra(LinkOrder.mergeExtra(have, listOf(e)), listOf(e))
+        assertEquals(listOf("cur", "B · site player"), m.map { it.label })
+        assertEquals(true, m[1].openPage)
+    }
+
+    @Test fun automaticFallbackSkipsOpenPageEntries() {
+        val e = LinkOrder.openPageEntry("B", "https://p2.example/embed/2", 0, emptyList())!!
+        val list = listOf(src("https://a.example/1.m3u8"), e, src("https://c.example/3.m3u8"), e.copy(url = "https://p3.example/e"))
+        assertEquals(2, LinkOrder.nextPlayable(list, 0))
+        assertNull(LinkOrder.nextPlayable(list, 2))
+        assertEquals(0, LinkOrder.firstPlayable(list))
+        assertEquals(1, LinkOrder.firstPlayable(listOf(e, src("https://z.example/z.m3u8"))))
+        assertNull(LinkOrder.firstPlayable(listOf(e)))
+        assertEquals(false, LinkOrder.canRenew(e))
+        assertEquals(true, LinkOrder.canRenew(list[0]))
+    }
 }
