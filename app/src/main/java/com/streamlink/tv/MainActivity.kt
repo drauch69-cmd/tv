@@ -42,9 +42,6 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var recentList: LinearLayout
     private lateinit var recentLabel: TextView
-    private lateinit var listRow: LinearLayout
-    private lateinit var listLabel: TextView
-    private lateinit var listScroll: HorizontalScrollView
     private lateinit var reader: IndexReader
     private val main = Handler(Looper.getMainLooper())
     private var readingId: String? = null
@@ -66,6 +63,7 @@ class MainActivity : Activity() {
     private lateinit var sportsRow: LinearLayout
     private lateinit var qrPanel: View
     private lateinit var sendLink: TextView
+    private lateinit var yourLists: TextView
     private val homeTick = object : Runnable {
         override fun run() {
             if (resumed) {
@@ -137,7 +135,7 @@ class MainActivity : Activity() {
         homeForce = false
         homeLook = m.look
         renderSports(m) // also draws "Live now"
-        renderListTiles(m) // focus is kept by each render as on the 60 s tick
+        ListEvents.changed() // the "Your lists" screen, if open
     }
     private val updateTick = object : Runnable {
         override fun run() {
@@ -153,9 +151,6 @@ class MainActivity : Activity() {
         statusView = findViewById(R.id.status)
         recentList = findViewById(R.id.recentList)
         recentLabel = findViewById(R.id.recentLabel)
-        listRow = findViewById(R.id.listRow)
-        listLabel = findViewById(R.id.listLabel)
-        listScroll = findViewById(R.id.listScroll)
         updateBanner = findViewById(R.id.updateBanner)
         updatePerm = findViewById(R.id.updatePerm)
         updateSettings = findViewById(R.id.updateSettings)
@@ -169,6 +164,7 @@ class MainActivity : Activity() {
         sportsRow = findViewById(R.id.sportsRow)
         qrPanel = findViewById(R.id.qrPanel)
         sendLink = findViewById(R.id.sendLink)
+        yourLists = findViewById(R.id.yourLists)
         prefetchToggle = findViewById(R.id.prefetchToggle)
         styleHome()
         updateBanner.setOnClickListener { installUpdate() }
@@ -178,6 +174,8 @@ class MainActivity : Activity() {
         renderPrefetchToggle()
         Session.prefetchEnabled = { PrefetchSettings.enabled(applicationContext) }
         sendLink.setOnClickListener { showQr(true) }
+        yourLists.setOnClickListener { startActivity(ListsActivity.intent(this)) }
+        ListEvents.refresh = { id -> runOnUiThread { if (!isFinishing && !isDestroyed) refreshList(id) } }
         findViewById<View>(R.id.qrClose).setOnClickListener { showQr(false) }
         sniffer = StreamSniffer(this, findViewById(R.id.webHolder))
         // Reads index pages when the phone asks for a refresh and no list screen is open.
@@ -237,6 +235,7 @@ class MainActivity : Activity() {
         showAddress()
         renderLists()
         refreshStale()
+        if (ListEvents.showQrOnHome) { ListEvents.showQrOnHome = false; showQr(true) }
         if (Session.mode == "idle") statusView.text = lastStatusForScreen()
         // Back from playing with a "Live now" card still focused: no focus event comes, so start the 2 s again.
         (liveRow.focusedChild?.tag as? String)?.let { liveItems[it] }?.let { prefetcher.focus(it) }
@@ -268,6 +267,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         Updater.listener = null
+        ListEvents.refresh = null
         netCallback?.let {
             try { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } catch (_: Exception) {}
         }
@@ -438,88 +438,7 @@ class MainActivity : Activity() {
     }
 
     /** Redraws the home rows from the saved lists and the scores (worked out in the background). */
-    private fun renderLists() = requestHome(true)
-
-    /** The list tiles (the sports rows and "Live now" are drawn by [renderSports]). */
-    private fun renderListTiles(m: HomeModel) {
-        val cachedById = m.cached.associate { it.first.id to it.second }
-        val focusedId = listRow.focusedChild?.tag as? String
-        val addFocused = listRow.focusedChild?.tag == ADD_TAG
-        listRow.removeAllViews()
-        val lists = m.lists
-        val now = System.currentTimeMillis()
-        var focusTarget: View? = null
-        for (l in lists) {
-            val c = cachedById[l.id]
-            val tile = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = Ui.focusable(this@MainActivity, radiusDp = 11f)
-                setPadding(dp(15), dp(13), dp(15), dp(13))
-                isFocusable = true
-                isClickable = true
-                tag = l.id
-                setOnClickListener { startActivity(ListActivity.intent(this@MainActivity, l.id)) }
-                setOnLongClickListener { confirmRemove(l); true }
-            }
-            Ui.growOnFocus(tile)
-            tile.addView(Ui.text(this, l.name, 15f, Ui.TEXT, bold = true).apply {
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-            })
-            val counts = m.counts[l.id]
-            val line = SpannableStringBuilder()
-            when {
-                counts == null -> line.append(if (SavedLists.isBusy(l.id)) "Reading…" else "Not read yet")
-                else -> {
-                    val t = HomeFeed.countsText(counts)
-                    line.append(t)
-                    if (counts.live > 0) {
-                        val end = t.indexOf(" live") + 5
-                        line.setSpan(ForegroundColorSpan(Ui.LIVE_TEXT), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                        line.setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                    }
-                }
-            }
-            tile.addView(Ui.text(this, line, 11.5f, Ui.TEXT_2).apply {
-                maxLines = 1
-                (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(6)
-                setPadding(0, dp(7), 0, 0)
-            })
-            val err = SavedLists.lastError(l.id)
-            val foot = when {
-                SavedLists.isBusy(l.id) && c != null -> "Reading…"
-                err != null -> "Couldn't read: $err"
-                c != null -> "Read ${ListText.ago(c.readAt, now)}"
-                else -> ""
-            }
-            tile.addView(Ui.text(this, foot, 10.5f, if (err != null && !SavedLists.isBusy(l.id)) Ui.WARN else Ui.TEXT_3).apply {
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(6), 0, 0)
-            })
-            val lp = LinearLayout.LayoutParams(dp(210), ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.marginEnd = dp(15)
-            listRow.addView(tile, lp)
-            if (l.id == focusedId) focusTarget = tile
-        }
-        // The last tile: how to add a list (opens the phone code).
-        val add = Ui.text(this, "Add a list from your phone", 13f, Ui.TEXT_2).apply {
-            gravity = android.view.Gravity.CENTER
-            background = dashedFocusable()
-            setPadding(dp(15), dp(13), dp(15), dp(13))
-            isFocusable = true
-            isClickable = true
-            tag = ADD_TAG
-            minHeight = dp(70)
-            setOnClickListener { showQr(true) }
-        }
-        Ui.growOnFocus(add)
-        val alp = LinearLayout.LayoutParams(dp(210), ViewGroup.LayoutParams.MATCH_PARENT)
-        listRow.addView(add, alp)
-        if (addFocused) focusTarget = add
-        if (focusedId != null && focusTarget == null) focusTarget = listRow.getChildAt(0) // its list was removed
-        focusTarget?.requestFocus()
-    }
+    private fun renderLists() { requestHome(true); ListEvents.changed() }
 
     /** The "Live now" row: live events from every list, then ones starting soon. */
     private fun renderLive(m: HomeModel) {
@@ -691,20 +610,8 @@ class MainActivity : Activity() {
         focusTarget?.requestFocus()
     }
 
-    private fun dashedFocusable(): StateListDrawable {
-        val normal = GradientDrawable().apply {
-            setColor(0)
-            cornerRadius = dp(11).toFloat()
-            setStroke(dp(2), Ui.BORDER, dp(6).toFloat(), dp(5).toFloat())
-        }
-        return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), Ui.rounded(this@MainActivity, Ui.SURFACE_FOCUS, 11f, Ui.ACCENT, 3f))
-            addState(intArrayOf(), normal)
-        }
-    }
-
     private fun focusFirst() {
-        (liveRow.getChildAt(0)?.takeIf { it.isFocusable } ?: listRow.getChildAt(0) ?: sendLink).requestFocus()
+        (liveRow.getChildAt(0)?.takeIf { it.isFocusable } ?: sendLink).requestFocus()
     }
 
     /** The "Send a link" panel: QR code, address, version and update check. */
@@ -720,6 +627,9 @@ class MainActivity : Activity() {
 
     private fun styleHome() {
         sendLink.background = Ui.focusable(this, normal = Ui.SURFACE, radiusDp = 9f)
+        yourLists.background = Ui.focusable(this, normal = Ui.SURFACE, radiusDp = 9f)
+        val listsIcon = GradientDrawable().apply { setColor(Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(10)) }
+        yourLists.setCompoundDrawablesRelativeWithIntrinsicBounds(listsIcon, null, null, null)
         val qrIcon = GradientDrawable().apply { setColor(0); setStroke(dp(2), Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(14)) }
         sendLink.setCompoundDrawablesRelativeWithIntrinsicBounds(qrIcon, null, null, null)
         val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Ui.ACCENT); setSize(dp(12), dp(12)) }
@@ -731,22 +641,6 @@ class MainActivity : Activity() {
         updateSettings.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
         findViewById<TextView>(R.id.versionText).text = "StreamLink ${BuildConfig.VERSION_NAME}" +
             if (BuildConfig.CHANNEL == "main") "" else " (${BuildConfig.CHANNEL})"
-    }
-
-    private fun confirmRemove(l: SavedList) {
-        val d = AlertDialog.Builder(this)
-            .setTitle("Remove “${l.name}”?")
-            .setMessage("This removes the saved stream list. The website is not affected.")
-            .setPositiveButton("Remove") { _, _ ->
-                SavedLists.remove(this, l.id)
-                renderHomeNow()
-                Toast.makeText(this, "Removed", Toast.LENGTH_SHORT).show()
-                focusFirst()
-            }
-            .setNegativeButton("Cancel", null)
-            .create()
-        d.show()
-        d.getButton(AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
     }
 
     // ---- App updates (see Updater.kt) ----
@@ -882,7 +776,6 @@ class MainActivity : Activity() {
         const val SCORE_TICK_MS = 5_000L
         /** Lists older than this are re-read in the background while the home screen is shown. */
         const val STALE_MS = 10 * 60_000L
-        const val ADD_TAG = "add-list"
         const val ALWAYS_ON_TAG = "always-on"
     }
 

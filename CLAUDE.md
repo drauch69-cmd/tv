@@ -120,7 +120,11 @@ Playback pipeline:
    started with `isLinkPage` and runs no background link run of its own.
 
 Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (live NFL/college games with streams), "Live now" row from
-`HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`),
+`HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`; the top bar has two focusable
+items side by side, "Your lists" and "Send a link", and Recent follows the rows; the lists are no longer a home row),
+`ListsActivity` ("Your lists", opened from the top bar: list tiles in a 4-column grid built by `ListTiles.kt`; OK opens
+`ListActivity`, hold OK removes, Menu re-reads all, the add tile returns home and shows the phone code; the home screen
+still owns the background list reader and tells it to redraw through `ListEvents`; Session.mode "list"),
 `SportActivity` (one sport: game sections, "All games" toggle, "Other" streams), `StreamsActivity` (one game's score card and
 streams, or the 24/7 channels),
 `Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
