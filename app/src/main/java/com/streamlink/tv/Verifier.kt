@@ -52,12 +52,41 @@ object Verifier {
         val variants: List<String>,
         /** Why it failed, when it did (what the server or the page answered); "" when it passed. */
         val note: String = "",
+        /** Content type to tell the player when the address does not say it (see [Source.mime]); "" otherwise. */
+        val mime: String = "",
     ) {
+        fun withCand(c: StreamCandidate) = Checked(c, ok, master, dash, live, adLike, workingReferer, variants, note, mime)
+
         val score: Int
             get() = (if (ok) 10 else 0) + (if (master) 3 else 0) + (if (live) 2 else 0) + (if (adLike) -10 else 0)
     }
 
     private const val TOTAL_LIMIT_MS = 10_000L
+    private const val MIME_HLS = "application/x-mpegURL"
+    private const val MIME_DASH = "application/dash+xml"
+    /** Results of early single checks (possible playlists), taken by [rank] so the address is not fetched twice. */
+    private class Pre(val checked: Checked, val at: Long)
+    private val pre = ConcurrentHashMap<String, Pre>()
+    private const val PRE_MAX_AGE_MS = 20_000L
+
+    /**
+     * Content check of one possible playlist (an address with no m3u8/.mpd in it): true only when the body starts
+     * with #EXTM3U or holds <MPD (the same test as every stream). A pass is kept briefly for [rank].
+     */
+    fun confirmPossible(c: StreamCandidate, log: (String) -> Unit = { Report.log(it) }): Boolean {
+        val r = check(c, log)
+        if (r.ok) {
+            if (pre.size > 20) pre.clear()
+            pre[c.url] = Pre(r, System.currentTimeMillis())
+        }
+        return r.ok
+    }
+
+    private fun takePre(c: StreamCandidate): Checked? {
+        val p = pre.remove(c.url) ?: return null
+        if (System.currentTimeMillis() - p.at > PRE_MAX_AGE_MS) return null
+        return p.checked.withCand(c)
+    }
 
     private val adWords = listOf("/ads/", "/ad/", "vast", "preroll", "pre-roll", "advert", "doubleclick", "imasdk")
 
@@ -66,7 +95,7 @@ object Verifier {
         // the TV on "Finding the video…" for minutes.
         val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 12))
         val futures = try {
-            pool.invokeAll(cands.map { c -> Callable { check(c, log) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
+            pool.invokeAll(cands.map { c -> Callable { takePre(c) ?: check(c, log) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
         } finally {
             pool.shutdownNow()
         }
@@ -109,7 +138,7 @@ object Verifier {
             val refs = if (c.workingReferer != null) {
                 listOf(c.workingReferer) + c.cand.referers.filter { it != c.workingReferer }
             } else c.cand.referers
-            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault, verified = c.ok, note = if (c.ok) "" else c.note)
+            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault, verified = c.ok, note = if (c.ok) "" else c.note, mime = c.mime)
         }
     }
 
@@ -155,7 +184,9 @@ object Verifier {
             val refText = if (ref.isEmpty()) "none" else Report.short(ref)
             log("✓ ${Report.short(c.url)}: $kind, ${if (live) "live" else "recorded"} (referer: $refText)" +
                 if (adLike) " — looks like an ad" else "")
-            return Checked(c, true, master, isDash, live, adLike, ref, variants)
+            // An address that does not say what it is (no m3u8/.mpd in it): tell the player what the content is.
+            val mime = if (StreamUrls.classify(c.url).first) "" else if (isDash) MIME_DASH else MIME_HLS
+            return Checked(c, true, master, isDash, live, adLike, ref, variants, mime = mime)
         }
         // A refusal: say which referers were tried (hosts only, never tokens).
         if (note.startsWith("server said 403")) note += "; tried: " + tried.joinToString(", ")

@@ -79,6 +79,12 @@ Playback pipeline:
    into view, or a player box before its frame exists; tapped every nudge, max 6), blocks popups and redirects, and
    watches network requests
    for playlists (`StreamUrls.classify`, judged by path; addresses hidden inside other requests are extracted).
+   A sub-resource GET whose path has the whole word playlist / manifest / chunklist / master / index
+   (`StreamUrls.isPossiblePlaylist`, e.g. `/playlist/1/load-playlist`) is a *possible* playlist (max 4 per run):
+   a background download checks the content (`Verifier.confirmPossible`: starts with #EXTM3U or holds <MPD); if
+   it passes, it becomes a normal stream (sets playlistSeen, starts the sibling wait), else it is dropped. Possibles
+   never shorten waits by themselves, are verified last, and unverified ones never become sources. The verifier
+   records the content type in `Source.mime` for addresses with no m3u8/.mpd, and `PlayerActivity` sets it on the item.
    A playlist address found only inside another request (an analytics ping) usually lacks the player's signed
    access code (`t=` query): the sniffer waits up to 8 s for the player's own request, which replaces the copy
    (`StreamUrls.sameStream`) and is checked first; embedded-only stays as the last resort.
@@ -144,7 +150,8 @@ Remote tabs; prefetch toggle).
   search when it found nothing, or from the links search; its info.txt line says which and what was tapped. Playlists
   the site player loaded are kept too. May be sanitized; words are examples only.
 - **Site player lines** in the report say whether the video really plays and whether the page loaded a playlist the
-  app can see (if it did, the hidden search should have caught it: a finder bug, not a site limit).
+  app can see (if it did, the hidden search should have caught it: a finder bug, not a site limit). "A possible
+  playlist" lines mean only a disguised address (no .m3u8/.mpd) was seen; the finder checks those by content.
 - **Recipes** are read from the build's own branch (`test` or `main`).
 - **Built-in browser:** with the user's permission, inspect a live site's frames and network requests from the
   desktop app's browser pane.
