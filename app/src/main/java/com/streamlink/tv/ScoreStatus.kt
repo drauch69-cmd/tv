@@ -35,9 +35,8 @@ object ScoreStatus {
             "in" -> Resolved(moved, ListStatus.LIVE, null)
             "post" -> Resolved(moved, ListStatus.FINISHED, "Final")
             else -> {
-                // Before kickoff: the site's "live" marker is stale unless kickoff is close.
-                val hint = item.liveHint && g.startMillis - now <= ListStatus.SOON_MS
-                Resolved(moved, ListStatus.byTime(moved.copy(liveHint = hint), now), null)
+                // Before kickoff ESPN knows better than the site's "live" marker: kickoff time decides (Soon/Later).
+                Resolved(moved, ListStatus.byTime(moved.copy(liveHint = false), now), null)
             }
         }
     }
