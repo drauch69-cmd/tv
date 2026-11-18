@@ -31,6 +31,17 @@ class SampleRecorderTest {
     private fun media(tag: Int) = "#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:$tag\n#EXTINF:4,\nseg$tag.ts\n".toByteArray()
 
     @Test
+    fun sitePlayerStreamsAreListed() {
+        SampleRecorder.sitePlayerStream("https://cdn.example/live.m3u8?t=1")
+        SampleRecorder.sitePlayerStream("https://cdn.example/live.m3u8?t=1") // duplicate ignored
+        val e = entries(SampleRecorder.zip("r", "1.0")!!)
+        val urls = String(e["urls.txt"]!!)
+        assertTrue(urls.contains("site-player-stream-1: https://cdn.example/live.m3u8?t=1"))
+        assertTrue(!urls.contains("site-player-stream-2"))
+        assertTrue(String(e["info.txt"]!!).contains("site's own player loaded 1 playlist"))
+    }
+
+    @Test
     fun nothingRecordedGivesNull() {
         assertNull(SampleRecorder.zip("r", "1.0"))
     }

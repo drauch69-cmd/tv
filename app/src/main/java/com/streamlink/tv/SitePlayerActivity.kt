@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.widget.FrameLayout
 import android.widget.Toast
@@ -36,6 +37,7 @@ class SitePlayerActivity : Activity() {
 
     companion object {
         private const val EXTRA_URL = "url"
+        private const val EXTRA_REFERER = "referer"
 
         /**
          * Sites start videos muted (browsers only allow muted autoplay) and wait for a click on the
@@ -64,8 +66,9 @@ class SitePlayerActivity : Activity() {
             })();
         """
 
-        fun intent(ctx: Context, url: String): Intent =
-            Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url)
+        /** [referer]: the page the link came from (a link's player page is opened claiming it, as when it is embedded). */
+        fun intent(ctx: Context, url: String, referer: String? = null): Intent =
+            Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url).apply { if (referer != null) putExtra(EXTRA_REFERER, referer) }
 
         /**
          * Pick the part of the page most likely to be the video player and make it fill the screen.
@@ -312,6 +315,31 @@ class SitePlayerActivity : Activity() {
               }, true);
             })();
         """
+
+        /**
+         * Runs in every frame: once a video has really played for ~2 s (its time moves), prints one
+         * fixed-format console line "SL-VID:playing:<w>x<h>" so the report can say the video started.
+         */
+        private const val VIDEO_JS = """
+            (function(){
+              if (window.__slVid) return; window.__slVid = true;
+              var told = false;
+              document.addEventListener('timeupdate', function(e){
+                var v = e.target;
+                try {
+                  if (told || !v || v.tagName !== 'VIDEO' || v.paused) return;
+                  if (v.__slT0 === undefined) { v.__slT0 = v.currentTime; return; }
+                  if (v.currentTime - v.__slT0 < 2) return;
+                  told = true;
+                  console.log('SL-VID:playing:' + (v.videoWidth|0) + 'x' + (v.videoHeight|0));
+                } catch (x) {}
+              }, true);
+            })();
+        """
+
+        /** How long after opening to say "no video playing yet", and to judge whether a playlist was seen. */
+        private const val VIDEO_CHECK_MS = 15_000L
+        private val VIDEO_LINE = Regex("^SL-VID:playing:(\\d{1,5})x(\\d{1,5})$")
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -325,6 +353,10 @@ class SitePlayerActivity : Activity() {
     private var manualPick = false
     private var lastHidden = -1
     private var overlayLogs = 0
+    private var siteHost: String? = null
+    private var videoPlaying = false
+    private var clearedMisses = false
+    private val streamsSeen = java.util.Collections.synchronizedSet(LinkedHashSet<String>())
     private var pointerMode = false
     private var pointerX = -1f
     private var pointerY = -1f
@@ -360,6 +392,7 @@ class SitePlayerActivity : Activity() {
             Report.log("Site player: sound helper added to every frame")
             WebViewCompat.addDocumentStartJavaScript(web, OVERLAY_JS, setOf("*"))
             Report.log("Site player: overlay remover added to every frame")
+            WebViewCompat.addDocumentStartJavaScript(web, VIDEO_JS, setOf("*"))
         } else {
             Report.log("Site player: this TV's WebView can't add the sound helper inside frames; update Android System WebView")
         }
@@ -386,6 +419,16 @@ class SitePlayerActivity : Activity() {
             // three known kinds are accepted, so a page can't write arbitrary text into the report.
             override fun onConsoleMessage(m: ConsoleMessage?): Boolean {
                 val t = m?.message()
+                if (t != null && t.startsWith("SL-VID:")) {
+                    val g = VIDEO_LINE.find(t)
+                    if (g != null && !videoPlaying) {
+                        videoPlaying = true
+                        val (w, h) = g.destructured
+                        Report.log("Site player: video is playing" + if (w != "0") " (${w}×$h)" else "")
+                        main.postDelayed(playlistVerdict, 10_000L)
+                    }
+                    return true
+                }
                 if (t != null && t.startsWith("SL-OV:hidden:")) {
                     val kind = t.removePrefix("SL-OV:hidden:")
                     if ((kind == "link" || kind == "iframe" || kind == "catcher") && overlayLogs++ < 8) {
@@ -402,6 +445,14 @@ class SitePlayerActivity : Activity() {
             }
         }
         web.webViewClient = object : SafeWebViewClient(url, allowVideoAds = true) {
+            // Runs on a web view thread, for every request any frame makes.
+            override fun onResource(request: WebResourceRequest) {
+                val u = request.url.toString()
+                if (!StreamSniffer.isStreamUrl(u) || streamsSeen.size >= 5 || !streamsSeen.add(u)) return
+                val headers = request.requestHeaders?.toMap() ?: emptyMap()
+                main.post { onStreamSeen(u, headers) }
+            }
+
             override fun onLoaded() {
                 focusTries = 0
                 manualPick = false
@@ -417,7 +468,9 @@ class SitePlayerActivity : Activity() {
         root.addView(pointer, FrameLayout.LayoutParams(pointer.sizePx, pointer.sizePx))
 
         val host = Report.host(url)
+        siteHost = host
         Report.log("Opened the site's own player")
+        main.postDelayed(videoCheck, VIDEO_CHECK_MS)
         Session.mode = "site"
         Session.title = host
         Session.snapshot = null
@@ -429,7 +482,68 @@ class SitePlayerActivity : Activity() {
             prefs.edit().putBoolean("pointer_hint_shown", true).apply()
             Toast.makeText(this, "Press ▲ for a pointer", Toast.LENGTH_LONG).show()
         }
-        web.loadUrl(url)
+        val ref = intent.getStringExtra(EXTRA_REFERER)
+        if (ref != null && (ref.startsWith("http://") || ref.startsWith("https://"))) web.loadUrl(url, mapOf("Referer" to ref)) else web.loadUrl(url)
+    }
+
+    private val videoCheck = Runnable {
+        if (!videoPlaying) Report.log("Site player: no video playing yet after ${VIDEO_CHECK_MS / 1000} s" +
+            if (streamsSeen.isEmpty()) " (and no stream playlist loaded)" else "")
+    }
+
+    /** 10 s after the video starts: say whether the page loaded a playlist the finder could have caught. */
+    private val playlistVerdict = Runnable {
+        if (streamsSeen.isEmpty()) {
+            Report.log("Site player: the video plays, but the page loaded no playlist (.m3u8/.mpd) the app can see; " +
+                "the site likely hides its stream, so the short search on this site stays")
+        }
+    }
+
+    /**
+     * The page in the site's own player loaded a playlist: the stream finder could have caught it, so
+     * its misses on this site were its own (too short a search, a late player). Clear them so the next
+     * visit gets the full search, and keep the playlist for "Save a sample".
+     */
+    private fun onStreamSeen(u: String, headers: Map<String, String>) {
+        if (isFinishing || isDestroyed) return
+        val first = !clearedMisses
+        clearedMisses = true
+        val kind = if (u.lowercase().contains(".mpd")) "DASH .mpd" else "HLS .m3u8"
+        Report.log("Site player: the page loaded a stream playlist ($kind from ${Report.host(u)})")
+        if (first && SiteMemory.fails(this, siteHost) > 0) {
+            SiteMemory.clear(this, siteHost)
+            Report.log("Site player: cleared this site's missed-stream count; next time the full search runs")
+        }
+        SampleRecorder.sitePlayerStream(u)
+        ChromeNet.executor.execute { keepPlaylist(u, headers) }
+    }
+
+    /** Fetch the playlist text once more, the way the page asked for it, so a saved sample holds it. */
+    private fun keepPlaylist(u: String, headers: Map<String, String>) {
+        if (AdBlock.isLocalHost(android.net.Uri.parse(u).host)) return
+        try {
+            val c = ChromeNet.open(u)
+            try {
+                c.connectTimeout = 5000
+                c.readTimeout = 5000
+                for ((k, v) in headers) if (!k.equals("Range", true)) c.setRequestProperty(k, v)
+                android.webkit.CookieManager.getInstance().getCookie(u)?.let { c.setRequestProperty("Cookie", it) }
+                if (c.responseCode != 200) return
+                val buf = java.io.ByteArrayOutputStream()
+                val b = ByteArray(8192)
+                c.inputStream.use { inp ->
+                    while (buf.size() <= SampleRecorder.MAX_PLAYLIST) {
+                        val n = inp.read(b); if (n < 0) break; buf.write(b, 0, n)
+                    }
+                }
+                val bytes = buf.toByteArray()
+                SampleRecorder.playlist(u, bytes, bytes.size, bytes.size > SampleRecorder.MAX_PLAYLIST, c.contentType ?: "?")
+            } finally {
+                c.disconnect()
+            }
+        } catch (_: Exception) {
+            // best effort: the address is still in the sample
+        }
     }
 
     private val focusTick = object : Runnable {

@@ -41,6 +41,9 @@ class WaitingActivity : Activity() {
     private lateinit var waitBox: LinearLayout
     private lateinit var detailsBtn: TextView
     private var showDetails = false
+    /** Opened from the Source list for a link player: no waiting, no new report, the original page is the referer. */
+    private var linkPage = false
+    private var referer: String? = null
     private val main = Handler(Looper.getMainLooper())
 
     private var checking = false
@@ -83,11 +86,17 @@ class WaitingActivity : Activity() {
             section = "", liveHint = i.getBooleanExtra(EXTRA_LIVE, false), imageUrl = null,
         )
         if (item.url.isEmpty()) { finish(); return }
+        linkPage = i.getBooleanExtra(EXTRA_LINK_PAGE, false)
+        referer = i.getStringExtra(EXTRA_REFERER)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildUi()
-        Report.start(item.url)
-        Report.log("Playing an event from a list: ${ListText.displayTitle(item)}")
-        Report.log("Start: " + (start?.let { ListText.whenText(it, System.currentTimeMillis(), java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: "unknown"))
+        if (linkPage) {
+            Report.log("Opening ${ListText.displayTitle(item)} as its own page (${Report.host(item.url)})")
+        } else {
+            Report.start(item.url)
+            Report.log("Playing an event from a list: ${ListText.displayTitle(item)}")
+            Report.log("Start: " + (start?.let { ListText.whenText(it, System.currentTimeMillis(), java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: "unknown"))
+        }
         waitStartedAt = System.currentTimeMillis()
     }
 
@@ -119,7 +128,7 @@ class WaitingActivity : Activity() {
 
     private fun check() {
         if (checking || handedOff || gaveUp) return
-        Prefetch.take(item.url)?.let { head ->
+        if (!linkPage) Prefetch.take(item.url)?.let { head ->
             checkCount++
             Report.log("Head start: stream already found while you were browsing")
             found(head)
@@ -129,7 +138,7 @@ class WaitingActivity : Activity() {
         checkStartedAt = System.currentTimeMillis()
         checkCount++
         update(checkStartedAt)
-        sniffer.sniff(item.url) { set ->
+        sniffer.sniff(item.url, referer = referer) { set ->
             if (!checking || handedOff) return@sniff
             checking = false
             val now = System.currentTimeMillis()
@@ -144,7 +153,7 @@ class WaitingActivity : Activity() {
         Report.log("Check #$checkCount: stream found, starting the player")
         Session.current = set
         AppStatus.text = "Playing ${ListText.displayTitle(item)}"
-        startActivity(PlayerActivity.intent(this))
+        startActivity(PlayerActivity.intent(this, isLinkPage = linkPage))
         finish()
     }
 
@@ -155,18 +164,19 @@ class WaitingActivity : Activity() {
         logCheck(why)
         // No start time (often an always-on channel, not a scheduled event): one quick retry, then the
         // site's own player instead of re-checking every 45 s for hours.
-        val noTimeGiveUp = item.startMillis == null && checkCount >= NO_TIME_TRIES
+        // A link's own page never waits: no stream on the first try goes straight to the site player.
+        val noTimeGiveUp = linkPage || (item.startMillis == null && checkCount >= NO_TIME_TRIES)
         if (!waiting || noTimeGiveUp) {
             if (!noTimeGiveUp && ListText.shouldWait(item.startMillis, now)) {
                 waiting = true
                 waitStartedAt = now
             } else {
                 // Started a while ago (or no time and still nothing): same as a link sent directly.
-                if (noTimeGiveUp) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
+                if (noTimeGiveUp && !linkPage) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
                 handedOff = true
                 main.removeCallbacksAndMessages(null)
                 AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
-                startActivity(SitePlayerActivity.intent(this, pageUrl))
+                startActivity(SitePlayerActivity.intent(this, pageUrl, referer))
                 finish()
                 return
             }
@@ -221,7 +231,7 @@ class WaitingActivity : Activity() {
             Session.snapshot = null
             Session.listId = intent.getStringExtra("listId")
             Session.listName = intent.getStringExtra("listName") ?: ""
-            Session.listItemUrl = item.url
+            Session.listItemUrl = if (linkPage) null else item.url
         }
         AppStatus.text = statusText(System.currentTimeMillis())
     }
@@ -362,7 +372,7 @@ class WaitingActivity : Activity() {
         buttons.addView(checkNowBtn, LinearLayout.LayoutParams(wrap, wrap).apply { marginEnd = dp(10) })
         val site = button("Open the page's own player") {
             val u = Uri.parse(item.url)
-            if (u.scheme == "http" || u.scheme == "https") startActivity(SitePlayerActivity.intent(this, item.url))
+            if (u.scheme == "http" || u.scheme == "https") startActivity(SitePlayerActivity.intent(this, item.url, referer))
         }
         buttons.addView(site)
         col.addView(buttons, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(28) })
@@ -396,6 +406,8 @@ class WaitingActivity : Activity() {
         private const val EXTRA_URL = "url"
         private const val EXTRA_START = "start"
         private const val EXTRA_LIVE = "live"
+        private const val EXTRA_LINK_PAGE = "linkPage"
+        private const val EXTRA_REFERER = "referer"
 
         fun intent(ctx: Context, item: ListItem, listId: String, listName: String) =
             Intent(ctx, WaitingActivity::class.java)
@@ -403,5 +415,16 @@ class WaitingActivity : Activity() {
                 .putExtra(EXTRA_URL, item.url).putExtra(EXTRA_START, item.startMillis ?: NO_TIME)
                 .putExtra(EXTRA_LIVE, item.liveHint)
                 .putExtra("listId", listId).putExtra("listName", listName)
+
+        /**
+         * A link's player page, opened from the Source list as a normal page: full stream search sending [referer]
+         * (the original page), clean player if a stream verifies, else the site player. Back returns to the stream.
+         */
+        fun linkPageIntent(ctx: Context, playerUrl: String, label: String, referer: String) =
+            Intent(ctx, WaitingActivity::class.java)
+                .putExtra(EXTRA_TITLE, label).putExtra(EXTRA_SUBTITLE, "")
+                .putExtra(EXTRA_URL, playerUrl).putExtra(EXTRA_START, NO_TIME)
+                .putExtra(EXTRA_LIVE, true)
+                .putExtra(EXTRA_LINK_PAGE, true).putExtra(EXTRA_REFERER, referer)
     }
 }

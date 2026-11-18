@@ -75,14 +75,26 @@ Playback pipeline:
 1. **Input.** `LinkServer` (port 8080 or 8081, same Wi-Fi only) receives a link from the phone page, or the user picks
    a stream-list item read by `IndexReader`.
 2. **Find.** `StreamSniffer` loads the page in a hidden, muted WebView, presses the page's start button
-   (`assets/player-start.js`), taps the player (NUDGE_JS), blocks popups and redirects, and watches network requests
+   (`assets/player-start.js`), taps the player (NUDGE_JS: the biggest video or frame, lazy/off-screen frames scrolled
+   into view, or a player box before its frame exists; tapped every nudge, max 6), blocks popups and redirects, and
+   watches network requests
    for playlists (`StreamUrls.classify`, judged by path; addresses hidden inside other requests are extracted).
+   A playlist address found only inside another request (an analytics ping) usually lacks the player's signed
+   access code (`t=` query): the sniffer waits up to 8 s for the player's own request, which replaces the copy
+   (`StreamUrls.sameStream`) and is checked first; embedded-only stays as the last resort.
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
-   being tried (`Headers.originFor`). Only verified sources play.
+   being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
+   (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play.
 4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
 5. **Extra sources.** After 10 s of stall-free play, a background run finds the page's other link buttons and sniffs
-   each player (light mode); verified ones appear in the Source panel.
+   each player (light mode); verified ones appear in the Source panel. A link whose player gives no verified stream
+   (embed-protected, 403, timeout) still gets one entry, "<label> · site player" (`Source.openPage`, its `playerUrl`
+   is the link's player page). Choosing it never plays in ExoPlayer: `PlayerActivity.openLinkPage` starts the loading
+   screen (`WaitingActivity.linkPageIntent`) on that page with the original page as referer: full stream search, clean
+   player if verified, else `SitePlayerActivity` (sent the same referer). The first player is not finished (it stays
+   in the back stack, stops playback in `onStop`); Back returns to it and it resumes at live. The new player is
+   started with `isLinkPage` and runs no background link run of its own.
 
 Screens: `MainActivity` (TV-home-style dashboard; "Live now" row from `HomeFeed`, sections from `ListSections`),
 `Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
@@ -90,7 +102,10 @@ Remote tabs; prefetch toggle).
 
 ## Key mechanisms
 
-- **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site, its search shortens to 10 s. `Prefetcher` gives
+- **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site, its search shortens to 15 s; the count is cleared
+  when the site player shows the page loaded a playlist the app can see. The early give-up on a
+  player frame from another site (8 s after the first tap) was removed (f396b92): those players often need 10-15 s.
+  `Prefetcher` gives
   Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block images,
   fonts and similar.
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
@@ -98,7 +113,9 @@ Remote tabs; prefetch toggle).
   site-player fallback.
 - **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Links mode
   clicks each link and records each new player frame; once a playlist is seen, everything else is blocked.
-  `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open.
+  `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open. It also builds the "open page"
+  entries (`openPageEntry`, label ending " · site player") and keeps them out of automatic source fallback
+  (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
@@ -106,6 +123,11 @@ Remote tabs; prefetch toggle).
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.
+- **Expiring access codes.** If a playing source whose address has a query gets 403 after it had played fine,
+  `PlayerActivity.renewAccess` quietly runs a light sniff of the same page (or the link player the source came
+  from, `Source.playerUrl`), takes the verified source with the same address path (else any verified one) and
+  restarts on it at live. At most one try per 60 s, gives up after 3 empty tries (then the normal reconnect).
+  Report lines: "Access code expired; getting a fresh address…", then the outcome. Not yet tested on the TV.
 - **Updater.** Checks its channel's GitHub release, verifies SHA-256 and signing cert, and installs only after the
   user presses OK (see README).
 
@@ -118,6 +140,11 @@ Remote tabs; prefetch toggle).
   PngTextTest and others).
 - **Report:** the in-app log the user copies from TV or phone. Look for "Links:" lines, per-link results, and
   Verifier failure details (size and first characters of the response).
-- **Save sample:** zip with list page and stream page snapshots plus the log. May be sanitized; words are examples only.
+- **Save sample:** zip with list page and stream page snapshots plus the log. The stream page comes from the player
+  search when it found nothing, or from the links search; its info.txt line says which and what was tapped. Playlists
+  the site player loaded are kept too. May be sanitized; words are examples only.
+- **Site player lines** in the report say whether the video really plays and whether the page loaded a playlist the
+  app can see (if it did, the hidden search should have caught it: a finder bug, not a site limit).
+- **Recipes** are read from the build's own branch (`test` or `main`).
 - **Built-in browser:** with the user's permission, inspect a live site's frames and network requests from the
   desktop app's browser pane.

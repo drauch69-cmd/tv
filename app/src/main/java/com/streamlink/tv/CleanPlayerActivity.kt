@@ -350,6 +350,7 @@ class CleanPlayerActivity : Activity() {
     private fun switchSource(i: Int) {
         val s = set ?: return
         if (i !in s.sources.indices) return
+        if (s.sources[i].openPage) { Report.log("Source ${i + 1} opens as its own page; not played here"); return }
         Report.log("Switching to source ${i + 1}")
         sourceIndex = i
         load()

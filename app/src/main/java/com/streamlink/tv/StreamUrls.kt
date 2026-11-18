@@ -29,6 +29,24 @@ object StreamUrls {
         return proxy to embedded
     }
 
+    /**
+     * Same stream address apart from the query and fragment: same scheme, host and path (case-insensitive,
+     * a trailing slash ignored). A signed copy with a fresh access code is the "same stream" as an old one.
+     */
+    fun sameStream(a: String, b: String): Boolean {
+        fun key(u: String): String? {
+            val t = u.trim().substringBefore('#').substringBefore('?')
+            val m = Regex("^(https?)://([^/]+)(/.*)?$", RegexOption.IGNORE_CASE).find(t) ?: return null
+            val path = (m.groupValues[3]).trimEnd('/')
+            return m.groupValues[1].lowercase() + "://" + m.groupValues[2].lowercase() + path
+        }
+        val x = key(a) ?: return false
+        return x == key(b)
+    }
+
+    /** The address has a query string with something in it (often a signed, short-lived access code). */
+    fun hasQuery(url: String): Boolean = url.substringBefore('#').substringAfter('?', "").isNotEmpty()
+
     private fun isWeb(url: String): Boolean = url.startsWith("http://", true) || url.startsWith("https://", true)
 
     /** An absolute http(s) address whose own path is a stream (and not an image or script). */

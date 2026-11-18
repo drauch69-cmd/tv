@@ -28,6 +28,14 @@ data class Source(
     val verified: Boolean = true,
     /** Why the verifier rejected it (e.g. "server said 403"), or "" when it passed or was never checked. */
     val note: String = "",
+    /** The player frame this source was found on (a link player), or "" for the page itself; used to get a fresh address when its access code expires. */
+    val playerUrl: String = "",
+    /**
+     * A link whose player gave no verified stream: [url] is the link's player page, not a playlist. Choosing it
+     * opens that page as its own page (clean player or site player); it is never played in ExoPlayer, never picked
+     * by automatic source fallback and never renewed.
+     */
+    val openPage: Boolean = false,
 )
 
 /** Everything found on a page. Empty [sources] means no stream was found. */
@@ -51,6 +59,8 @@ data class StreamCandidate(
     val linkLabel: String = "",
     /** Found on the link the page showed by default (before any other link was clicked). */
     val isDefault: Boolean = true,
+    /** Taken from inside another request (an analytics ping): often without the access code the real request carries. */
+    val embedded: Boolean = false,
 )
 
 /**
@@ -287,6 +297,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun found(url: String, requestHeaders: Map<String, String>, embedded: Boolean = false) {
         if (done || verifying || candidates.containsKey(url)) return
         if (AdBlock.isLocalHost(Report.host(url))) return
+        // The player's own request carries the access code and real headers: prefer it over a copy found inside another request.
+        if (embedded && candidates.values.any { !it.embedded && StreamUrls.sameStream(it.url, url) }) return
         val ua = webView?.settings?.userAgentString
         val headers = LinkedHashMap<String, String>()
         var requestReferer: String? = null
@@ -308,14 +320,37 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             Headers.embeddedReferers(requestReferer, frames, { AdBlock.isBlockedHost(Report.host(it)) }) + ""
         } else {
             // Candidates for "which page asked for this video": the frames, then the page itself, then no referer at all.
-            (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage(), referer))
-                .filter { it.startsWith("http") }
-                .distinct()
-                .take(5) + ""
+            // Each also as a bare origin ("https://host/") right after its full form.
+            Headers.withOriginForms(
+                (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage(), referer))
+                    .filter { it.startsWith("http") }
+                    .distinct(),
+                5,
+            ) + ""
         }
-        candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault)
-        log("Found stream: ${Report.short(url)}")
-        if (candidates.size == 1 && linkState == 0) main.postDelayed(collect, COLLECT_MS)
+        if (!embedded) {
+            // A direct request replaces the copy of the same stream found inside another request.
+            val dropped = candidates.entries.filter { it.value.embedded && StreamUrls.sameStream(it.value.url, url) }.map { it.key }
+            for (k in dropped) candidates.remove(k)
+        }
+        candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault, embedded)
+        val note = when {
+            StreamUrls.hasQuery(url) -> " (with access code)"
+            embedded -> " (no access code)"
+            else -> ""
+        }
+        log("Found stream: ${Report.short(url)}$note")
+        if (linkState == 0) {
+            val direct = candidates.values.count { !it.embedded }
+            if (!embedded && direct == 1) {
+                // The first real request: the usual short wait for siblings (replaces any longer wait for one).
+                main.removeCallbacks(collect)
+                main.postDelayed(collect, COLLECT_MS)
+            } else if (direct == 0 && candidates.size == 1) {
+                // Only copies found inside other requests so far: give the player's own request time to arrive.
+                main.postDelayed(collect, EMBEDDED_WAIT_MS)
+            }
+        }
         if (candidates.size >= MAX_CANDIDATES) verifyAndFinish()
     }
 
@@ -328,7 +363,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
-        val list = candidates.values.toList()
+        // Real requests first: they carry the access code; copies found inside other requests are the last resort.
+        val list = candidates.values.sortedBy { it.embedded }
         val page = currentPage()
         val gen = generation
         log("Checking ${list.size} stream(s)…")
@@ -524,24 +560,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 tap(wv, wv.width / 2f, wv.height / 2f)
             }
         }
-        maybeGiveUpEarly()
     }
 
-    /**
-     * Another site's player frame that was tapped and still shows no stream rarely gives one later:
-     * stop early so the site's own player opens sooner (it plays these frames fine).
-     */
-    private fun maybeGiveUpEarly() {
-        if (done || verifying || linksMode || light || clickRef != null || candidates.isNotEmpty()) return
-        if (!playerForeign || firstPlayerTapAt == 0L) return
-        val now = SystemClock.uptimeMillis()
-        if (now - firstPlayerTapAt < EMBED_GIVE_UP_MS || now - runStartedAt < EMBED_MIN_RUN_MS) return
-        if (now - runStartedAt >= timeoutMs - 1_000) return // the normal timeout is about to run anyway
-        log("Tapped the other site's player $playerTaps time(s) and it showed no stream ${EMBED_GIVE_UP_MS / 1000}s after the first tap; stopping early")
-        timeoutMs = now - runStartedAt
-        main.removeCallbacks(timeout)
-        timeout.run()
-    }
 
     /** Same site, or one is a subdomain of the other (cdn.example.com vs example.com). */
     private fun sameSite(a: String, b: String): Boolean {
@@ -800,13 +820,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         }
         /** After the first stream is seen, how long to wait for more before checking them. */
         private const val COLLECT_MS = 1_200L
+        /** When only copies found inside other requests are known: how long to wait for the player's own request. */
+        private const val EMBEDDED_WAIT_MS = 8_000L
         private const val FIRST_NUDGE_MS = 1_500L
         /** Taps on a found player, at most (one per nudge, 2.5 s apart). */
         private const val MAX_PLAYER_TAPS = 6
-        /** Another site's player frame: give up this long after the first tap on it if no stream showed... */
-        private const val EMBED_GIVE_UP_MS = 8_000L
-        /** ...but never before this much of the run has passed. */
-        private const val EMBED_MIN_RUN_MS = 12_000L
         private const val MAX_CANDIDATES = 12
         private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 
