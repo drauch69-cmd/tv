@@ -81,6 +81,23 @@ class DateGuessTest {
         assertEquals(now + 60 * 60_000L, g("Starting in an hour"))
     }
 
+    @Test fun compactCountdowns() {
+        assertEquals(now + (24 + 19) * 3_600_000L, g("STARTS IN 1d 19h"))
+        assertEquals(now + (4 * 24 + 12) * 3_600_000L, g("starts in 4d 12h"))
+        assertEquals(now + (2 * 60 + 5) * 60_000L, g("in 2h 05m"))
+        assertEquals(now + 45 * 60_000L, g("Starts in 45m"))
+        assertEquals(now + 3 * 24 * 3_600_000L, g("in 3d"))
+        assertEquals(now + 150 * 60_000L, g("in 2 hours 30 minutes"))
+        assertEquals(now + 2 * 3_600_000L, g("in 2 hours")) // still fine
+        assertNull(g("in 19 Main St"))
+    }
+
+    @Test fun epochDatetimeFromThePage() {
+        // list-extract.js turns data-time="1794974400" (unix seconds) into an ISO instant
+        assertEquals(1794974400_000L, g("", "", "2026-11-18T04:00:00.000Z"))
+        assertEquals(1794974400_000L, g("Tomorrow 6:00 PM", "", "2026-11-18T04:00:00.000Z"))
+    }
+
     @Test fun datetimeAttribute() {
         assertEquals(Instant.parse("2026-11-19T17:15:00Z").toEpochMilli(), g("Thu 5:15 PM", "", "2026-11-19T17:15:00Z"))
         assertEquals(at(2026, 11, 19, 17, 15), g("", "", "2026-11-19T17:15:00"))
