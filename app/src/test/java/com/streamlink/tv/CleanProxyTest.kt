@@ -32,14 +32,14 @@ class CleanProxyTest {
     }
 
     @Test
-    fun capturedOriginWinsOverDerived() {
+    fun originMatchesTheRefererUsed() {
         val src = Source(
             url = "https://cdn.example.com/live/index.m3u8",
             headers = mapOf("Origin" to "https://captured.example.com"),
             referers = listOf("https://player.example.com/embed/1"),
             label = "x",
         )
-        assertEquals("https://captured.example.com", CleanProxy.upstream(src).headers["Origin"])
+        assertEquals("https://player.example.com", CleanProxy.upstream(src).headers["Origin"])
     }
 
     @Test
