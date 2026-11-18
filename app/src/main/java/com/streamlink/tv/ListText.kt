@@ -45,17 +45,21 @@ object ListText {
     }
 
     /** The status badge for a list row: LIVE, Starts in 12 min, Sat 9:00 AM, Unknown time. */
-    fun badge(item: ListItem, now: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault()): String =
-        when (ListStatus.of(item, now)) {
+    fun badge(item: ListItem, now: Long, zone: TimeZone = TimeZone.getDefault(), locale: Locale = Locale.getDefault(),
+              games: List<Game> = ScoreFeed.latest()): String {
+        val r = ScoreStatus.resolve(item, now, games)
+        val eff = r.item // ESPN's kickoff stands in for the start when the item matches a game
+        return when (r.status) {
             ListStatus.LIVE -> "LIVE"
-            ListStatus.FINISHED -> "Maybe ended"
-            ListStatus.SOON -> "Starts in ${minutesCeil(item, now)} min"
+            ListStatus.FINISHED -> r.badge ?: "Maybe ended"
+            ListStatus.SOON -> "Starts in ${minutesCeil(eff, now)} min"
             ListStatus.UPCOMING -> {
-                val s = item.startMillis ?: now
-                if (s - now < HOUR) "Starts in ${minutesCeil(item, now)} min" else whenText(s, now, zone, locale)
+                val s = eff.startMillis ?: now
+                if (s - now < HOUR) "Starts in ${minutesCeil(eff, now)} min" else whenText(s, now, zone, locale)
             }
-            else -> item.timeText.trim().takeIf { it.isNotEmpty() }?.let { if (it.length > 24) it.take(23) + "…" else it } ?: "Unknown time"
+            else -> eff.timeText.trim().takeIf { t -> t.isNotEmpty() }?.let { t -> if (t.length > 24) t.take(23) + "…" else t } ?: "Unknown time"
         }
+    }
 
     private fun minutesCeil(item: ListItem, now: Long): Long =
         (((item.startMillis ?: now) - now + MIN - 1) / MIN).coerceAtLeast(1)

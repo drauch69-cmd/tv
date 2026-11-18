@@ -50,6 +50,9 @@ class ListActivity : Activity() {
     private var errorText: String? = null
     /** Score line of every row on screen, so a score update changes text in place (no rebuild, focus untouched). */
     private val scoreViews = ArrayList<Pair<ListItem, TextView>>()
+    /** Status and finished label (Final...) each row was drawn with, to see whether a score update moved anything. */
+    private val rowLook = HashMap<String, String>()
+    private fun look(item: ListItem, now: Long): String = ScoreStatus.resolve(item, now).let { it.status + "|" + (it.badge ?: "") }
 
     private val handler: (String, String?) -> Unit = { c, v ->
         when (c) {
@@ -295,6 +298,7 @@ class ListActivity : Activity() {
         val items = cached?.let { ListJson.visible(it.result.items, now) } ?: emptyList()
         rows.removeAllViews()
         scoreViews.clear()
+        rowLook.clear()
         if (items.isEmpty()) {
             val msg = when {
                 reading && cached == null -> "Reading events…"
@@ -336,12 +340,13 @@ class ListActivity : Activity() {
         selected = item
         selectedUrl = item.url
         panel.visibility = View.VISIBLE
-        val st = ListStatus.of(item, now)
+        val r = ScoreStatus.resolve(item, now)
+        val st = r.status
         val b = ListSections.badge(item, now)
         val label = when (st) {
             ListStatus.LIVE, ListStatus.SOON -> b.text
-            ListStatus.UPCOMING -> item.startMillis?.let { ListText.whenText(it, now, java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: b.text
-            else -> ListSections.label(st)
+            ListStatus.UPCOMING -> r.item.startMillis?.let { ListText.whenText(it, now, java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: b.text
+            else -> r.badge?.uppercase() ?: ListSections.label(st)
         }
         pBadgeHolder.removeAllViews()
         pBadgeHolder.addView(Ui.badge(this, label, st == ListStatus.LIVE))
@@ -373,8 +378,16 @@ class ListActivity : Activity() {
         v.visibility = View.VISIBLE
     }
 
-    /** New scores arrived: change the score texts in place, leaving rows and focus alone. */
+    /**
+     * New scores arrived. If a row's status or badge changed (ESPN says it is live, final...), rebuild
+     * the list (render keeps focus by link); otherwise change the score texts in place.
+     */
     private fun updateScores() {
+        val now = System.currentTimeMillis()
+        if (scoreViews.any { (item, _) -> rowLook[item.url]?.let { it != look(item, now) } == true }) {
+            render()
+            return
+        }
         for ((item, v) in scoreViews) applyScore(item, v)
         selected?.let { fillScoreBlock(it) }
     }
@@ -405,6 +418,7 @@ class ListActivity : Activity() {
         col.addView(scoreLine)
         applyScore(item, scoreLine)
         scoreViews.add(item to scoreLine)
+        rowLook[item.url] = look(item, now)
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(14) })
         val b = ListSections.badge(item, now)
         val right: View = if (b.pill) Ui.badge(this, b.text, b.live) else text(b.text, 11f, Ui.TEXT_2, bold = true)

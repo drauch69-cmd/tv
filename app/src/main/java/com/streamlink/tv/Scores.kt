@@ -36,6 +36,7 @@ data class Game(
     val home: TeamSide,
     val away: TeamSide,
     val broadcast: String,
+    val statusName: String = "", // ESPN status.type.name, e.g. "STATUS_POSTPONED"
 )
 
 /** Reads ESPN's scoreboard JSON. Never throws. */
@@ -94,6 +95,7 @@ object ScoreParse {
             period = status?.optInt("period", 0) ?: 0,
             clock = str(status, "displayClock"),
             home = home, away = away, broadcast = broadcast,
+            statusName = str(type, "name"),
         )
     }
 
@@ -134,6 +136,8 @@ object ScoreMatch {
     private const val START_WINDOW_MS = 90 * 60 * 1000L
 
     /** Lowercase, no accents, everything but letters and digits becomes one space. */
+    private val SPACES = Regex(" +")
+
     fun norm(s: String): String {
         val d = Normalizer.normalize(s, Normalizer.Form.NFD)
         val sb = StringBuilder(d.length)
@@ -141,7 +145,7 @@ object ScoreMatch {
             if (Character.getType(ch) == Character.NON_SPACING_MARK.toInt()) continue
             if (ch.isLetterOrDigit()) sb.append(ch.lowercaseChar()) else sb.append(' ')
         }
-        return sb.toString().trim().replace(Regex(" +"), " ")
+        return sb.toString().trim().replace(SPACES, " ")
     }
 
     private class Occ(val start: Int, val end: Int) // end exclusive, in the padded title
@@ -174,9 +178,32 @@ object ScoreMatch {
         return out
     }
 
+    // Matching runs many times per render, so answers are remembered per (title, start) for one games list.
+    // The cache is dropped when the games list instance changes (ScoreFeed keeps one instance until data changes).
+    private const val CACHE_MAX = 500
+    private val cacheLock = Any()
+    private var cacheGames: List<Game>? = null
+    private val cache = HashMap<String, Game?>()
+
     fun find(title: String, itemStartMillis: Long?, games: List<Game>): Game? {
         val t = norm(title)
         if (t.isEmpty() || games.isEmpty()) return null
+        val key = "$t|${itemStartMillis ?: ""}"
+        synchronized(cacheLock) {
+            if (cacheGames !== games) { cache.clear(); cacheGames = games }
+            if (cache.containsKey(key)) return cache[key]
+        }
+        val found = compute(t, itemStartMillis, games)
+        synchronized(cacheLock) {
+            if (cacheGames === games) {
+                if (cache.size >= CACHE_MAX) cache.clear()
+                cache[key] = found
+            }
+        }
+        return found
+    }
+
+    private fun compute(t: String, itemStartMillis: Long?, games: List<Game>): Game? {
         val pool = if (itemStartMillis != null) games.filter { Math.abs(it.startMillis - itemStartMillis) <= DAY_WINDOW_MS } else games
         if (pool.isEmpty()) return null
         val padded = " $t "
@@ -239,6 +266,7 @@ object ScoreText {
 
     /** One short line for a list row; null before the game starts. */
     fun rowLine(g: Game): String? {
+        ScoreStatus.cancelLabel(g)?.let { return it }
         val score = "${tag(g.away)} ${pts(g.away)} – ${tag(g.home)} ${pts(g.home)}"
         return when (g.state) {
             "in" -> "$score · ${liveStatus(g, " ")}"
@@ -250,7 +278,12 @@ object ScoreText {
     /** Lines for the details card; the first one is the headline. Kickoff is shown in [zone] (the TV's own). */
     fun cardLines(g: Game, zone: ZoneId = ZoneId.systemDefault()): List<String> {
         val out = ArrayList<String>()
-        if (g.state == "in" || g.state == "post") {
+        val cancelled = ScoreStatus.cancelLabel(g)
+        if (cancelled != null) {
+            fun side(s: TeamSide) = if (s.record.isBlank()) name(s) else "${name(s)} (${s.record})"
+            out.add("${side(g.away)} at ${side(g.home)}")
+            out.add(cancelled)
+        } else if (g.state == "in" || g.state == "post") {
             out.add("${name(g.away)} ${pts(g.away)} – ${name(g.home)} ${pts(g.home)}")
             out.add(if (g.state == "in") liveStatus(g, " · ") else finalStatus(g))
             val extra = listOf(g.away.record, g.home.record, g.broadcast).filter { it.isNotBlank() }
@@ -274,13 +307,31 @@ object ScoreFeed {
     private val NY = ZoneId.of("America/New_York")
     private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
 
+    /** Games older than this (no successful fetch since) are ignored, so an old "in" never keeps an item live. */
+    const val MAX_AGE_MS = 15 * 60_000L
+
+    /** Pure: is a fetch made at [lastOk] still good at [now]? */
+    fun isFresh(lastOk: Long?, now: Long): Boolean = lastOk != null && now - lastOk <= MAX_AGE_MS
+
     private val lock = Any()
     private var byLeague: Map<String, List<Game>> = emptyMap()
+    private var version = 0
+    private var cachedKey = ""
+    private var cachedList: List<Game> = emptyList()
     private val lastOk = HashMap<String, Long>()
     private val lastFail = HashMap<String, Long>()
     private var running = false
 
-    fun latest(): List<Game> = synchronized(lock) { LEAGUES.flatMap { byLeague[it] ?: emptyList() } }
+    /** Fresh games of both leagues. The same List instance is returned until the data (or which leagues are fresh) changes. */
+    fun latest(now: Long = System.currentTimeMillis()): List<Game> = synchronized(lock) {
+        val fresh = LEAGUES.filter { isFresh(lastOk[it], now) }
+        val key = "$version:${fresh.joinToString(",")}"
+        if (key != cachedKey) {
+            cachedList = fresh.flatMap { byLeague[it] ?: emptyList() }
+            cachedKey = key
+        }
+        cachedList
+    }
 
     private fun isDue(league: String, now: Long): Boolean {
         val ok = lastOk[league]
@@ -336,7 +387,8 @@ object ScoreFeed {
                 for (g in games) merged.putIfAbsent(g.id, g)
             }
             synchronized(lock) {
-                byLeague = byLeague + (league to merged.values.toList())
+                val list = merged.values.toList()
+                if (byLeague[league] != list) { byLeague = byLeague + (league to list); version++ }
                 lastOk[league] = System.currentTimeMillis()
                 lastFail.remove(league)
             }

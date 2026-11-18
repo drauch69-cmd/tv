@@ -17,12 +17,13 @@ object HomeFeed {
      * then (to fill the row) ones starting within [UPCOMING_WINDOW_MS]. The same event URL in two
      * lists shows once.
      */
-    fun liveRow(lists: List<Pair<SavedList, List<ListItem>>>, now: Long, max: Int = MAX_CARDS): List<Entry> {
+    fun liveRow(lists: List<Pair<SavedList, List<ListItem>>>, now: Long, max: Int = MAX_CARDS, games: List<Game> = ScoreFeed.latest()): List<Entry> {
         val all = ArrayList<Entry>()
         val seen = HashSet<String>()
         for ((l, items) in lists) for (i in items) {
             if (!seen.add(i.url)) continue
-            all.add(Entry(l, i, ListStatus.of(i, now)))
+            val r = ScoreStatus.resolve(i, now, games) // the card's item carries ESPN's kickoff when matched
+            all.add(Entry(l, r.item, r.status))
         }
         fun startKey(e: Entry) = e.item.startMillis ?: Long.MAX_VALUE
         // Real live events first (earliest start first), always-on channels after them.
@@ -35,10 +36,10 @@ object HomeFeed {
         return (live + soon + later).take(max)
     }
 
-    fun counts(items: List<ListItem>, now: Long): Counts {
+    fun counts(items: List<ListItem>, now: Long, games: List<Game> = ScoreFeed.latest()): Counts {
         var live = 0
         var later = 0
-        for (i in items) when (ListStatus.of(i, now)) {
+        for (i in items) when (ListStatus.of(i, now, games)) {
             ListStatus.LIVE -> live++
             ListStatus.SOON, ListStatus.UPCOMING, ListStatus.UNKNOWN -> later++
         }
