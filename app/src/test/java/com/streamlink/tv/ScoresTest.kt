@@ -201,12 +201,22 @@ class ScoresTest {
         assertEquals("Final/OT · WSH 24 – NYG 21", ScoreText.rowLine(g.copy(shortDetail = "Final/OT")))
     }
 
+    @Test fun liveTextUsesPeriodAndClockNotEspnWording() {
+        val g = live().copy(shortDetail = "8:42 - 3rd")
+        assertEquals("WSH 24 – NYG 21 · Q3 8:42", ScoreText.rowLine(g))
+        assertEquals("Q3 · 8:42", ScoreText.cardLines(g)[1])
+        assertEquals("End of 3rd", ScoreText.cardLines(g.copy(shortDetail = "End of 3rd", clock = "0:00"))[1])
+        assertEquals("WSH 24 – NYG 21 · OT 4:10", ScoreText.rowLine(g.copy(period = 5, clock = "4:10")))
+    }
+
     @Test fun preText() {
         val g = live().copy(state = "pre", shortDetail = "11/22 - 7:15 PM EST")
         assertNull(ScoreText.rowLine(g))
-        assertEquals(listOf("Commanders (3-5-1) at Giants (5-3-1)", "Kickoff 11/22 - 7:15 PM EST", "Prime Video"), ScoreText.cardLines(g))
+        val ct = java.time.ZoneId.of("America/Chicago")
+        val kick = "Kickoff " + java.time.format.DateTimeFormatter.ofPattern("EEE h:mm a").format(java.time.Instant.ofEpochMilli(g.startMillis).atZone(ct))
+        assertEquals(listOf("Commanders (3-5-1) at Giants (5-3-1)", kick, "Prime Video"), ScoreText.cardLines(g, ct))
         val bare = g.copy(away = g.away.copy(record = ""), home = g.home.copy(record = ""), broadcast = "")
-        assertEquals(listOf("Commanders at Giants", "Kickoff 11/22 - 7:15 PM EST"), ScoreText.cardLines(bare))
+        assertEquals(listOf("Commanders at Giants", kick), ScoreText.cardLines(bare, ct))
         assertNotNull(ScoreText.cardLines(bare))
     }
 }

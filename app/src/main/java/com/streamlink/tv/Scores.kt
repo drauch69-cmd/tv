@@ -220,19 +220,20 @@ object ScoreText {
 
     private fun isHalf(g: Game) = g.shortDetail.contains("half", ignoreCase = true)
 
-    private fun liveRowStatus(g: Game): String = when {
-        isHalf(g) -> "Half"
-        g.shortDetail.isNotBlank() -> g.shortDetail.replace(" - ", " ")
-        g.period > 0 -> "Q${g.period} ${g.clock}".trim()
-        else -> "Live"
+    /** "Q3 8:42" built from period and clock (ESPN's own text reads "8:42 - 3rd"); its text for breaks and delays. */
+    private fun liveStatus(g: Game, sep: String): String {
+        val d = g.shortDetail
+        return when {
+            isHalf(g) -> if (sep == " ") "Half" else "Halftime"
+            d.contains("end", ignoreCase = true) || d.contains("delay", ignoreCase = true) -> d
+            g.period in 1..4 -> "Q${g.period}$sep${g.clock}".trimEnd(' ', '·')
+            g.period > 4 -> if (g.league == "nfl" && g.clock.isNotBlank()) "OT$sep${g.clock}" else d.ifBlank { "OT" }
+            d.isNotBlank() -> d
+            else -> "Live"
+        }
     }
 
-    private fun liveCardStatus(g: Game): String = when {
-        isHalf(g) -> "Halftime"
-        g.shortDetail.isNotBlank() -> g.shortDetail.replace(" - ", " · ")
-        g.period > 0 -> "Q${g.period} · ${g.clock}".trimEnd(' ', '·')
-        else -> "Live"
-    }
+    private val KICKOFF = DateTimeFormatter.ofPattern("EEE h:mm a")
 
     private fun finalStatus(g: Game): String = if (g.shortDetail.startsWith("Final", ignoreCase = true)) g.shortDetail else "Final"
 
@@ -240,24 +241,24 @@ object ScoreText {
     fun rowLine(g: Game): String? {
         val score = "${tag(g.away)} ${pts(g.away)} – ${tag(g.home)} ${pts(g.home)}"
         return when (g.state) {
-            "in" -> "$score · ${liveRowStatus(g)}"
+            "in" -> "$score · ${liveStatus(g, " ")}"
             "post" -> "${finalStatus(g)} · $score"
             else -> null
         }
     }
 
-    /** Lines for the details card; the first one is the headline. */
-    fun cardLines(g: Game): List<String> {
+    /** Lines for the details card; the first one is the headline. Kickoff is shown in [zone] (the TV's own). */
+    fun cardLines(g: Game, zone: ZoneId = ZoneId.systemDefault()): List<String> {
         val out = ArrayList<String>()
         if (g.state == "in" || g.state == "post") {
             out.add("${name(g.away)} ${pts(g.away)} – ${name(g.home)} ${pts(g.home)}")
-            out.add(if (g.state == "in") liveCardStatus(g) else finalStatus(g))
+            out.add(if (g.state == "in") liveStatus(g, " · ") else finalStatus(g))
             val extra = listOf(g.away.record, g.home.record, g.broadcast).filter { it.isNotBlank() }
             if (extra.isNotEmpty()) out.add(extra.joinToString(" · "))
         } else {
             fun side(s: TeamSide) = if (s.record.isBlank()) name(s) else "${name(s)} (${s.record})"
             out.add("${side(g.away)} at ${side(g.home)}")
-            if (g.shortDetail.isNotBlank()) out.add("Kickoff ${g.shortDetail}")
+            out.add("Kickoff " + KICKOFF.format(java.time.Instant.ofEpochMilli(g.startMillis).atZone(zone)))
             if (g.broadcast.isNotBlank()) out.add(g.broadcast)
         }
         return out
