@@ -39,6 +39,17 @@ class SportActivity : Activity() {
     private var readTotal = 0
     private var readDone = 0
     private var beats = 0
+    /** One background thread works out the folders and sections; the main thread only draws them. */
+    private val calc = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "sport-calc").apply { isDaemon = true } }
+    @Volatile private var renderGen = 0
+    private var drawnLook: String? = null
+    private var forceDraw = false
+
+    /** Everything one draw needs, worked out off the main thread. [look] changes when anything shown would change. */
+    private class Model(
+        val f: SportFolders, val sections: List<GameSections.Section>, val tagged: Int, val showAll: Boolean,
+        val now: Long, val look: String,
+    )
 
     private val handler: (String, String?) -> Unit = { c, _ ->
         if (c == "stop") finish()
@@ -55,7 +66,7 @@ class SportActivity : Activity() {
                 finishRead(cur, ListResult(cur.url, "", emptyList(), "automatic", "the page took too long to answer"))
             }
             maybeReadAll(REREAD_MS)
-            ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed) render() }
+            if (beats % SCORE_BEATS == 0) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed) render() }
             if (beats % RERENDER_BEATS == 0) render() // clock-based text and lists read elsewhere
             main.postDelayed(this, 1000)
         }
@@ -103,6 +114,7 @@ class SportActivity : Activity() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        calc.shutdownNow()
         stopReading()
         releaseSession()
         super.onDestroy()
@@ -204,7 +216,7 @@ class SportActivity : Activity() {
             setOnClickListener {
                 setShowAll(!showAll())
                 text = SportsText.allGamesChip(showAll())
-                render()
+                render(force = true)
             }
         }
         top.addView(allChip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(14) })
@@ -230,6 +242,7 @@ class SportActivity : Activity() {
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
         rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        rows.addView(Ui.text(this, "Loading games…", 15f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, dp(6)) })
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
         content.addView(Ui.text(this, "OK  Open   ·   Menu  Refresh now", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
@@ -253,19 +266,64 @@ class SportActivity : Activity() {
         errorView.text = e ?: ""
     }
 
-    private fun render() {
+    /** Asks for a redraw. The work runs on [calc]; rows are rebuilt only when something shown changed (or [force]). */
+    private fun render(force: Boolean = false) {
         updateHeader()
+        if (force) forceDraw = true
+        val gen = ++renderGen
         val now = System.currentTimeMillis()
+        val showAll = showAll()
+        val app = applicationContext
+        val lg = league
+        try {
+            calc.execute {
+                if (gen != renderGen) return@execute // a newer request is queued
+                val m = try { compute(app, lg, now, showAll) } catch (_: Exception) { return@execute }
+                main.post { if (gen == renderGen && !isFinishing && !isDestroyed) draw(m) }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+        }
+    }
+
+    private fun compute(ctx: Context, lg: String, now: Long, showAll: Boolean): Model {
         val zone = ZoneId.systemDefault()
+        val tagged = SportsData.taggedCount(ctx, lg)
+        val f = SportsData.folders(ctx, lg, now)
+        val sections = GameSections.group(f, now, zone, withStreamsOnly = !showAll)
+        val sb = StringBuilder()
+        sb.append(showAll).append('#').append(tagged).append('#')
+        if (sections.isEmpty()) sb.append(SportsText.emptyMessage(lg, tagged, f, !showAll))
+        for (sec in sections) {
+            sb.append('[').append(sec.key).append(sec.label)
+            for (gf in sec.games) {
+                val g = gf.game
+                sb.append('|').append(g.id).append(g.state).append(SportsText.matchup(g)).append(SportsText.gameMeta(g, zone))
+                    .append(SportsText.streamsText(gf.streams.size))
+            }
+            sb.append(']')
+        }
+        for (s in f.other) sb.append("|o").append(streamLook(s, now))
+        return Model(f, sections, tagged, showAll, now, sb.toString())
+    }
+
+    private fun streamLook(s: GameStream, now: Long): String =
+        GameFolders.urlKey(s.item.url) + ListText.displayTitle(s.item) + s.listName + ListSections.meta(s.item, now) + ListSections.badge(s.item, now).text
+
+    private fun draw(m: Model) {
+        if (!forceDraw && m.look == drawnLook) return
+        forceDraw = false
+        drawnLook = m.look
+        val now = m.now
+        val zone = ZoneId.systemDefault()
+        val f = m.f
+        val sections = m.sections
+        val showAll = m.showAll
+        val tagged = m.tagged
         val focus = currentFocus
         val hadFocusInRows = focus?.parent === rows
         val focusedTag = if (hadFocusInRows) focus?.tag as? String else null
-        val tagged = SportsData.taggedCount(this, league)
-        val f = SportsData.folders(this, league, now)
         val summary = GameFolders.summary(f)
         Report.logOnce(summary, summary)
-        val showAll = showAll()
-        val sections = GameSections.group(f, now, zone, withStreamsOnly = !showAll)
 
         rows.removeAllViews()
         var firstRow: View? = null
@@ -334,6 +392,7 @@ class SportActivity : Activity() {
         private const val REREAD_MS = 120_000L
         private const val MIN_GAP_MS = 60_000L
         private const val RERENDER_BEATS = 30
+        private const val SCORE_BEATS = 5
         private const val READ_WATCHDOG_MS = 90_000L
         fun intent(ctx: Context, league: String) = Intent(ctx, SportActivity::class.java).putExtra(EXTRA_LEAGUE, league)
     }

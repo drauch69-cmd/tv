@@ -48,7 +48,7 @@ object GameFolders {
      */
     fun build(league: String, games: List<Game>, lists: List<Pair<SavedList, List<ListItem>>>, now: Long, zone: ZoneId): SportFolders {
         val (from, to) = window(now, zone)
-        val windowAll = games.filter { it.state == "in" || it.startMillis in from until to }
+        val windowAll = GameViews.window(games, from, to)
         val inWindow = windowAll.filter { it.league == league }
         val perGame = LinkedHashMap<String, MutableList<GameStream>>()
         for (g in inWindow) perGame[g.id] = ArrayList()
@@ -56,7 +56,7 @@ object GameFolders {
         val seen = HashSet<String>()
         for ((list, items) in lists) {
             if (!list.has(league)) continue
-            val pool = windowAll.filter { list.has(it.league) }
+            val pool = GameViews.forLeagues(windowAll, list.sports)
             for (item in items) {
                 val start = item.startMillis
                 if (start != null && ListStatus.isAlwaysOn(start, now)) continue
@@ -150,4 +150,37 @@ object LiveGames {
         }
         return out
     }
+}
+
+/**
+ * Stable filtered views of a games list. A new List instance for every call would make ScoreMatch's per-list cache
+ * useless, so the same source instance with the same filter gives the same result instance. A few sources are kept
+ * (LRU), so screens and the home calculation working on different lists do not evict each other. Thread-safe.
+ */
+object GameViews {
+    private class IdKey(val list: List<Game>) {
+        override fun hashCode() = System.identityHashCode(list)
+        override fun equals(other: Any?) = other is IdKey && other.list === list
+    }
+    private const val MAX_SOURCES = 6
+    private val lock = Any()
+    private val views = object : LinkedHashMap<IdKey, HashMap<String, List<Game>>>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<IdKey, HashMap<String, List<Game>>>?) = size > MAX_SOURCES
+    }
+
+    private fun memo(src: List<Game>, key: String, make: () -> List<Game>): List<Game> {
+        synchronized(lock) { views[IdKey(src)]?.get(key)?.let { return it } }
+        val v = make()
+        synchronized(lock) { return views.getOrPut(IdKey(src)) { HashMap() }.getOrPut(key) { v } }
+    }
+
+    /** Games of [leagues] (empty set = all, the source itself), in source order. */
+    fun forLeagues(src: List<Game>, leagues: Set<String>): List<Game> {
+        if (leagues.isEmpty()) return src
+        return memo(src, "l:" + leagues.sorted().joinToString(",")) { src.filter { it.league in leagues } }
+    }
+
+    /** Games live now or starting in [from] until [to] (exclusive). */
+    fun window(src: List<Game>, from: Long, to: Long): List<Game> =
+        memo(src, "w:$from:$to") { src.filter { it.state == "in" || it.startMillis in from until to } }
 }

@@ -174,6 +174,7 @@ Remote tabs; prefetch toggle).
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
   · Q3 8:42", "Final · …"; NBA overtime reads OT, 2OT…), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
+  Matching is cheap and thread-safe: `ScoreMatch` keeps a small LRU (6) of prepared entries per games-list instance (names per team, answers per title), and `GameViews` (Games.kt; `ScoreFeed.forLeagues`) hands out the same filtered/windowed list instance per (source instance, filter), so screens and the home calculation no longer evict each other's cache.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Sports folders** (`Games.kt`, pure Kotlin; logic only so far, screens come separately). A saved list carries a
   set of sport tags (`SavedList.sports`, any of "nfl", "cfb", "nba" via `Sports`, empty = none; `has(league)`; JSON
@@ -190,7 +191,7 @@ Remote tabs; prefetch toggle).
   the quiet "Sports:" report line.
   Screens: home "Live games" row (`LiveGames.sample`, cards open the game) and "Sports" row (tiles open `SportActivity` /
   the 24/7 `StreamsActivity`); both are rebuilt (focus kept) on every list render and by `ScoreFeed.refreshIfDue` on resume
-  and the 60 s tick, and "Live now" skips `LiveGames.matchedUrls`. `SportActivity` shows cached lists at once, then re-reads
+  and the 60 s tick, and "Live now" skips `LiveGames.matchedUrls`. `SportActivity` works out folders/sections on one background thread (`sport-calc`, generation counter, stale results dropped), draws on the main thread only when the computed look (sections, games, scores, stream counts, statuses) changed or the "All games" chip toggled, and shows a quiet "Loading games…" row first; its 1 s beat only checks the read watchdog (score refresh check every 5 s, re-render every 30 s). `StreamsActivity` does the same (`streams-calc`). `SportActivity` shows cached lists at once, then re-reads
   every list tagged with its sport one after another (own hidden `IndexReader`, 90 s watchdog, skips lists already busy,
   not again within 60 s of the last round, then every 2 min while open; Menu forces); the "All games" choice is kept per
   sport (pref `sport_all_games_<league>`, default off = games with streams only). `StreamsActivity` never reads lists; it

@@ -61,7 +61,7 @@ object ListJson {
         val items = JSONArray()
         c?.let { cl ->
             // one snapshot so order, status and badge agree; only the list's own sports (like the TV list screen)
-            val games = ScoreFeed.latest().let { all -> if (l.sports.isEmpty()) all else all.filter { l.has(it.league) } }
+            val games = ScoreFeed.forLeagues(l.sports)
             for (i in visible(cl.result.items, now, games)) {
                 val r = ScoreStatus.resolve(i, now, games)
                 items.put(JSONObject().apply {

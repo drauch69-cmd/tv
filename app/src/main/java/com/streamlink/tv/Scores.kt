@@ -179,38 +179,101 @@ object ScoreMatch {
         return out
     }
 
-    // Matching runs many times per render, so answers are remembered per (title, start) for one games list.
-    // The cache is dropped when the games list instance changes (ScoreFeed keeps one instance until data changes).
+    // Matching runs many times per render, from several threads (screens and the home calculation). Per games list
+    // instance a prepared entry is kept (normalized names per team, answers per title); a small LRU of them means two
+    // alternating lists never evict each other the way a single slot did.
     private const val CACHE_MAX = 500
-    private val cacheLock = Any()
-    private var cacheGames: List<Game>? = null
-    private val cache = HashMap<String, Game?>()
+    private const val PREPARED_MAX = 6
+
+    private class IdKey(val list: List<Game>) {
+        override fun hashCode() = System.identityHashCode(list)
+        override fun equals(other: Any?) = other is IdKey && other.list === list
+    }
+
+    /** One game with its location and identity strings normalized once. */
+    private class GP(val g: Game, val homeLoc: String, val awayLoc: String, val homeId: String, val awayId: String)
+
+    private class Prepared(games: List<Game>) {
+        val entries: List<GP> = games.map {
+            GP(it, norm(it.home.location), norm(it.away.location),
+                norm(it.home.abbr).ifEmpty { norm(it.home.displayName) }, norm(it.away.abbr).ifEmpty { norm(it.away.displayName) })
+        }
+        private val namesMemo = HashMap<Pair<TeamSide, Set<String>>, Set<String>>()
+        private val answers = HashMap<String, Game?>()
+        @Synchronized fun namesOf(s: TeamSide, ambiguous: Set<String>): Set<String> =
+            namesMemo.getOrPut(s to ambiguous) { names(s, ambiguous) }
+        @Synchronized fun hasAnswer(key: String) = answers.containsKey(key)
+        @Synchronized fun answer(key: String): Game? = answers[key]
+        @Synchronized fun remember(key: String, g: Game?) { if (answers.size >= CACHE_MAX) answers.clear(); answers[key] = g }
+    }
+
+    private val preparedLock = Any()
+    private val prepared = object : LinkedHashMap<IdKey, Prepared>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<IdKey, Prepared>?) = size > PREPARED_MAX
+    }
+
+    private fun preparedFor(games: List<Game>): Prepared {
+        val key = IdKey(games)
+        synchronized(preparedLock) { prepared[key]?.let { return it } }
+        val p = Prepared(games) // built outside the lock; a racing duplicate is harmless
+        synchronized(preparedLock) { return prepared.getOrPut(key) { p } }
+    }
 
     fun find(title: String, itemStartMillis: Long?, games: List<Game>): Game? {
         val t = norm(title)
         if (t.isEmpty() || games.isEmpty()) return null
         val key = "$t|${itemStartMillis ?: ""}"
-        synchronized(cacheLock) {
-            if (cacheGames !== games) { cache.clear(); cacheGames = games }
-            if (cache.containsKey(key)) return cache[key]
-        }
-        val found = compute(t, itemStartMillis, games)
-        synchronized(cacheLock) {
-            if (cacheGames === games) {
-                if (cache.size >= CACHE_MAX) cache.clear()
-                cache[key] = found
-            }
-        }
+        val p = preparedFor(games)
+        if (p.hasAnswer(key)) return p.answer(key)
+        val found = compute(t, itemStartMillis, p)
+        p.remember(key, found)
         return found
     }
 
-    private fun compute(t: String, itemStartMillis: Long?, games: List<Game>): Game? {
-        val pool = if (itemStartMillis != null) games.filter { Math.abs(it.startMillis - itemStartMillis) <= DAY_WINDOW_MS } else games
+    private fun compute(t: String, itemStartMillis: Long?, prep: Prepared): Game? {
+        val pool = if (itemStartMillis != null) prep.entries.filter { Math.abs(it.g.startMillis - itemStartMillis) <= DAY_WINDOW_MS } else prep.entries
         if (pool.isEmpty()) return null
         val padded = " $t "
 
         // Locations shared by two teams of the same pro league in the list ("New York", "Los Angeles") are not
         // used as names. Worked out per league, so an NFL city never blocks an NBA name or the other way round.
+        val ambiguousByLeague = HashMap<String, Set<String>>()
+        for (lg in SHARED_CITY_LEAGUES) {
+            val teamsByLocation = HashMap<String, MutableSet<String>>()
+            for (e in pool) if (e.g.league == lg) {
+                if (e.homeLoc.isNotEmpty()) teamsByLocation.getOrPut(e.homeLoc) { HashSet() }.add(e.homeId)
+                if (e.awayLoc.isNotEmpty()) teamsByLocation.getOrPut(e.awayLoc) { HashSet() }.add(e.awayId)
+            }
+            ambiguousByLeague[lg] = teamsByLocation.filter { it.value.size >= 2 }.keys
+        }
+        fun namesOf(s: TeamSide, league: String) = prep.namesOf(s, ambiguousByLeague[league] ?: emptySet())
+
+        // Every place any known team name appears; a match inside a longer one is not a match
+        // ("Michigan" inside "Michigan State").
+        val all = ArrayList<Occ>()
+        for (e in pool) for (s in listOf(e.g.home, e.g.away)) for (n in namesOf(s, e.g.league)) all.addAll(occurrences(padded, n))
+        fun shadowed(o: Occ) = all.any { it.len > o.len && it.start <= o.start && it.end >= o.end }
+
+        fun spans(s: TeamSide, league: String): List<Occ> =
+            namesOf(s, league).flatMap { occurrences(padded, it) }.filter { !shadowed(it) }
+
+        val candidates = pool.map { it.g }.filter { g ->
+            val h = spans(g.home, g.league)
+            val a = spans(g.away, g.league)
+            h.any { x -> a.any { y -> x.end <= y.start || y.end <= x.start } }
+        }
+        if (candidates.size == 1) return candidates[0]
+        if (candidates.isEmpty() || itemStartMillis == null) return null
+        return candidates.filter { Math.abs(it.startMillis - itemStartMillis) <= START_WINDOW_MS }.singleOrNull()
+    }
+
+    /** The original, uncached matcher (kept so tests can check the prepared one gives the same answers). */
+    internal fun referenceFind(title: String, itemStartMillis: Long?, games: List<Game>): Game? {
+        val t = norm(title)
+        if (t.isEmpty() || games.isEmpty()) return null
+        val pool = if (itemStartMillis != null) games.filter { Math.abs(it.startMillis - itemStartMillis) <= DAY_WINDOW_MS } else games
+        if (pool.isEmpty()) return null
+        val padded = " $t "
         val ambiguousByLeague = HashMap<String, Set<String>>()
         for (lg in SHARED_CITY_LEAGUES) {
             val teamsByLocation = HashMap<String, MutableSet<String>>()
@@ -220,20 +283,11 @@ object ScoreMatch {
             }
             ambiguousByLeague[lg] = teamsByLocation.filter { it.value.size >= 2 }.keys
         }
-
-        val perTeam = HashMap<Pair<String, TeamSide>, Set<String>>()
-        fun namesOf(s: TeamSide, league: String) =
-            perTeam.getOrPut(league to s) { names(s, ambiguousByLeague[league] ?: emptySet()) }
-
-        // Every place any known team name appears; a match inside a longer one is not a match
-        // ("Michigan" inside "Michigan State").
+        fun namesOf(s: TeamSide, league: String) = names(s, ambiguousByLeague[league] ?: emptySet())
         val all = ArrayList<Occ>()
         for (g in pool) for (s in listOf(g.home, g.away)) for (n in namesOf(s, g.league)) all.addAll(occurrences(padded, n))
         fun shadowed(o: Occ) = all.any { it.len > o.len && it.start <= o.start && it.end >= o.end }
-
-        fun spans(s: TeamSide, league: String): List<Occ> =
-            namesOf(s, league).flatMap { occurrences(padded, it) }.filter { !shadowed(it) }
-
+        fun spans(s: TeamSide, league: String): List<Occ> = namesOf(s, league).flatMap { occurrences(padded, it) }.filter { !shadowed(it) }
         val candidates = pool.filter { g ->
             val h = spans(g.home, g.league)
             val a = spans(g.away, g.league)
@@ -356,6 +410,9 @@ object ScoreFeed {
         }
         cachedList
     }
+
+    /** [latest] restricted to [leagues] (empty = all). The same instance until the data changes, so ScoreMatch keeps its cache. */
+    fun forLeagues(leagues: Set<String>): List<Game> = GameViews.forLeagues(latest(), leagues)
 
     private fun merged(league: String, todayFresh: Boolean): List<Game> {
         val m = LinkedHashMap<String, Game>()

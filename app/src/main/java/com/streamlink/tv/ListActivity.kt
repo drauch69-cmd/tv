@@ -54,16 +54,7 @@ class ListActivity : Activity() {
     private val rowLook = HashMap<String, String>()
     /** ESPN games of this list's sports (all sports when it has no tag). Status, badge and score line all use it, so they
      *  always agree. Cached per ScoreFeed list instance (ScoreMatch caches matches per instance). */
-    private var gamesSrc: List<Game>? = null
-    private var gamesOfList: List<Game> = emptyList()
-    private fun games(): List<Game> {
-        val all = ScoreFeed.latest()
-        if (all !== gamesSrc) {
-            gamesSrc = all
-            gamesOfList = if (list.sports.isEmpty()) all else all.filter { list.has(it.league) }
-        }
-        return gamesOfList
-    }
+    private fun games(): List<Game> = ScoreFeed.forLeagues(list.sports)
 
     private fun look(item: ListItem, now: Long): String = ScoreStatus.resolve(item, now, games()).let { it.status + "|" + (it.badge ?: "") }
 

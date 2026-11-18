@@ -32,6 +32,13 @@ class StreamsActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private val itemsByKey = HashMap<String, ListItem>()
     private var beats = 0
+    /** One background thread works out the streams; the main thread only draws them. */
+    private val calc = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "streams-calc").apply { isDaemon = true } }
+    @Volatile private var renderGen = 0
+    private var drawnLook: String? = null
+
+    /** [game] null for the 24/7 list; [missing] = the game left the schedule. [look] changes when anything shown would. */
+    private class Model(val game: Game?, val missing: Boolean, val streams: List<GameStream>, val emptyMsg: String, val now: Long, val look: String)
 
     private val handler: (String, String?) -> Unit = { c, _ ->
         if (c == "stop") finish()
@@ -41,7 +48,7 @@ class StreamsActivity : Activity() {
         override fun run() {
             assertSession()
             beats++
-            ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed) render() }
+            if (beats % SCORE_BEATS == 0) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed) render() }
             if (beats % RERENDER_BEATS == 0) render() // badges, minutes, lists read by other screens
             main.postDelayed(this, 1000)
         }
@@ -86,6 +93,7 @@ class StreamsActivity : Activity() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        calc.shutdownNow()
         if (::prefetcher.isInitialized) prefetcher.cancel()
         releaseSession()
         super.onDestroy()
@@ -155,8 +163,51 @@ class StreamsActivity : Activity() {
         setContentView(root)
     }
 
+    /** Asks for a redraw; the work runs on [calc] and rows are rebuilt only when something shown changed. */
     private fun render() {
+        val gen = ++renderGen
         val now = System.currentTimeMillis()
+        val app = applicationContext
+        val lg = league
+        val gid = gameId
+        try {
+            calc.execute {
+                if (gen != renderGen) return@execute
+                val m = try { compute(app, lg, gid, now) } catch (_: Exception) { return@execute }
+                main.post { if (gen == renderGen && !isFinishing && !isDestroyed) draw(m) }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+        }
+    }
+
+    private fun compute(ctx: Context, lg: String, gid: String?, now: Long): Model {
+        val streams: List<GameStream>
+        val game: Game?
+        val emptyMsg: String
+        if (gid != null) {
+            val gf = SportsData.folders(ctx, lg, now).games.firstOrNull { it.game.id == gid }
+                ?: return Model(null, true, emptyList(), "", now, "missing")
+            game = gf.game
+            streams = gf.streams
+            emptyMsg = SportsText.NO_STREAMS_FOR_GAME
+        } else {
+            game = null
+            streams = AlwaysOn.collect(SportsData.lists(ctx), now)
+            emptyMsg = SportsText.NO_ALWAYS_ON
+        }
+        val sb = StringBuilder()
+        if (game != null) sb.append(SportsText.matchup(game)).append(game.state).append(ScoreText.cardLines(game).joinToString("/"))
+        for (s in streams) {
+            sb.append('|').append(GameFolders.urlKey(s.item.url)).append(ListText.displayTitle(s.item)).append(s.listName)
+                .append(ListSections.meta(s.item, now)).append(ListSections.badge(s.item, now).text)
+        }
+        return Model(game, false, streams, emptyMsg, now, sb.toString())
+    }
+
+    private fun draw(m: Model) {
+        if (m.look == drawnLook) return
+        drawnLook = m.look
+        val now = m.now
         val focus = currentFocus
         val hadFocusInRows = focus?.parent === rows
         val focusedTag = if (hadFocusInRows) focus?.tag as? String else null
@@ -164,29 +215,21 @@ class StreamsActivity : Activity() {
         rows.removeAllViews()
         cardHolder.removeAllViews()
 
-        val streams: List<GameStream>
-        val emptyMsg: String
-        val gid = gameId
-        if (gid != null) {
-            val f = SportsData.folders(this, league, now)
-            val gf = f.games.firstOrNull { it.game.id == gid }
-            if (gf == null) {
-                cardHolder.visibility = View.GONE
-                rows.addView(Ui.text(this, "This game is no longer in the schedule.", 15f, Ui.TEXT_2).apply { setPadding(0, dp(10), 0, 0) })
-                return
-            }
-            titleView.text = SportsText.matchup(gf.game)
-            fillCard(gf.game)
-            streams = gf.streams
-            emptyMsg = SportsText.NO_STREAMS_FOR_GAME
+        if (m.missing) {
+            cardHolder.visibility = View.GONE
+            rows.addView(Ui.text(this, "This game is no longer in the schedule.", 15f, Ui.TEXT_2).apply { setPadding(0, dp(10), 0, 0) })
+            return
+        }
+        val game = m.game
+        if (game != null) {
+            titleView.text = SportsText.matchup(game)
+            fillCard(game)
         } else {
             cardHolder.visibility = View.GONE
-            streams = AlwaysOn.collect(SportsData.lists(this), now)
-            emptyMsg = SportsText.NO_ALWAYS_ON
         }
-
+        val streams = m.streams
         if (streams.isEmpty()) {
-            rows.addView(Ui.text(this, emptyMsg, 15f, Ui.TEXT_2).apply { setPadding(0, dp(10), 0, 0) })
+            rows.addView(Ui.text(this, m.emptyMsg, 15f, Ui.TEXT_2).apply { setPadding(0, dp(10), 0, 0) })
             return
         }
         var firstRow: View? = null
@@ -224,6 +267,7 @@ class StreamsActivity : Activity() {
         private const val EXTRA_LEAGUE = "league"
         private const val EXTRA_GAME = "game"
         private const val RERENDER_BEATS = 30
+        private const val SCORE_BEATS = 5
         fun gameIntent(ctx: Context, league: String, gameId: String) =
             Intent(ctx, StreamsActivity::class.java).putExtra(EXTRA_LEAGUE, league).putExtra(EXTRA_GAME, gameId)
         fun alwaysOnIntent(ctx: Context) = Intent(ctx, StreamsActivity::class.java)
