@@ -109,12 +109,6 @@ class PlayerActivity : Activity() {
     private lateinit var btnOptions: TextView
     private lateinit var btnOther: TextView
     private lateinit var btnPause: TextView
-    private lateinit var hintBox: LinearLayout
-    private lateinit var hintHeader: TextView
-    private lateinit var hintUp: TextView
-    private lateinit var hintDown: TextView
-    private var surfPrev: ListItem? = null
-    private var surfNext: ListItem? = null
     private lateinit var sniffer: StreamSniffer
     /** Second page loader, behind the picture: finds the page's alternate links while the stream plays. */
     private var linkSniffer: StreamSniffer? = null
@@ -1011,7 +1005,9 @@ class PlayerActivity : Activity() {
     /** Merges sources found by a link run (dedup by [LinkOrder.mergeExtra]); each is shown under [label] when given. Returns how many were added. */
     private fun addLinkSources(found: List<Source>, label: String): Int {
         val cur = set ?: return 0
-        val extra = if (label.isEmpty()) found else found.map { it.copy(label = LinkOrder.sourceLabel(label, Report.host(it.url), "single quality", true), isDefaultLink = false) }
+        // Only streams that passed the playlist check; the rest are not offered as sources.
+        val verified = found.filter { it.verified }
+        val extra = if (label.isEmpty()) verified else verified.map { it.copy(label = LinkOrder.sourceLabel(label, Report.host(it.url), "single quality", true), isDefaultLink = false) }
         val merged = LinkOrder.mergeExtra(cur.sources, extra)
         val added = merged.size - cur.sources.size
         if (added > 0) {
@@ -1033,8 +1029,9 @@ class PlayerActivity : Activity() {
         Report.log("Links: opening $label's player (${Report.host(frame)})…")
         sn.sniff(frame, collectLinks = false, referer = page, light = true) { r ->
             if (gen != linkGen || isDestroyed) return@sniff
-            if (r.sources.isEmpty()) {
-                Report.log("Links: $label: no stream" + if (r.reason.isNotEmpty()) " (${r.reason})" else "")
+            if (r.sources.none { it.verified }) {
+                val why = if (r.sources.isNotEmpty()) "only non-playlist media found" else r.reason
+                Report.log("Links: $label: no stream" + if (why.isNotEmpty()) " ($why)" else "")
             } else {
                 val n = addLinkSources(r.sources, label)
                 Report.log("Links: $label: stream found" + if (n == 0) " (already known)" else "")
@@ -1318,49 +1315,12 @@ class PlayerActivity : Activity() {
         overlay.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
             .apply { marginStart = dp(42f); marginEnd = dp(42f); bottomMargin = dp(30f) })
 
-        // "UP NEXT LIVE IN <LIST>" box (channel surfing hint)
-        hintBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = Ui.rounded(context, 0xE00E1116.toInt(), 10f)
-            setPadding(dp(12f), dp(10f), dp(12f), dp(10f))
-            visibility = View.GONE
-        }
-        hintHeader = Ui.text(this, "", 10f, Ui.TEXT_2, bold = true).apply { letterSpacing = 0.08f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-        hintUp = Ui.text(this, "", 12f, Ui.TEXT).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-        hintDown = Ui.text(this, "", 12f, Ui.TEXT).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-        hintBox.addView(hintHeader)
-        hintBox.addView(hintUp, gap(6f))
-        hintBox.addView(hintDown, gap(6f))
-        overlay.addView(hintBox, FrameLayout.LayoutParams(dp(225f), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END)
-            .apply { topMargin = dp(30f); marginEnd = dp(36f) })
-
         root.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     }
 
     private fun currentListItem(): ListItem? {
         val id = Session.listId ?: return null
         return SavedLists.cached(this, id)?.result?.items?.firstOrNull { it.url == Session.listItemUrl }
-    }
-
-    /** The previous (▲) and next (▼) LIVE event in the playing list, wrapping around; null when there is none other. */
-    private fun computeSurf(): Pair<ListItem?, ListItem?> {
-        val id = Session.listId ?: return null to null
-        val now = System.currentTimeMillis()
-        val items = ListJson.visible(SavedLists.cached(this, id)?.result?.items ?: return null to null, now)
-        val cur = items.indexOfFirst { it.url == Session.listItemUrl }
-        val n = items.size
-        fun find(step: Int): ListItem? {
-            val start = if (cur >= 0) cur else if (step > 0) -1 else n
-            var i = start
-            repeat(n) {
-                i = ((i + step) % n + n) % n
-                val cand = items[i]
-                if (cand.url != Session.listItemUrl && ListStatus.of(cand, now) == ListStatus.LIVE) return cand
-            }
-            return null
-        }
-        if (n == 0) return null to null
-        return find(-1) to find(1)
     }
 
     private fun showOverlay() {
@@ -1375,18 +1335,6 @@ class PlayerActivity : Activity() {
         btnLive.visibility = if (live) View.VISIBLE else View.GONE
         btnBack.text = if (Session.listId != null) "Back to list" else "Back"
         btnSource.visibility = if (sourceButtonVisible()) View.VISIBLE else View.GONE
-        val (prev, next) = computeSurf()
-        surfPrev = prev; surfNext = next
-        if (prev != null || next != null) {
-            hintHeader.text = "UP NEXT LIVE IN ${Session.listName.ifBlank { "LIST" }}".uppercase()
-            hintUp.text = "▲  " + (prev?.let { ListText.displayTitle(it) } ?: "")
-            hintDown.text = "▼  " + (next?.let { ListText.displayTitle(it) } ?: "")
-            hintUp.visibility = if (prev != null) View.VISIBLE else View.GONE
-            hintDown.visibility = if (next != null) View.VISIBLE else View.GONE
-            hintBox.visibility = View.VISIBLE
-        } else {
-            hintBox.visibility = View.GONE
-        }
         refreshProgress()
         overlay.visibility = View.VISIBLE
         if (first) {
@@ -1456,15 +1404,6 @@ class PlayerActivity : Activity() {
         val id = Session.listId
         release()
         if (id != null) startActivity(ListActivity.intent(this, id))
-        finish()
-    }
-
-    /** Channel surfing: stop this event and open the other one the same way the home screen does. */
-    private fun surfTo(item: ListItem) {
-        val id = Session.listId ?: return
-        Report.log("Channel surfing to ${Report.short(item.url)}")
-        release()
-        startActivity(WaitingActivity.intent(this, item, id, Session.listName))
         finish()
     }
 
@@ -1579,22 +1518,9 @@ class PlayerActivity : Activity() {
             return super.dispatchKeyEvent(event)
         }
 
-        // Overlay hidden.
+        // Overlay hidden: any of these opens the info overlay (focus on Pause/Play).
         when (k) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
-                val (prev, next) = computeSurf()
-                val target = if (k == KeyEvent.KEYCODE_DPAD_UP) prev else next
-                if (target != null) {
-                    if (up) surfTo(target)
-                    return true
-                }
-                if (k == KeyEvent.KEYCODE_DPAD_UP && (set?.sources?.size ?: 0) > 1) {
-                    if (up) showSource()
-                    return true
-                }
-                if (up) showOverlay()
-                return true
-            }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 if (up) showOverlay()

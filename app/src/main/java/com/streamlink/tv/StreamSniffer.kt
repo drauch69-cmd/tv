@@ -24,6 +24,8 @@ data class Source(
     val label: String,
     /** Came from the link the page showed by default (so the same stream the player already has). */
     val isDefaultLink: Boolean = false,
+    /** Checked by [Verifier] and found to be a playlist. False: ranked anyway, but not confirmed playable. */
+    val verified: Boolean = true,
 )
 
 /** Everything found on a page. Empty [sources] means no stream was found. */
@@ -322,7 +324,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 Verifier.rank(list) { m -> log(m) }
             } catch (e: Exception) {
                 log("Checking failed: ${e.javaClass.simpleName}")
-                list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault) }
+                list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault, verified = false) }
             }
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile

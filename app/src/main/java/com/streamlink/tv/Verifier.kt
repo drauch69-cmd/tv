@@ -107,7 +107,7 @@ object Verifier {
             val refs = if (c.workingReferer != null) {
                 listOf(c.workingReferer) + c.cand.referers.filter { it != c.workingReferer }
             } else c.cand.referers
-            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault)
+            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault, verified = c.ok)
         }
     }
 
