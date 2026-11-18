@@ -26,6 +26,8 @@ data class Source(
     val isDefaultLink: Boolean = false,
     /** Checked by [Verifier] and found to be a playlist. False: ranked anyway, but not confirmed playable. */
     val verified: Boolean = true,
+    /** Why the verifier rejected it (e.g. "server said 403"), or "" when it passed or was never checked. */
+    val note: String = "",
 )
 
 /** Everything found on a page. Empty [sources] means no stream was found. */
@@ -276,7 +278,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     }
 
     /** Called on the main thread for each stream the page asks for. */
-    private fun found(url: String, requestHeaders: Map<String, String>) {
+    private fun found(url: String, requestHeaders: Map<String, String>, embedded: Boolean = false) {
         if (done || verifying || candidates.containsKey(url)) return
         if (AdBlock.isLocalHost(Report.host(url))) return
         val ua = webView?.settings?.userAgentString
@@ -285,21 +287,26 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         for ((k, v) in requestHeaders) {
             when {
                 k.equals("Referer", true) -> requestReferer = v
-                // X-Requested-With names this app; some sites answer it with 403.
-                k.equals("Range", true) || k.equals("Accept-Encoding", true) || k.equals("Origin", true) ||
-                    k.equals("X-Requested-With", true) -> {}
+                // X-Requested-With names this app; some sites answer it with 403. A captured Origin is kept:
+                // the verifier and the players send it as is, instead of deriving one from the referer.
+                k.equals("Range", true) || k.equals("Accept-Encoding", true) || k.equals("X-Requested-With", true) -> {}
                 else -> headers[k] = v
             }
         }
         if (headers.keys.none { it.equals("User-Agent", true) } && ua != null) headers["User-Agent"] = ua
         CookieManager.getInstance().getCookie(url)?.let { if (it.isNotBlank()) headers["Cookie"] = it }
-        // Candidates for "which page asked for this video": the embedded player frames (newest
-        // first), then the page itself, then no referer at all.
+        // The embedded player frames, newest first.
         val frames = synchronized(frameUrls) { frameUrls.toList() }.asReversed()
-        val referers = (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage(), referer))
-            .filter { it.startsWith("http") }
-            .distinct()
-            .take(5) + ""
+        val referers = if (embedded) {
+            // Found inside another request: that request's Referer, then the player frames (no ad hosts), up to 4.
+            Headers.embeddedReferers(requestReferer, frames, { AdBlock.isBlockedHost(Report.host(it)) }) + ""
+        } else {
+            // Candidates for "which page asked for this video": the frames, then the page itself, then no referer at all.
+            (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage(), referer))
+                .filter { it.startsWith("http") }
+                .distinct()
+                .take(5) + ""
+        }
         candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault)
         log("Found stream: ${Report.short(url)}")
         if (candidates.size == 1 && linkState == 0) main.postDelayed(collect, COLLECT_MS)
@@ -324,7 +331,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 Verifier.rank(list) { m -> log(m) }
             } catch (e: Exception) {
                 log("Checking failed: ${e.javaClass.simpleName}")
-                list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault, verified = false) }
+                list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault, verified = false, note = "checking failed") }
             }
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile
@@ -369,7 +376,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     // Referer goes with them, through the headers passed to found().
                     for (e in embedded) {
                         if (!candidates.containsKey(e)) log("Found a stream address inside another request: ${Report.host(e)}/…")
-                        found(e, headers)
+                        found(e, headers, embedded = true)
                     }
                     if (isStream) found(u, headers)
                 }

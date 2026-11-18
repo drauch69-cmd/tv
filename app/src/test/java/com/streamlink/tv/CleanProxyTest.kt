@@ -16,7 +16,6 @@ class CleanProxyTest {
             headers = mapOf(
                 "User-Agent" to "UA/1",
                 "Referer" to "https://old.example.com/",
-                "Origin" to "https://old.example.com",
                 "X-Requested-With" to "com.streamlink.tv",
                 "Accept-Language" to "en",
             ),
@@ -30,6 +29,17 @@ class CleanProxyTest {
         assertEquals("en", u.headers["Accept-Language"])
         assertFalse(u.headers.containsKey("User-Agent"))
         assertFalse(u.headers.containsKey("X-Requested-With"))
+    }
+
+    @Test
+    fun capturedOriginWinsOverDerived() {
+        val src = Source(
+            url = "https://cdn.example.com/live/index.m3u8",
+            headers = mapOf("Origin" to "https://captured.example.com"),
+            referers = listOf("https://player.example.com/embed/1"),
+            label = "x",
+        )
+        assertEquals("https://captured.example.com", CleanProxy.upstream(src).headers["Origin"])
     }
 
     @Test

@@ -240,7 +240,7 @@ class PlayerActivity : Activity() {
         val referer = src.referers.getOrNull(refererIndex) ?: ""
         if (referer.isNotEmpty()) {
             headers["Referer"] = referer
-            Net.origin(referer).takeIf { it.isNotEmpty() }?.let { headers["Origin"] = it }
+            Headers.originFor(referer, Headers.capturedOrigin(src.headers))?.let { headers["Origin"] = it }
         }
         Report.log(
             "Playing source ${sourceIndex + 1}/${s.sources.size} (${src.label}), " +
@@ -1030,7 +1030,9 @@ class PlayerActivity : Activity() {
         sn.sniff(frame, collectLinks = false, referer = page, light = true) { r ->
             if (gen != linkGen || isDestroyed) return@sniff
             if (r.sources.none { it.verified }) {
-                val why = if (r.sources.isNotEmpty()) "only non-playlist media found" else r.reason
+                // The verifier's own reason (e.g. "server said 403") when it gave one.
+                val why = r.sources.firstOrNull { it.note.isNotEmpty() }?.note
+                    ?: if (r.sources.isNotEmpty()) "only non-playlist media found" else r.reason
                 Report.log("Links: $label: no stream" + if (why.isNotEmpty()) " ($why)" else "")
             } else {
                 val n = addLinkSources(r.sources, label)

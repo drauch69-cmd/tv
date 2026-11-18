@@ -37,7 +37,7 @@ object CleanProxy {
         val referer = src.referers.getOrNull(refererIndex) ?: ""
         if (referer.isNotEmpty()) {
             headers["Referer"] = referer
-            Net.origin(referer).takeIf { it.isNotEmpty() }?.let { headers["Origin"] = it }
+            Headers.originFor(referer, Headers.capturedOrigin(src.headers))?.let { headers["Origin"] = it }
         }
         return Upstream(headers, userAgent)
     }

@@ -50,6 +50,8 @@ object Verifier {
         val adLike: Boolean,
         val workingReferer: String?,
         val variants: List<String>,
+        /** Why it failed, when it did (what the server or the page answered); "" when it passed. */
+        val note: String = "",
     ) {
         val score: Int
             get() = (if (ok) 10 else 0) + (if (master) 3 else 0) + (if (live) 2 else 0) + (if (adLike) -10 else 0)
@@ -73,13 +75,13 @@ object Verifier {
             try {
                 if (f.isCancelled) {
                     log("✗ ${Report.short(c.url)}: too slow to answer")
-                    unchecked(c)
+                    unchecked(c, "too slow to answer")
                 } else {
                     f.get()
                 }
             } catch (e: Exception) {
                 log("✗ ${Report.short(c.url)}: ${(e.cause ?: e).javaClass.simpleName}")
-                unchecked(c)
+                unchecked(c, "checking failed")
             }
         }
 
@@ -107,12 +109,13 @@ object Verifier {
             val refs = if (c.workingReferer != null) {
                 listOf(c.workingReferer) + c.cand.referers.filter { it != c.workingReferer }
             } else c.cand.referers
-            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault, verified = c.ok)
+            Source(c.cand.url, c.cand.headers, refs, labels[i], c.cand.isDefault, verified = c.ok, note = if (c.ok) "" else c.note)
         }
     }
 
     private fun check(c: StreamCandidate, log: (String) -> Unit): Checked {
-        val refs = (c.referers.take(3) + "").distinct()
+        // Up to 4 real referers, then the no-referer attempt last.
+        val refs = (c.referers.filter { it.isNotEmpty() }.take(4) + "").distinct()
         var note = "no response"
         for (ref in refs) {
             val r = fetch(c.url, c.headers, ref, log) ?: continue
@@ -153,11 +156,11 @@ object Verifier {
             return Checked(c, true, master, isDash, live, adLike, ref, variants)
         }
         log("✗ ${Report.short(c.url)}: $note")
-        return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList())
+        return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
     }
 
-    private fun unchecked(c: StreamCandidate) =
-        Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList())
+    private fun unchecked(c: StreamCandidate, note: String) =
+        Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
 
     private fun looksLikeAd(url: String): Boolean {
         val u = url.lowercase()
@@ -192,7 +195,7 @@ object Verifier {
             }
             if (referer.isNotEmpty()) {
                 conn.setRequestProperty("Referer", referer)
-                conn.setRequestProperty("Origin", Net.origin(referer))
+                Headers.originFor(referer, Headers.capturedOrigin(headers))?.let { conn.setRequestProperty("Origin", it) }
             }
             val code = conn.responseCode
             val stream: InputStream? = if (code in 200..299) conn.inputStream else conn.errorStream
