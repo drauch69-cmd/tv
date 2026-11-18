@@ -134,6 +134,14 @@ Remote tabs; prefetch toggle).
   · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
   Report lines start with "Scores:". Uses ESPN team names only, never site wording.
+- **ESPN-driven status** (`ScoreStatus.resolve`). Every status, badge and start time (list screen, home "Live now"
+  row and counts, phone page, prefetcher) goes through it. For an item that matches a game: in progress = Live (any
+  length, ignores the site's marker), final = Finished with badge "Final", postponed/canceled = Finished with that
+  badge, not started = normal time windows using ESPN's kickoff as the start (a site "live" marker counts only within
+  30 min of kickoff). Unmatched items, or no fresh scores (a league's last fetch over 15 min old is dropped), use
+  `ListStatus.byTime`, the old rules. Matching is cached per games list. The home screen fetches scores too (5 s tick
+  while in front) and redraws only when a status changes; the list screen rebuilds (keeping focus) only when a row's
+  status or badge changes.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
