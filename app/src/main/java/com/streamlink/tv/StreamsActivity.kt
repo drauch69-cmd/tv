@@ -150,14 +150,13 @@ class StreamsActivity : Activity() {
         }
         content.addView(cardHolder, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
 
-        val scroll = FocusScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true
             clipToPadding = false
             setPadding(dp(3), dp(3), dp(3), dp(3))
         }
         rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        Ui.noClip(rows, content)
         content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
         content.addView(Ui.text(this, "OK  Play   ·   Back  Go back", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))

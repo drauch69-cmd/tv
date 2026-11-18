@@ -16,7 +16,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <com.streamlink.tv.FocusScrollView
+    <ScrollView
         android:id="@+id/homeScroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -162,19 +162,16 @@
                     android:textSize="12sp" />
             </LinearLayout>
 
-            <com.streamlink.tv.FocusHScrollView
+            <HorizontalScrollView
                 android:id="@+id/liveGamesScroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="6dp"
                 android:clipToPadding="false"
-                android:paddingTop="10dp"
-                android:paddingBottom="10dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:layout_marginStart="-8dp"
-                android:layout_marginEnd="-8dp"
-                android:layout_marginBottom="-4dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:scrollbars="none"
                 android:visibility="gone">
 
@@ -183,7 +180,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
-            </com.streamlink.tv.FocusHScrollView>
+            </HorizontalScrollView>
 
             <!-- Live now -->
             <LinearLayout
@@ -210,19 +207,16 @@
                     android:textSize="12sp" />
             </LinearLayout>
 
-            <com.streamlink.tv.FocusHScrollView
+            <HorizontalScrollView
                 android:id="@+id/liveScroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="6dp"
                 android:clipToPadding="false"
-                android:paddingTop="10dp"
-                android:paddingBottom="10dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:layout_marginStart="-8dp"
-                android:layout_marginEnd="-8dp"
-                android:layout_marginBottom="-4dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:scrollbars="none">
 
                 <LinearLayout
@@ -230,7 +224,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
-            </com.streamlink.tv.FocusHScrollView>
+            </HorizontalScrollView>
 
             <!-- Sports -->
             <TextView
@@ -242,19 +236,16 @@
                 android:textSize="19sp"
                 android:textStyle="bold" />
 
-            <com.streamlink.tv.FocusHScrollView
+            <HorizontalScrollView
                 android:id="@+id/sportsScroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="6dp"
                 android:clipToPadding="false"
-                android:paddingTop="10dp"
-                android:paddingBottom="10dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:layout_marginStart="-8dp"
-                android:layout_marginEnd="-8dp"
-                android:layout_marginBottom="-4dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:scrollbars="none">
 
                 <LinearLayout
@@ -262,7 +253,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
-            </com.streamlink.tv.FocusHScrollView>
+            </HorizontalScrollView>
 
             <!-- Recent links -->
             <TextView
@@ -273,19 +264,16 @@
                 android:textColor="#FFA3ABB7"
                 android:textSize="13sp" />
 
-            <com.streamlink.tv.FocusHScrollView
+            <HorizontalScrollView
                 android:id="@+id/recentScroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="0dp"
+                android:layout_marginTop="4dp"
                 android:clipToPadding="false"
-                android:paddingTop="10dp"
-                android:paddingBottom="10dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:layout_marginStart="-8dp"
-                android:layout_marginEnd="-8dp"
-                android:layout_marginBottom="-4dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:scrollbars="none">
 
                 <LinearLayout
@@ -293,7 +281,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
-            </com.streamlink.tv.FocusHScrollView>
+            </HorizontalScrollView>
 
             <TextView
                 android:id="@+id/hints"
@@ -304,7 +292,7 @@
                 android:textColor="#FF8A93A0"
                 android:textSize="12sp" />
         </LinearLayout>
-    </com.streamlink.tv.FocusScrollView>
+    </ScrollView>
 
     <!-- "Send a link" panel: the QR code for the phone page, plus app version and updates -->
     <FrameLayout

@@ -210,7 +210,7 @@ class SportActivity : Activity() {
         })
         top.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         allChip = Ui.text(this, SportsText.allGamesChip(showAll()), 13f, Ui.TEXT, bold = true).apply {
-            background = Ui.focusable(this@SportActivity, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+            Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
             setPadding(dp(14), dp(9), dp(14), dp(9))
             isFocusable = true; isClickable = true
             setOnClickListener {
@@ -223,7 +223,7 @@ class SportActivity : Activity() {
         refreshBtn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
-            background = Ui.focusable(this@SportActivity, 0, Ui.SURFACE_FOCUS, 10f)
+            Ui.focusCard(this, 0, Ui.SURFACE_FOCUS, 10f)
             setPadding(dp(10), dp(6), dp(10), dp(6))
             isFocusable = true; isClickable = true
             setOnClickListener { maybeReadAll(0) }
@@ -236,7 +236,7 @@ class SportActivity : Activity() {
         errorView = Ui.text(this, "", 12f, Ui.LIVE_TEXT).apply { setPadding(0, dp(8), 0, 0); visibility = View.GONE }
         content.addView(errorView)
 
-        val scroll = FocusScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true
             clipToPadding = false
             setPadding(dp(3), dp(3), dp(3), dp(3))
@@ -244,7 +244,6 @@ class SportActivity : Activity() {
         rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rows.addView(Ui.text(this, "Loading games…", 15f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, dp(6)) })
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        Ui.noClip(rows, content, top)
         content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
         content.addView(Ui.text(this, "OK  Open   ·   Menu  Refresh now", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -360,7 +359,7 @@ class SportActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Ui.focusable(this@SportActivity)
+            Ui.focusCard(this)
             setPadding(dp(14), dp(10), dp(14), dp(10))
             isFocusable = true; isClickable = true
             tag = "g:" + g.id

@@ -217,7 +217,7 @@ class ListActivity : Activity() {
         refreshBtn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
-            background = Ui.focusable(this@ListActivity, 0, Ui.SURFACE_FOCUS, 10f)
+            Ui.focusCard(this, 0, Ui.SURFACE_FOCUS, 10f)
             setPadding(dp(10), dp(6), dp(10), dp(6))
             isFocusable = true; isClickable = true
             setOnClickListener { nextReadAt = 0; refresh() }
@@ -231,7 +231,7 @@ class ListActivity : Activity() {
         content.addView(errorView)
 
         val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        scroll = FocusScrollView(this).apply {
+        scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true
             clipToPadding = false
             setPadding(dp(3), dp(3), dp(3), dp(3))
@@ -240,7 +240,6 @@ class ListActivity : Activity() {
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         body.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         panel = buildPanel()
-        Ui.noClip(rows, body, content, top, panel)
         body.addView(panel, LinearLayout.LayoutParams(dp(248), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginStart = dp(20) })
         content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
         content.addView(text("OK  Play   ·   Menu  Refresh now   ·   “Maybe ended” events are at the bottom", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
@@ -266,7 +265,7 @@ class ListActivity : Activity() {
         p.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
         playBtn = text("Play", 13f, Ui.ON_ACCENT, bold = true).apply {
             gravity = Gravity.CENTER
-            background = Ui.primaryButton(this@ListActivity)
+            Ui.primaryCard(this)
             setPadding(dp(8), dp(10), dp(8), dp(10))
             isFocusable = true; isClickable = true
             setOnClickListener { selected?.let { play(it) } }
@@ -274,7 +273,7 @@ class ListActivity : Activity() {
         p.addView(playBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         siteBtn = text("Open the site’s own player", 13f, Ui.TEXT, bold = true).apply {
             gravity = Gravity.CENTER
-            background = Ui.focusable(this@ListActivity, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+            Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
             setPadding(dp(8), dp(10), dp(8), dp(10))
             isFocusable = true; isClickable = true
             setOnClickListener { selected?.let { openSitePlayer(it) } }
@@ -401,7 +400,7 @@ class ListActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Ui.focusable(this@ListActivity)
+            Ui.focusCard(this)
             setPadding(dp(14), dp(10), dp(14), dp(10))
             isFocusable = true; isClickable = true
             tag = item.url

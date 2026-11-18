@@ -3,15 +3,13 @@ package com.streamlink.tv
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
-import android.widget.HorizontalScrollView
-import android.widget.ScrollView
 import android.widget.TextView
 
 /**
@@ -44,56 +42,58 @@ object Ui {
             if (strokeDp > 0f) setStroke(dp(ctx, strokeDp), strokeColor)
         }
 
-    /** Card/tile/button background: [normal] fill, and when focused a lighter fill with a 3dp accent ring. */
+    private val FOCUS_STATES = intArrayOf(android.R.attr.state_focused)
+    private val PRESSED_STATES = intArrayOf(android.R.attr.state_pressed)
+
+    /** Fill only (no ring): [normal] fill, lighter [focused] fill. The ring is the foreground, see [focusCard]. */
     fun focusable(ctx: Context, normal: Int = SURFACE, focused: Int = SURFACE_FOCUS, radiusDp: Float = 12f): Drawable =
         StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), rounded(ctx, focused, radiusDp, ACCENT, 3f))
-            addState(intArrayOf(android.R.attr.state_pressed), rounded(ctx, focused, radiusDp, ACCENT, 3f))
+            addState(FOCUS_STATES, rounded(ctx, focused, radiusDp))
+            addState(PRESSED_STATES, rounded(ctx, focused, radiusDp))
             addState(intArrayOf(), rounded(ctx, normal, radiusDp))
         }
 
-    /** Primary button: accent fill with dark text; focused adds a light ring. */
-    fun primaryButton(ctx: Context): Drawable = StateListDrawable().apply {
-        addState(intArrayOf(android.R.attr.state_focused), rounded(ctx, ACCENT, 8f, Color.WHITE, 3f))
-        addState(intArrayOf(), rounded(ctx, ACCENT, 8f))
-    }
-
-    /** Room (dp) kept around a focused card so its grown outline is not cut: scroll padding and focus-scroll inset. */
-    const val FOCUS_PAD_DP = 12f
-
     /**
-     * Lets cards draw outside their container's bounds (the grown, ringed focused card). Never turns off
-     * clipping on a scroll view's own bounds (scrolled-away rows must stay hidden), only its padding clip.
+     * Ring drawn on top of the content; nothing when not focused. GradientDrawable strokes a rectangle inset by half
+     * the stroke width, so the whole ring lies inside the view's bounds.
      */
-    fun noClip(vararg views: View?) {
-        for (v in views) {
-            if (v !is ViewGroup) continue
-            v.clipToPadding = false
-            if (v !is ScrollView && v !is HorizontalScrollView) v.clipChildren = false
+    private fun ringForeground(ctx: Context, ring: Int, radiusDp: Float): Drawable {
+        val shape = GradientDrawable().apply {
+            setColor(0)
+            cornerRadius = dp(ctx, radiusDp).toFloat()
+            setStroke(dp(ctx, RING_DP), ring)
+        }
+        return StateListDrawable().apply {
+            addState(FOCUS_STATES, shape)
+            addState(PRESSED_STATES, shape)
+            addState(intArrayOf(), ColorDrawable(0))
         }
     }
 
-    /** [noClip] on every container from [v]'s parent up to the screen root. */
-    fun noClipAbove(v: View) {
-        var p = v.parent
-        while (p is ViewGroup) { noClip(p); p = p.parent }
-    }
+    const val RING_DP = 3f
 
     /**
-     * Grows a view slightly while it has focus (TV convention) and raises it above its neighbours.
-     * Call once per view. Containers above it stop clipping it the first time it takes focus; scroll views
-     * still need padding of about [FOCUS_PAD_DP] (see [FocusScrollView]).
+     * Focus look for every focusable card/tile/button: the view never changes size; its fill brightens and an accent
+     * ring is drawn ON TOP as a foreground stroke inside the view's own bounds (nothing can clip it).
      */
-    fun growOnFocus(v: View, scale: Float = 1.04f) {
-        val prev = v.onFocusChangeListener
-        val lift = dp(v.context, 4f).toFloat()
-        v.outlineProvider = null // z is only for draw order: no shadow
-        v.setOnFocusChangeListener { view, has ->
-            prev?.onFocusChange(view, has)
-            if (has) noClipAbove(view)
-            view.animate().scaleX(if (has) scale else 1f).scaleY(if (has) scale else 1f)
-                .translationZ(if (has) lift else 0f).setDuration(120).start()
-        }
+    fun focusCard(v: View, normal: Int = SURFACE, focused: Int = SURFACE_FOCUS, radiusDp: Float = 12f) {
+        val ctx = v.context
+        v.background = focusable(ctx, normal, focused, radiusDp)
+        v.foreground = ringForeground(ctx, ACCENT, radiusDp)
+        if (android.os.Build.VERSION.SDK_INT >= 26) v.defaultFocusHighlightEnabled = false
+    }
+
+    /** Primary button: accent fill with dark text; focused draws a white ring on top. */
+    fun focusRing(v: View, radiusDp: Float, ring: Int = ACCENT) {
+        v.foreground = ringForeground(v.context, ring, radiusDp)
+        if (android.os.Build.VERSION.SDK_INT >= 26) v.defaultFocusHighlightEnabled = false
+    }
+
+    fun primaryCard(v: View, radiusDp: Float = 8f) {
+        val ctx = v.context
+        v.background = rounded(ctx, ACCENT, radiusDp)
+        v.foreground = ringForeground(ctx, Color.WHITE, radiusDp)
+        if (android.os.Build.VERSION.SDK_INT >= 26) v.defaultFocusHighlightEnabled = false
     }
 
     fun text(ctx: Context, s: CharSequence, sp: Float, color: Int = TEXT, bold: Boolean = false): TextView =

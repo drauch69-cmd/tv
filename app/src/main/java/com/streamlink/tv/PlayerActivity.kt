@@ -1298,13 +1298,12 @@ class PlayerActivity : Activity() {
 
     private fun button(label: String, primary: Boolean = false, onClick: () -> Unit): TextView =
         Ui.text(this, label, 12f, if (primary) Ui.ON_ACCENT else Ui.TEXT, bold = true).apply {
-            background = if (primary) Ui.primaryButton(context) else Ui.focusable(context, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+            if (primary) Ui.primaryCard(this) else Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
             setPadding(dp(14f), dp(8f), dp(14f), dp(8f))
             gravity = Gravity.CENTER
             isFocusable = true
             isClickable = true
             setOnClickListener { onClick() }
-            Ui.growOnFocus(this)
         }
 
     private fun gap(h: Float) = LinearLayout.LayoutParams(
@@ -1343,7 +1342,6 @@ class PlayerActivity : Activity() {
             coverText.visibility = if (show) View.VISIBLE else View.GONE
             coverDetails.text = if (show) "Hide details" else "Show details"
         }
-        Ui.noClip(cover, col, buttons)
         buttons.addView(coverCancel)
         buttons.addView(coverDetails, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(9f) })
@@ -1462,7 +1460,6 @@ class PlayerActivity : Activity() {
             row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { marginEnd = dp(9f) })
         }
-        Ui.noClip(overlay, col, row)
         col.addView(meta)
         col.addView(ovTitle, gap(12f))
         col.addView(progress, gap(12f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
@@ -1589,7 +1586,7 @@ class PlayerActivity : Activity() {
         fun label(t: String) = pickerList.addView(Ui.sectionLabel(this, t), gap(10f))
         fun row(t: String, current: Boolean, action: () -> Unit): TextView {
             val v = Ui.text(this, (if (current) "✓  " else "") + t, 13f, Ui.TEXT, bold = current).apply {
-                background = Ui.focusable(context, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+                Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
                 setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
                 isFocusable = true
                 isClickable = true
@@ -1622,7 +1619,7 @@ class PlayerActivity : Activity() {
         s.sources.forEachIndexed { i, src ->
             val current = i == sourceIndex
             val v = Ui.text(this, (if (current) "✓  " else "") + "${i + 1}. ${src.label}", 13f, Ui.TEXT, bold = current).apply {
-                background = Ui.focusable(context, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+                Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
                 setPadding(dp(12f), dp(9f), dp(12f), dp(9f))
                 isFocusable = true
                 isClickable = true
