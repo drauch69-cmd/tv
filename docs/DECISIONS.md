@@ -5,6 +5,20 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Next task (user, 2026-11-18): pull streams from the six index sites** (TheTVApp, Roxie, Reed, CrackStreams,
+  Buffstreams, StreamEast): make sure the finder plays their event pages. Not started; check in with a plan first.
+- **List reader fixes for those six sites** (2026-11-18): built (titles from name pairs / overlay links, league labels
+  and emoji skipped, table rows, prose links not games, countdowns, sectioned cards, content-visibility rows). Checked
+  against the live pages in the desktop browser at 1280x720 (all six read correctly); not tested on the TV.
+  Known leftovers: Buffstreams' machine time has no zone (it is UTC) and is read in the TV's zone (6 h off; ESPN fixes
+  matched games); live cards that show only a game clock (Reed college games) get no start time.
+- **Roxie football: "Live" next to a "Final" score** (build 174, reported 2026-11-17). Not reproduced: code and tests say
+  a final ESPN game wins over the site's marker. Asked the user where the "Live" shows (row badge, "Live now"
+  heading, home row, phone page) and for the "Scores:" / "List: by status" report lines. The new stale-marker rule
+  may cover it once the game is 4 h past its listed start.
+- **List reading speed** (offered 2026-11-17): quick read of the page's plain text first, stop waiting once the list
+  stops changing, show the last list instantly. To do after the fixes; confirm with the user before starting.
+
 - **Empty player box pages** (2026-11-17): built (source-switch.js anchor, hidden search presses source 1 then 2, site player
   presses source 1; chat-like narrow frames ignored). Not compiled or tested on the TV. Next: the user opens such a page and
   sends the report; look for "pressing source button" lines.
@@ -31,6 +45,11 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
+
+- **Stale site live markers** (2026-11-18): a site's own LIVE marker counts only until 4 h after the listed start
+  (Roxie never takes it down); with no start time it is trusted. ESPN still overrides for matched games.
+- **Countdowns** (2026-11-18): read "Starts in 1d 19h"-style countdowns as a backup start time; ESPN's kickoff wins
+  when the game matches.
 
 - **Live scores** (2026-11-17): NFL, college football and NBA (NBA added 2026-11-17 at the user's OK); scores shown by default (no spoiler hiding); on the
   list rows (short line) and the details card (full block); no team logos for now. A game matches only when both
