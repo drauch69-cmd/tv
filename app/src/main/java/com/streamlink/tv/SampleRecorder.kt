@@ -93,7 +93,7 @@ object SampleRecorder {
     @Volatile var lastPage: PageSnap? = null
         private set
 
-    /** The last stream page the links-mode run searched for other links: same as [lastPage]. Not cleared by [reset]. */
+    /** The last stream page searched (a player search that found no stream, or the links search): same as [lastPage]. Not cleared by [reset]. */
     @Volatile var lastStreamPage: PageSnap? = null
         private set
 
@@ -217,9 +217,10 @@ info.txt       Sizes, content types, the unwrap decision per chunk, app version.
 list-page.html The last list page the app read, as the hidden browser saw it
                (scripts and styles removed), if any.
 list-page.jpg  A picture of that page as the hidden browser saw it.
-stream-page.html The last stream page the links search read, as the hidden browser
-               saw it (scripts and styles removed), if any. Its result line says
-               how many other links were found there.
+stream-page.html The last stream page the app searched (the player's own search when it
+               found no stream, or the links search), as the hidden browser saw it
+               (scripts and styles removed), if any. Its result line in info.txt says
+               which search it was and what it found.
 stream-page.jpg A picture of that stream page as the hidden browser saw it.
 
 Privacy: urls.txt and the playlists contain the stream's address and tokens.

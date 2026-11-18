@@ -125,7 +125,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             if (linksMode) linkLog("the page showed no stream within ${timeoutMs / 1000}s")
             else log("No video stream found within ${timeoutMs / 1000}s")
             val wv = webView
-            if (linksMode && wv != null) {
+            if (!light && wv != null) {
                 // Snapshot what the page showed for "Save sample", then finish (2 s at most).
                 val gen = generation
                 var finished = false
@@ -134,7 +134,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 try {
                     wv.evaluateJavascript(IndexReader.SNAP_JS) { raw ->
                         streamHtml = try { if (raw == null || raw == "null") "" else org.json.JSONTokener(raw).nextValue() as? String ?: "" } catch (_: Exception) { "" }
-                        if (gen == generation) streamSnapshot(wv, "no stream")
+                        if (gen == generation) streamSnapshot(wv, if (linksMode) "links search: no stream" else "player search: no stream within ${timeoutMs / 1000}s" + playerNote())
                         main.removeCallbacks(end)
                         end.run()
                     }
@@ -225,6 +225,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         nudgeCount = 0
         playerX = -1f
         playerY = -1f
+        playerKind = ""
+        playerForeign = false
+        playerLogged = false
+        pageTapLogged = false
+        playerTaps = 0
+        firstPlayerTapAt = 0L
         frameUrls.clear()
         candidates.clear()
         onResult = callback
@@ -461,7 +467,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (done || verifying || clickPhase == 1) return
         nudgeCount++
         wv.evaluateJavascript(NUDGE_JS) { raw ->
-            if (done || verifying || raw == null || raw == "null") return@evaluateJavascript
+            if (done || verifying || webView !== wv) return@evaluateJavascript
+            if (raw == null || raw == "null") { tapStep(wv); return@evaluateJavascript }
             try {
                 val o = org.json.JSONObject(JSONTokener(raw).nextValue() as String)
                 val iw = o.optDouble("iw", 0.0)
@@ -469,6 +476,18 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     val scale = wv.width / iw.toFloat()
                     playerX = (o.optDouble("px") * scale).toFloat()
                     playerY = (o.optDouble("py") * scale).toFloat()
+                    playerKind = o.optString("kind", "video")
+                    val fh = o.optString("fh", "")
+                    playerForeign = playerKind == "frame" && fh.isNotEmpty() && !sameSite(fh, siteHost)
+                    if (!playerLogged) {
+                        playerLogged = true
+                        val what = when (playerKind) {
+                            "frame" -> "player frame" + if (fh.isNotEmpty()) " ($fh)" else ""
+                            "box" -> "player box (its frame isn't there yet)"
+                            else -> "video"
+                        }
+                        log(if (nudgeCount <= 2) "Found the $what; tapping its middle" else "Found the $what after ${runSecs()}s; tapping its middle")
+                    }
                 }
                 val arr = o.getJSONArray("v")
                 for (i in 0 until arr.length()) {
@@ -482,20 +501,61 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 }
             } catch (_: Exception) {
             }
-        }
-        // Players inside iframes can't be scripted from here, so tap the middle of the page on
-        // every other nudge. Any popup or redirect that tap triggers is blocked.
-        // (On a click-only list page that is still showing the list, a tap in the middle would open some other event.)
-        // Aim at the middle of the player when the page shows one (a video or a big frame), else the page.
-        val onList = clickRef != null && !pageChanged()
-        if (nudgeCount % 2 == 0 && wv.width > 0 && !onList) {
-            val x = if (playerX > 0) playerX else wv.width / 2f
-            val y = if (playerY > 0) playerY else wv.height / 2f
-            if (nudgeCount == 2) log(if (playerX > 0) "Tapping the middle of the player" else "No player box seen; tapping the middle of the page")
-            tap(wv, x, y)
+            // A video found above ends the search; otherwise tap (with the player position just read).
+            if (!done && !verifying && candidates.isEmpty()) tapStep(wv)
         }
     }
 
+    private fun tapStep(wv: WebView) {
+        // Players inside iframes can't be scripted from here, so tap them. Any popup or redirect a tap
+        // triggers is blocked. Aim at the middle of the player once the page shows one (a video, a big
+        // frame or a player box): tap it on every nudge, since these players often spend the first tap
+        // on an ad. With no player seen, tap the middle of the page on every other nudge.
+        // (On a click-only list page that is still showing the list, a tap would open some other event.)
+        val onList = clickRef != null && !pageChanged()
+        if (wv.width > 0 && !onList) {
+            val hasPlayer = playerX > 0
+            if (hasPlayer && playerTaps < MAX_PLAYER_TAPS) {
+                playerTaps++
+                if (firstPlayerTapAt == 0L) firstPlayerTapAt = SystemClock.uptimeMillis()
+                tap(wv, playerX, playerY)
+            } else if (!hasPlayer && nudgeCount % 2 == 0) {
+                if (!pageTapLogged) { pageTapLogged = true; log("No player box seen yet; tapping the middle of the page") }
+                tap(wv, wv.width / 2f, wv.height / 2f)
+            }
+        }
+        maybeGiveUpEarly()
+    }
+
+    /**
+     * Another site's player frame that was tapped and still shows no stream rarely gives one later:
+     * stop early so the site's own player opens sooner (it plays these frames fine).
+     */
+    private fun maybeGiveUpEarly() {
+        if (done || verifying || linksMode || light || clickRef != null || candidates.isNotEmpty()) return
+        if (!playerForeign || firstPlayerTapAt == 0L) return
+        val now = SystemClock.uptimeMillis()
+        if (now - firstPlayerTapAt < EMBED_GIVE_UP_MS || now - runStartedAt < EMBED_MIN_RUN_MS) return
+        if (now - runStartedAt >= timeoutMs - 1_000) return // the normal timeout is about to run anyway
+        log("Tapped the other site's player $playerTaps time(s) and it showed no stream ${EMBED_GIVE_UP_MS / 1000}s after the first tap; stopping early")
+        timeoutMs = now - runStartedAt
+        main.removeCallbacks(timeout)
+        timeout.run()
+    }
+
+    /** Same site, or one is a subdomain of the other (cdn.example.com vs example.com). */
+    private fun sameSite(a: String, b: String): Boolean {
+        val x = a.lowercase().removePrefix("www.")
+        val y = b.lowercase().removePrefix("www.")
+        return x == y || x.endsWith(".$y") || y.endsWith(".$x")
+    }
+
+    private var playerKind = ""
+    private var playerForeign = false
+    private var playerLogged = false
+    private var pageTapLogged = false
+    private var playerTaps = 0
+    private var firstPlayerTapAt = 0L
     private var playerX = -1f
     private var playerY = -1f
 
@@ -547,6 +607,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
             startLinks(sw)
         }
+    }
+
+    private fun playerNote(): String = when {
+        playerX <= 0 -> ", no player seen"
+        else -> ", player: $playerKind${if (playerForeign) " from another site" else ""}, tapped $playerTaps time(s)"
     }
 
     /** Keeps the stream page for "Save sample": picture now, HTML from [streamHtml]. Never blocks the link phase. */
@@ -736,6 +801,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         /** After the first stream is seen, how long to wait for more before checking them. */
         private const val COLLECT_MS = 1_200L
         private const val FIRST_NUDGE_MS = 1_500L
+        /** Taps on a found player, at most (one per nudge, 2.5 s apart). */
+        private const val MAX_PLAYER_TAPS = 6
+        /** Another site's player frame: give up this long after the first tap on it if no stream showed... */
+        private const val EMBED_GIVE_UP_MS = 8_000L
+        /** ...but never before this much of the run has passed. */
+        private const val EMBED_MIN_RUN_MS = 12_000L
         private const val MAX_CANDIDATES = 12
         private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 
@@ -795,17 +866,46 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
               .forEach(function(sel){
                 document.querySelectorAll(sel).forEach(function(e){ try{e.click();}catch(x){} });
               });
-              var best=null, ba=0;
-              document.querySelectorAll('video,iframe').forEach(function(e){
-                var r=e.getBoundingClientRect(), cs=getComputedStyle(e);
-                if(cs.visibility==='hidden'||cs.display==='none')return;
-                for(var pn=e;pn&&pn!==document.body;pn=pn.parentElement){var pp=getComputedStyle(pn).position;if(pp==='fixed'||pp==='sticky')return;}
-                var L=Math.max(0,r.left),T=Math.max(0,r.top),R=Math.min(innerWidth,r.right),B=Math.min(innerHeight,r.bottom);
-                var a=(R-L)*(B-T);
-                if(R>L&&B>T&&a>=40000&&a>ba){ba=a;best={x:(L+R)/2,y:(T+B)/2};}
-              });
+              // The player: the biggest video or frame on screen. A frame that is lazy or only partly on
+              // screen counts too (the page is scrolled to show it); with no frame yet, a player box
+              // (e.g. div#videoPlayer, .player-container) stands in so the tap still lands on it.
+              var vis=function(e){
+                var cs=getComputedStyle(e);
+                if(cs.visibility==='hidden'||cs.display==='none')return false;
+                for(var pn=e;pn&&pn!==document.body;pn=pn.parentElement){var pp=getComputedStyle(pn).position;if(pp==='fixed'||pp==='sticky')return false;}
+                return true;
+              };
+              var pick=function(sel,minA){
+                var b=null,ba=0;
+                document.querySelectorAll(sel).forEach(function(e){
+                  if(!vis(e))return;
+                  var r=e.getBoundingClientRect(), a=r.width*r.height;
+                  if(r.width>=200&&r.height>=120&&a>=minA&&a>ba){ba=a;b=e;}
+                });
+                return b;
+              };
+              var kind='video', el=pick('video',40000);
+              if(!el){ el=pick('iframe',40000); kind='frame'; }
+              if(!el){
+                kind='box';
+                ['#videoPlayer','#player','.iframe-placeholder','.player-container','.video-player','[class*="player-wrap" i]','[id*="player" i]']
+                .some(function(sel){ var e=pick(sel,60000); if(e&&e.getBoundingClientRect().height<=innerHeight*1.2){el=e;return true;} return false; });
+              }
               var res={v:out, iw:innerWidth};
-              if(best){res.px=best.x;res.py=best.y;}
+              if(el){
+                var r=el.getBoundingClientRect();
+                var L=Math.max(0,r.left),T=Math.max(0,r.top),R=Math.min(innerWidth,r.right),B=Math.min(innerHeight,r.bottom);
+                var shown=(R>L&&B>T)?(R-L)*(B-T):0;
+                if(shown<0.6*r.width*r.height){
+                  try{el.scrollIntoView({block:'center',inline:'center'});}catch(x){}
+                  r=el.getBoundingClientRect();
+                  L=Math.max(0,r.left);T=Math.max(0,r.top);R=Math.min(innerWidth,r.right);B=Math.min(innerHeight,r.bottom);
+                }
+                if(R>L&&B>T){
+                  res.px=(L+R)/2; res.py=(T+B)/2; res.kind=kind;
+                  if(kind==='frame'){ try{ res.fh=new URL(el.src||el.getAttribute('data-src')||'',location.href).hostname; }catch(x){ res.fh=''; } }
+                }
+              }
               return JSON.stringify(res);
             })()
         """
