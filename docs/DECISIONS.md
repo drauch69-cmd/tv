@@ -5,6 +5,23 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **"Your lists" tab + list leftovers** (Sports build 191, 2026-11-18): lists moved off home into a top-bar tab next to
+  "Send a link" (new lists screen); old learned list shapes forgotten (v2 key), learned rows must pass the fresh-read
+  rules, a page that loads with no events now replaces the old list. Untested on the TV; check TheTVApp NFL/CFB.
+- **Performance review** (2026-11-18, 5 read-only reviewers, code reading only). Ranked fix list offered, not approved:
+  - Batch A (crashes/stalls): (1) hidden WebViews have no render-process-gone handler in StreamSniffer and
+    SitePlayerActivity, so a renderer killed for memory takes the app down; (2) the home list reader keeps reading
+    behind the player and the phone can start reads mid-video: pause list reads while playing; (3) the background
+    "extra sources" run loads a full page with media/ads during playback: block media/images, start only with a
+    healthy buffer, or make it manual; (4) hidden finder/reader runs load images/fonts/media and the reader takes a
+    picture + 1.5 MB DOM snapshot after every read: block those, snapshot only on failure; (5) player buffer has no
+    byte cap (60 s max, ~45-75 MB) and STALL_MS 20 s can restart a slow-but-alive stream: cap ~40 MB, recover only when
+    no bytes arrive.
+  - Batch B (menus): sport screen matching on the main thread and minute-tick full rebuilds on all screens; ScoreMatch
+    recomputes team names per item and its cache thrashes; phone page polls every 1.5 s with a thread per request;
+    sport screen re-reads lists every 2 min.
+  - Batch C (build): release build not minified/shrunk (R8 off); list caches stored in the main SharedPreferences file;
+    small items (verifier thread pool per run, per-card drawables, dead resources, onBackPressed, dependency bumps).
 - **Home speed fix confirmed** (Sports build 188, 2026-11-18): the user says the app "feels much better now". Still to
   watch: video stalls while watching and occasional crashes (crash/freeze recorder offered, not approved yet).
 - **TV report 2026-11-18 01:45 (Sports build 184):** TheTVApp and Roxie streams play on the TV. Reed was down for everyone;
