@@ -36,6 +36,7 @@ class ListActivity : Activity() {
     private lateinit var pBadgeHolder: FrameLayout
     private lateinit var pTitle: TextView
     private lateinit var pMeta: TextView
+    private lateinit var pScore: LinearLayout
     private lateinit var playBtn: TextView
     private lateinit var siteBtn: TextView
     private var selected: ListItem? = null
@@ -47,6 +48,8 @@ class ListActivity : Activity() {
     private var nextReadAt = 0L
     private var beats = 0
     private var errorText: String? = null
+    /** Score line of every row on screen, so a score update changes text in place (no rebuild, focus untouched). */
+    private val scoreViews = ArrayList<Pair<ListItem, TextView>>()
 
     private val handler: (String, String?) -> Unit = { c, v ->
         when (c) {
@@ -66,6 +69,7 @@ class ListActivity : Activity() {
                 finishRead(ListResult(list.url, "", emptyList(), "automatic", "the page took too long to answer"))
             }
             if (!reading && now >= nextReadAt) refresh()
+            ScoreFeed.refreshIfDue { if (!isFinishing) updateScores() }
             if (beats % RERENDER_BEATS == 0) render() // keep badges, minutes and "updated ... ago" current without a read
             main.postDelayed(this, 1000)
         }
@@ -249,6 +253,8 @@ class ListActivity : Activity() {
         p.addView(pTitle)
         pMeta = text("", 12f, Ui.TEXT_2).apply { maxLines = 4; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(10), 0, 0); setLineSpacing(0f, 1.2f) }
         p.addView(pMeta)
+        pScore = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(10), 0, 0); visibility = View.GONE }
+        p.addView(pScore)
         p.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
         playBtn = text("Play", 13f, Ui.ON_ACCENT, bold = true).apply {
             gravity = Gravity.CENTER
@@ -288,6 +294,7 @@ class ListActivity : Activity() {
         val focusedUrl = if (hadFocusInRows) focus?.tag as? String else null
         val items = cached?.let { ListJson.visible(it.result.items, now) } ?: emptyList()
         rows.removeAllViews()
+        scoreViews.clear()
         if (items.isEmpty()) {
             val msg = when {
                 reading && cached == null -> "Reading events…"
@@ -341,6 +348,35 @@ class ListActivity : Activity() {
         pTitle.text = ListText.displayTitle(item)
         pMeta.text = ListSections.meta(item, now).replaceFirstChar { it.uppercase() }
         pMeta.visibility = if (pMeta.text.isEmpty()) View.GONE else View.VISIBLE
+        fillScoreBlock(item)
+    }
+
+    private fun gameFor(item: ListItem): Game? =
+        try { ScoreMatch.find(ListText.displayTitle(item), item.startMillis, ScoreFeed.latest()) } catch (_: Exception) { null }
+
+    private fun fillScoreBlock(item: ListItem) {
+        pScore.removeAllViews()
+        val lines = gameFor(item)?.let { ScoreText.cardLines(it) } ?: emptyList()
+        if (lines.isEmpty()) { pScore.visibility = View.GONE; return }
+        lines.forEachIndexed { i, l ->
+            pScore.addView(if (i == 0) text(l, 15f, Ui.TEXT, bold = true) else text(l, 12f, Ui.TEXT_2).apply { setPadding(0, dp(2), 0, 0) })
+        }
+        pScore.visibility = View.VISIBLE
+    }
+
+    private fun applyScore(item: ListItem, v: TextView) {
+        val g = gameFor(item)
+        val line = g?.let { ScoreText.rowLine(it) }
+        if (g == null || line == null) { v.visibility = View.GONE; return }
+        v.text = line
+        v.setTextColor(if (g.state == "in") Ui.LIVE_TEXT else Ui.TEXT_2)
+        v.visibility = View.VISIBLE
+    }
+
+    /** New scores arrived: change the score texts in place, leaving rows and focus alone. */
+    private fun updateScores() {
+        for ((item, v) in scoreViews) applyScore(item, v)
+        selected?.let { fillScoreBlock(it) }
     }
 
     private fun row(item: ListItem, now: Long): View {
@@ -365,6 +401,10 @@ class ListActivity : Activity() {
         col.addView(text(ListText.displayTitle(item), 16f, Ui.TEXT, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
         val meta = ListSections.meta(item, now)
         if (meta.isNotEmpty()) col.addView(text(meta, 11f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
+        val scoreLine = text("", 11f, Ui.TEXT_2, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0); visibility = View.GONE }
+        col.addView(scoreLine)
+        applyScore(item, scoreLine)
+        scoreViews.add(item to scoreLine)
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(14) })
         val b = ListSections.badge(item, now)
         val right: View = if (b.pill) Ui.badge(this, b.text, b.live) else text(b.text, 11f, Ui.TEXT_2, bold = true)
