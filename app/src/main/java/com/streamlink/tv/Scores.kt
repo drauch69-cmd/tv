@@ -24,10 +24,10 @@ data class TeamSide(
     val record: String,
 )
 
-/** One NFL or college football game from ESPN's scoreboard. */
+/** One NFL, college football or NBA game from ESPN's scoreboard. */
 data class Game(
     val id: String,
-    val league: String,       // "nfl" | "cfb"
+    val league: String,       // "nfl" | "cfb" | "nba"
     val startMillis: Long,
     val state: String,        // "pre" | "in" | "post"
     val shortDetail: String,  // "Final", "Q3 - 8:42", "Halftime", "11/22 - 7:15 PM EST"
@@ -134,6 +134,7 @@ object ScoreParse {
 object ScoreMatch {
     private const val DAY_WINDOW_MS = 18 * 60 * 60 * 1000L
     private const val START_WINDOW_MS = 90 * 60 * 1000L
+    private val SHARED_CITY_LEAGUES = listOf("nfl", "nba")
 
     /** Lowercase, no accents, everything but letters and digits becomes one space. */
     private val SPACES = Regex(" +")
@@ -163,7 +164,7 @@ object ScoreMatch {
         return out
     }
 
-    private fun names(t: TeamSide, league: String, ambiguousLocations: Set<String>): Set<String> {
+    private fun names(t: TeamSide, ambiguousLocations: Set<String>): Set<String> {
         val loc = norm(t.location)
         val nick = norm(t.nickname)
         val out = LinkedHashSet<String>()
@@ -173,7 +174,7 @@ object ScoreMatch {
         out.add(norm(t.shortName))
         val abbr = norm(t.abbr)
         if (abbr.length >= 2 && !abbr.contains(' ')) out.add(abbr)
-        if (loc.isNotEmpty() && (league != "nfl" || loc !in ambiguousLocations)) out.add(loc)
+        if (loc.isNotEmpty() && loc !in ambiguousLocations) out.add(loc)
         out.removeAll { it.length < 2 }
         return out
     }
@@ -208,16 +209,21 @@ object ScoreMatch {
         if (pool.isEmpty()) return null
         val padded = " $t "
 
-        // NFL locations shared by two teams in the list ("New York", "Los Angeles") are not used.
-        val teamsByLocation = HashMap<String, MutableSet<String>>()
-        for (g in pool) if (g.league == "nfl") for (s in listOf(g.home, g.away)) {
-            val loc = norm(s.location)
-            if (loc.isNotEmpty()) teamsByLocation.getOrPut(loc) { HashSet() }.add(norm(s.abbr).ifEmpty { norm(s.displayName) })
+        // Locations shared by two teams of the same pro league in the list ("New York", "Los Angeles") are not
+        // used as names. Worked out per league, so an NFL city never blocks an NBA name or the other way round.
+        val ambiguousByLeague = HashMap<String, Set<String>>()
+        for (lg in SHARED_CITY_LEAGUES) {
+            val teamsByLocation = HashMap<String, MutableSet<String>>()
+            for (g in pool) if (g.league == lg) for (s in listOf(g.home, g.away)) {
+                val loc = norm(s.location)
+                if (loc.isNotEmpty()) teamsByLocation.getOrPut(loc) { HashSet() }.add(norm(s.abbr).ifEmpty { norm(s.displayName) })
+            }
+            ambiguousByLeague[lg] = teamsByLocation.filter { it.value.size >= 2 }.keys
         }
-        val ambiguous = teamsByLocation.filter { it.value.size >= 2 }.keys
 
-        val perTeam = HashMap<TeamSide, Set<String>>()
-        fun namesOf(s: TeamSide, league: String) = perTeam.getOrPut(s) { names(s, league, ambiguous) }
+        val perTeam = HashMap<Pair<String, TeamSide>, Set<String>>()
+        fun namesOf(s: TeamSide, league: String) =
+            perTeam.getOrPut(league to s) { names(s, ambiguousByLeague[league] ?: emptySet()) }
 
         // Every place any known team name appears; a match inside a longer one is not a match
         // ("Michigan" inside "Michigan State").
@@ -254,6 +260,12 @@ object ScoreText {
             isHalf(g) -> if (sep == " ") "Half" else "Halftime"
             d.contains("end", ignoreCase = true) || d.contains("delay", ignoreCase = true) -> d
             g.period in 1..4 -> "Q${g.period}$sep${g.clock}".trimEnd(' ', '·')
+            g.league == "nba" && g.period > 4 -> {
+                // NBA: 4 quarters, then OT, 2OT, 3OT...
+                val ot = g.period - 4
+                val label = if (ot == 1) "OT" else "${ot}OT"
+                "$label$sep${g.clock}".trimEnd(' ', '·')
+            }
             g.period > 4 -> if (g.league == "nfl" && g.clock.isNotBlank()) "OT$sep${g.clock}" else d.ifBlank { "OT" }
             d.isNotBlank() -> d
             else -> "Live"
@@ -298,12 +310,12 @@ object ScoreText {
     }
 }
 
-/** Cached live scores for both leagues, refreshed in the background. */
+/** Cached live scores for all leagues, refreshed in the background. */
 object ScoreFeed {
     private const val LIVE_MS = 30_000L
     private const val IDLE_MS = 5 * 60_000L
     private const val BACKOFF_MS = 2 * 60_000L
-    private val LEAGUES = listOf("nfl", "cfb")
+    private val LEAGUES = listOf("nfl", "cfb", "nba")
     private val NY = ZoneId.of("America/New_York")
     private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
 
@@ -322,7 +334,7 @@ object ScoreFeed {
     private val lastFail = HashMap<String, Long>()
     private var running = false
 
-    /** Fresh games of both leagues. The same List instance is returned until the data (or which leagues are fresh) changes. */
+    /** Fresh games of all leagues. The same List instance is returned until the data (or which leagues are fresh) changes. */
     fun latest(now: Long = System.currentTimeMillis()): List<Game> = synchronized(lock) {
         val fresh = LEAGUES.filter { isFresh(lastOk[it], now) }
         val key = "$version:${fresh.joinToString(",")}"
@@ -363,7 +375,8 @@ object ScoreFeed {
             if (after != before) {
                 val n = after.count { it.league == "nfl" }
                 val c = after.count { it.league == "cfb" }
-                Report.logOnce("scores-count-$n-$c", "Scores: $n NFL and $c college games today")
+                val b = after.count { it.league == "nba" }
+                Report.logOnce("scores-count-$n-$c-$b", "Scores: $n NFL, $c college and $b NBA games today")
                 Handler(Looper.getMainLooper()).post(onUpdate)
             }
         }
@@ -401,6 +414,7 @@ object ScoreFeed {
 
     private fun url(league: String, date: String) =
         if (league == "nfl") "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=$date"
+        else if (league == "nba") "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=$date"
         else "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=$date&groups=80&limit=300"
 
     private fun download(address: String): String {

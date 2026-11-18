@@ -8,7 +8,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 - **Empty player box pages** (2026-11-17): built (source-switch.js anchor, hidden search presses source 1 then 2, site player
   presses source 1; chat-like narrow frames ignored). Not compiled or tested on the TV. Next: the user opens such a page and
   sends the report; look for "pressing source button" lines.
-- **Live scores on the list screen** (2026-11-17): built (NFL + college football from ESPN). Untested on the TV.
+- **Live scores on the list screen** (2026-11-17): built (NFL + college football + NBA from ESPN). Untested on the TV.
   Next: the user opens a list during a game; if a game should match and doesn't (or matches wrongly), ask for the
   item's title as shown and the "Scores:" report lines. Not checked yet against the live API: the college
   `groups=80` setting and ESPN's live clock wording.
@@ -32,7 +32,7 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
-- **Live scores** (2026-11-17): NFL and college football only; scores shown by default (no spoiler hiding); on the
+- **Live scores** (2026-11-17): NFL, college football and NBA (NBA added 2026-11-17 at the user's OK); scores shown by default (no spoiler hiding); on the
   list rows (short line) and the details card (full block); no team logos for now. A game matches only when both
   teams are named; ties broken by start time, else nothing shown.
 - **ESPN decides Live/Final** for matched games, on every screen (list, home "Live now", phone page), over the

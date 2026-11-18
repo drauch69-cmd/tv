@@ -135,13 +135,13 @@ Remote tabs; prefetch toggle).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers. `ListStatus`: Live if started under 4 h ago, Finished 4–24 h, always-on channel past 24 h; real live
   events sort before always-on ones. `DateGuess` reads ET/CT/MT/PT/UTC/GMT/offset labels against the system clock.
-- **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL and
-  college football (all FBS games: `groups=80`) for today in New York time (also yesterday before 5 am), every 30 s
+- **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL,
+  college football (all FBS games: `groups=80`) and the NBA for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. `ScoreMatch` matches a list title to
   a game only if BOTH teams are named (full name, school/city, nickname or abbreviation, whole words; a name inside a
-  longer team name doesn't count; NFL cities shared by two teams are ignored), within 18 h of the event's start; if
+  longer team name doesn't count; a city shared by two teams of the same pro league (NFL or NBA, e.g. Los Angeles) is ignored as a name, worked out per league), within 18 h of the event's start; if
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
-  · Q3 8:42", "Final · …"), the details card a score block (names, status, records, channel; kickoff in the TV's time).
+  · Q3 8:42", "Final · …"; NBA overtime reads OT, 2OT…), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
   Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **ESPN-driven status** (`ScoreStatus.resolve`). Every status, badge and start time (list screen, home "Live now"
