@@ -127,7 +127,7 @@ items side by side, "Your lists" and "Send a link", and Recent follows the rows;
 still owns the background list reader and tells it to redraw through `ListEvents`; Session.mode "list"),
 `SportActivity` (one sport: game sections, "All games" toggle, "Other" streams), `StreamsActivity` (one game's score card and
 streams, or the 24/7 channels),
-`Ui.kt` (shared UI kit; focus rings are drawn inside the card, `Ui.growOnFocus` scales and lifts it and un-clips its parents; `Ui.noClip(...)` turns off clipChildren/clipToPadding on containers, scroll views keep their own bounds clip; scroll views with focusable cards are `FocusScrollView`/`FocusHScrollView` (`FocusScroll.kt`: padding `Ui.FOCUS_PAD_DP` is not clipped and focus scrolling keeps that margin visible, so the grown outline is never cut), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
+`Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
 Remote tabs; prefetch toggle).
 
 ## Key mechanisms

@@ -9,9 +9,6 @@ import android.graphics.drawable.StateListDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
-import android.widget.HorizontalScrollView
-import android.widget.ScrollView
 import android.widget.TextView
 
 /**
@@ -58,41 +55,12 @@ object Ui {
         addState(intArrayOf(), rounded(ctx, ACCENT, 8f))
     }
 
-    /** Room (dp) kept around a focused card so its grown outline is not cut: scroll padding and focus-scroll inset. */
-    const val FOCUS_PAD_DP = 12f
-
-    /**
-     * Lets cards draw outside their container's bounds (the grown, ringed focused card). Never turns off
-     * clipping on a scroll view's own bounds (scrolled-away rows must stay hidden), only its padding clip.
-     */
-    fun noClip(vararg views: View?) {
-        for (v in views) {
-            if (v !is ViewGroup) continue
-            v.clipToPadding = false
-            if (v !is ScrollView && v !is HorizontalScrollView) v.clipChildren = false
-        }
-    }
-
-    /** [noClip] on every container from [v]'s parent up to the screen root. */
-    fun noClipAbove(v: View) {
-        var p = v.parent
-        while (p is ViewGroup) { noClip(p); p = p.parent }
-    }
-
-    /**
-     * Grows a view slightly while it has focus (TV convention) and raises it above its neighbours.
-     * Call once per view. Containers above it stop clipping it the first time it takes focus; scroll views
-     * still need padding of about [FOCUS_PAD_DP] (see [FocusScrollView]).
-     */
+    /** Grows a view slightly while it has focus (TV convention). Call once per view. */
     fun growOnFocus(v: View, scale: Float = 1.04f) {
         val prev = v.onFocusChangeListener
-        val lift = dp(v.context, 4f).toFloat()
-        v.outlineProvider = null // z is only for draw order: no shadow
         v.setOnFocusChangeListener { view, has ->
             prev?.onFocusChange(view, has)
-            if (has) noClipAbove(view)
-            view.animate().scaleX(if (has) scale else 1f).scaleY(if (has) scale else 1f)
-                .translationZ(if (has) lift else 0f).setDuration(120).start()
+            view.animate().scaleX(if (has) scale else 1f).scaleY(if (has) scale else 1f).setDuration(120).start()
         }
     }
 

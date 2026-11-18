@@ -12,6 +12,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.GridLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 
@@ -117,16 +118,13 @@ class ListsActivity : Activity() {
         subtitle = Ui.text(this, "", 12f, Ui.TEXT_3).apply { setPadding(0, Ui.dp(this@ListsActivity, 4), 0, Ui.dp(this@ListsActivity, 14)) }
         content.addView(subtitle)
         grid = GridLayout(this).apply { columnCount = 4 }
-        // Room for the grown, ringed tile on every side; the negative margins keep the tiles where they were.
-        val scroll = FocusScrollView(this).apply {
+        val scroll = ScrollView(this).apply {
             isVerticalScrollBarEnabled = false
-            setPadding(Ui.dp(this@ListsActivity, Ui.FOCUS_PAD_DP), Ui.dp(this@ListsActivity, Ui.FOCUS_PAD_DP), Ui.dp(this@ListsActivity, Ui.FOCUS_PAD_DP), 0)
+            clipToPadding = false
+            setPadding(Ui.dp(this@ListsActivity, 4), Ui.dp(this@ListsActivity, 6), Ui.dp(this@ListsActivity, 4), 0)
             addView(grid)
         }
-        Ui.noClip(grid, content)
-        content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply {
-            marginStart = -Ui.dp(this@ListsActivity, 8); marginEnd = -Ui.dp(this@ListsActivity, 8); topMargin = -Ui.dp(this@ListsActivity, 6)
-        })
+        content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         content.addView(Ui.text(this, "OK  Open     Menu  Refresh all lists     Hold OK  Remove     Back  Home", 12f, Ui.TEXT_3).apply {
             setPadding(0, Ui.dp(this@ListsActivity, 8), 0, 0)
         })

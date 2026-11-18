@@ -375,7 +375,6 @@ class WaitingActivity : Activity() {
             if (u.scheme == "http" || u.scheme == "https") startActivity(SitePlayerActivity.intent(this, item.url, referer))
         }
         buttons.addView(site)
-        Ui.noClip(col, buttons)
         col.addView(buttons, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(28) })
         root.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
