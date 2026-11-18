@@ -30,6 +30,14 @@
 (function (recipeJson, learnedJson) {
   'use strict';
   var debug = [];
+  // Pages using content-visibility:auto leave off-screen rows unrendered, and their innerText is then empty
+  // (in the TV's hidden browser that can be every row). Render everything while reading.
+  var cvStyle = null;
+  try {
+    cvStyle = document.createElement('style');
+    cvStyle.textContent = '*{content-visibility:visible !important}';
+    (document.head || document.documentElement).appendChild(cvStyle);
+  } catch (e) { cvStyle = null; }
   try {
     return run();
   } catch (e) {
@@ -37,6 +45,8 @@
       pageTitle: safeTitle(), pageUrl: String(location.href), method: 'automatic', items: [], noLink: 0,
       debug: 'extractor error: ' + (e && e.message ? e.message : e), error: 'extractor error'
     });
+  } finally {
+    try { if (cvStyle && cvStyle.parentNode) cvStyle.parentNode.removeChild(cvStyle); } catch (e) { }
   }
 
   function safeTitle() { try { return String(document.title || '').trim(); } catch (e) { return ''; } }
@@ -738,6 +748,15 @@
           used[titleIdx + 1] = 1; used[titleIdx + 2] = 1;
         } else {
           var pr = pairTitle(lines, titleIdx, tm.idx, labels);
+          if (!pr) {
+            // The picked line may be a small label above the names ("League" over "Team A … Team B"): a pair of
+            // same-style names anywhere in the row is the better title.
+            for (var pi = 0; pi < lines.length && !pr; pi++) {
+              if (pi === titleIdx || tm.idx[pi]) continue;
+              var p2 = pairTitle(lines, pi, tm.idx, labels);
+              if (p2) { pr = p2; delete used[titleIdx]; titleIdx = pi; used[pi] = 1; }
+            }
+          }
           if (pr) { title = pr.text; for (var u = titleIdx + 1; u <= pr.upto; u++) used[u] = 1; }
         }
       }

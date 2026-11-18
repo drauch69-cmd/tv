@@ -198,9 +198,13 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   eq('sides: button text does not make rows live', r.items.map(i => i.liveHint), [false, false, false, false]);
   eq('sides: no subtitle', r.items.map(i => i.subtitle), ['', '', '', '']);
   // cards in several sections, each card with an empty overlay link carrying aria-label
+  r = await run(page, 'cards-matchcard-live.html');
+  console.log(r.debug);
+  eq('live matchcards: titles (league label and viewer count are not titles)', r.items.map(i => i.title), ['Red Hawks vs Blue Jays', 'North State Owls vs South Tech Foxes', 'Harbor Kings vs River Cats', 'Stone Bears vs Iron Wolves']);
+  eq('live matchcards: countdowns', r.items.slice(2).map(i => i.timeText), ['STARTS IN 33m', 'STARTS IN 18h 3m']);
   r = await run(page, 'cards-sections.html');
   console.log(r.debug);
-  eq('sections: all 19 cards', r.items.length, 19);
+  eq('sections: all 19 cards (content-visibility:auto cards off screen still read)', r.items.length, 19);
   eq('sections: titles from the overlay link', [r.items[0].title, r.items[1].title, r.items[18].title], ['Alpha1 vs Beta1', 'Alpha2 vs Beta2', 'Alpha19 vs Beta19']);
   eq('sections: section = the heading text', [r.items[0].section, r.items[5].section, r.items[18].section], ['Basketball', 'Soccer', 'Other']);
   eq('sections: live cards', r.items.slice(0, 4).map(i => i.liveHint), [true, false, false, true]);
