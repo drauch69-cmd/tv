@@ -35,6 +35,10 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **NBA as a third sport** (2026-11-17, `sports` branch): same ESPN feed scheme, matching rules (shared-city rule
+  covers Lakers/Clippers), tag, tile, sport screen and live-games row as football. A list tagged with a sport
+  matches scores only against that sport; untagged lists match all. Untested on the TV; ESPN's NBA status wording
+  not checked against a live game yet.
 - **Sports folders plan** (2026-11-17, `sports` branch): saved lists get a sport tag (NFL, College football, or
   none; set on the phone page when adding, changeable later). ESPN schedule for today plus 2 days. Each stream from
   every tagged list is matched to a game (same both-teams rule as live scores); a game lists all its streams from
