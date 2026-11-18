@@ -1343,6 +1343,7 @@ class PlayerActivity : Activity() {
             coverText.visibility = if (show) View.VISIBLE else View.GONE
             coverDetails.text = if (show) "Hide details" else "Show details"
         }
+        Ui.noClip(cover, col, buttons)
         buttons.addView(coverCancel)
         buttons.addView(coverDetails, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(9f) })
@@ -1461,6 +1462,7 @@ class PlayerActivity : Activity() {
             row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { marginEnd = dp(9f) })
         }
+        Ui.noClip(overlay, col, row)
         col.addView(meta)
         col.addView(ovTitle, gap(12f))
         col.addView(progress, gap(12f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })

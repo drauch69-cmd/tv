@@ -167,6 +167,8 @@ class MainActivity : Activity() {
         yourLists = findViewById(R.id.yourLists)
         prefetchToggle = findViewById(R.id.prefetchToggle)
         styleHome()
+        val homeScroll = findViewById<ViewGroup>(R.id.homeScroll)
+        Ui.noClip(homeScroll, homeScroll.getChildAt(0), liveRow, liveGamesRow, sportsRow, recentList)
         updateBanner.setOnClickListener { installUpdate() }
         updateSettings.setOnClickListener { openInstallSettings() }
         checkUpdate.setOnClickListener { Updater.check(this, manual = true) }

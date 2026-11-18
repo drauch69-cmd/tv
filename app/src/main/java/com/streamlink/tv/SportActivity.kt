@@ -236,7 +236,7 @@ class SportActivity : Activity() {
         errorView = Ui.text(this, "", 12f, Ui.LIVE_TEXT).apply { setPadding(0, dp(8), 0, 0); visibility = View.GONE }
         content.addView(errorView)
 
-        val scroll = ScrollView(this).apply {
+        val scroll = FocusScrollView(this).apply {
             isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true
             clipToPadding = false
             setPadding(dp(3), dp(3), dp(3), dp(3))
@@ -244,6 +244,7 @@ class SportActivity : Activity() {
         rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rows.addView(Ui.text(this, "Loading games…", 15f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, dp(6)) })
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        Ui.noClip(rows, content, top)
         content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
         content.addView(Ui.text(this, "OK  Open   ·   Menu  Refresh now", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
