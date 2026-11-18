@@ -5,6 +5,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Home speed fix confirmed** (Sports build 188, 2026-11-18): the user says the app "feels much better now". Still to
+  watch: video stalls while watching and occasional crashes (crash/freeze recorder offered, not approved yet).
 - **TV report 2026-11-18 01:45 (Sports build 184):** TheTVApp and Roxie streams play on the TV. Reed was down for everyone;
   Buffstreams and StreamEast had nothing live to test. The app is "very slow, stalls often, crashes occasionally".
   Suspect (unverified): since 184 the home screen recomputes every 5 s on the main thread (reads all cached lists,
