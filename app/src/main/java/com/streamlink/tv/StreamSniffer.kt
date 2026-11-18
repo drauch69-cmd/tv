@@ -500,6 +500,20 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
         }
         val c = object : SafeWebViewClient(url) {
+            override fun onRendererGone(view: WebView?, didCrash: Boolean) {
+                main.post {
+                    // The view is dead: drop our references first so nothing touches it again.
+                    if (view == null || webView !== view) { SafeWeb.dispose(view); return@post }
+                    webView = null
+                    client = null
+                    SafeWeb.dispose(view)
+                    if (done) return@post
+                    linkLog("The hidden browser was shut down by the system" + if (didCrash) " (it crashed)" else " (low memory)")
+                    lastReason = "web view crashed"
+                    finish(result(emptyList()))
+                }
+            }
+
             override fun onFrame(url: String) {
                 if (!AdBlock.isBlockedHost(Report.host(url))) frameUrls.add(url)
                 if (linkWatch && linkNewFrame == null && LinkOrder.isNewPlayerFrame(url, linkPrevPlayer)) linkNewFrame = url
