@@ -370,6 +370,7 @@
       if (g.avgLen < 14 && g.timeFrac < 0.3) s -= 35;       // menus, chips: very short text
       if (counts / sn >= 0.6 && g.avgLen < 30) s -= 30;     // "Workshops 18"
       if (g.avgLen > 600) s -= 30;
+      if (/^T[DH]$/.test(items[0].tagName)) s -= 45;          // table cells: the row is the <tr>, never a single cell
       if (prose / sn >= 0.5) s -= 60;                        // links inside running text are not rows
       if (g.timeFrac === 0 && (prose / sn >= 0.25 || (n < 4 && !datedSection(g)))) s -= 40; // no time, no live marker: must be clearly list-like
       if (forms / sn >= 0.5) s -= 50;                        // rows holding form controls (a section header with a filter)
