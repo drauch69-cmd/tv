@@ -5,8 +5,19 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **Next task (user, 2026-11-18): pull streams from the six index sites** (TheTVApp, Roxie, Reed, CrackStreams,
-  Buffstreams, StreamEast): make sure the finder plays their event pages. Not started; check in with a plan first.
+- **Pull streams from the six index sites** (user, 2026-11-18). Inspected one live game on each in the desktop browser
+  (not on the TV); plan offered, waiting for "go":
+  - TheTVApp and Buffstreams: same player provider; disguised playlist `/playlist/<id>/load-playlist` (already caught
+    since build 160), segments are MPEG-TS named .txt; the player needs a second tap (first tap opens an ad popup).
+  - Reed: player two frames deep; default source is a plain .m3u8 (480p); 9 source buttons.
+  - Roxie: Clappr player right in the page, plain .m3u8 on rotating domains, autoplays; the page loads the
+    "disable-devtool" library (it closed the desktop browser pane), which might misfire in the TV's hidden browser.
+  - CrackStreams: player page only loads with CrackStreams as referer (fine inside the page); its playlist address
+    has no playlist word (`/ziangel6/application5`, served as application/vnd.apple.mpegurl, refetched every ~6 s), so
+    the finder likely misses it. Proposed: count a request that repeats every few seconds as a possible playlist
+    (confirmed by content as today).
+  - StreamEast: a console-timing devtools trap sends the page home in the desktop browser (should not fire on the
+    TV); the player frame is named "ClearKeyEmbed" (possibly ClearKey-encrypted video); could not inspect further.
 - **List reader fixes for those six sites** (2026-11-18): built (titles from name pairs / overlay links, league labels
   and emoji skipped, table rows, prose links not games, countdowns, sectioned cards, content-visibility rows). Checked
   against the live pages in the desktop browser at 1280x720 (all six read correctly); not tested on the TV.
