@@ -35,6 +35,10 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **Several sport tags per list** (2026-11-17, `sports` branch): some index pages mix sports, so a list carries
+  any set of NFL / College football / NBA (toggle chips on the phone page; old single tags carried over). An item
+  is matched once across all the list's sports (one best game wins, never two sports); unmatched items show in
+  "Other" of every sport the list carries. Untested on the TV and on the phone.
 - **NBA as a third sport** (2026-11-17, `sports` branch): same ESPN feed scheme, matching rules (shared-city rule
   covers Lakers/Clippers), tag, tile, sport screen and live-games row as football. A list tagged with a sport
   matches scores only against that sport; untagged lists match all. Untested on the TV; ESPN's NBA status wording
