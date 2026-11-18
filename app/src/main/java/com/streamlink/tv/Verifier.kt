@@ -125,7 +125,13 @@ object Verifier {
             val isHls = t.startsWith("#EXTM3U")
             val isDash = !isHls && text.contains("<MPD")
             if (!isHls && !isDash) {
-                note = if (t.startsWith("<")) "got a web page instead of video" else "not a playlist"
+                // What came back instead, for the report: size and the first characters (non-text as ·).
+                val head = r.body.take(24).joinToString("") { b ->
+                    val ch = (b.toInt() and 0xFF).toChar()
+                    if (ch in ' '..'~') ch.toString() else "·"
+                }
+                val what = "${r.body.size} bytes, starts \"$head\"" + if (r.finalUrl != c.url) ", after a redirect" else ""
+                note = (if (t.startsWith("<")) "got a web page instead of video" else "not a playlist") + " ($what)"
                 continue
             }
             PrefetchCache.put(c.url, r.body, r.finalUrl)
