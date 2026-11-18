@@ -554,24 +554,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 tap(wv, wv.width / 2f, wv.height / 2f)
             }
         }
-        maybeGiveUpEarly()
     }
 
-    /**
-     * Another site's player frame that was tapped and still shows no stream rarely gives one later:
-     * stop early so the site's own player opens sooner (it plays these frames fine).
-     */
-    private fun maybeGiveUpEarly() {
-        if (done || verifying || linksMode || light || clickRef != null || candidates.isNotEmpty()) return
-        if (!playerForeign || firstPlayerTapAt == 0L) return
-        val now = SystemClock.uptimeMillis()
-        if (now - firstPlayerTapAt < EMBED_GIVE_UP_MS || now - runStartedAt < EMBED_MIN_RUN_MS) return
-        if (now - runStartedAt >= timeoutMs - 1_000) return // the normal timeout is about to run anyway
-        log("Tapped the other site's player $playerTaps time(s) and it showed no stream ${EMBED_GIVE_UP_MS / 1000}s after the first tap; stopping early")
-        timeoutMs = now - runStartedAt
-        main.removeCallbacks(timeout)
-        timeout.run()
-    }
 
     /** Same site, or one is a subdomain of the other (cdn.example.com vs example.com). */
     private fun sameSite(a: String, b: String): Boolean {
@@ -835,10 +819,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         private const val FIRST_NUDGE_MS = 1_500L
         /** Taps on a found player, at most (one per nudge, 2.5 s apart). */
         private const val MAX_PLAYER_TAPS = 6
-        /** Another site's player frame: give up this long after the first tap on it if no stream showed... */
-        private const val EMBED_GIVE_UP_MS = 8_000L
-        /** ...but never before this much of the run has passed. */
-        private const val EMBED_MIN_RUN_MS = 12_000L
         private const val MAX_CANDIDATES = 12
         private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 

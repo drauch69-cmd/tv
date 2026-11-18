@@ -27,6 +27,9 @@ Reminder: lay out options and get a "go" before starting any of these.
   screen, phone page).
 - **Audio sync adjustment:** built, then reverted at the user's request as clunky. The real cause was a TV audio
   setting on the user's side. Do not bring it back.
+- **No early give-up on other sites' players** (2026-11-17): build 153 stopped the search 8 s after tapping a
+  player from another site; most streams then fell to the site player, since those players often need 10–15 s.
+  Removed at the user's request; site miss counts were reset (new storage key). Do not re-add without asking.
 - **Channel surfing:** removed. Up/Down open the bottom menu, like OK.
 - **Sources** have their own button and panel (not under Audio). **Pause** is the first button.
 - **"Jump to live"** is styled like the other buttons, not highlighted. The list's Play button stays highlighted.

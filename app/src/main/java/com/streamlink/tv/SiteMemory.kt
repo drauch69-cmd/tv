@@ -16,7 +16,8 @@ object SiteMemory {
     const val SHORT_TIMEOUT_MS = 15_000L // 10 s left only ~8 s after the page load and first tap
     const val EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
     private const val PREFS = "streamlink"
-    private const val KEY = "site_memory"
+    // "_2": forgets misses recorded while builds 153–156 gave up early on other sites' players.
+    private const val KEY = "site_memory_2"
     private const val MAX_SITES = 80
 
     data class Entry(val fails: Int, val at: Long)
