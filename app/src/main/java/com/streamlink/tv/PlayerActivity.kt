@@ -63,6 +63,9 @@ class PlayerActivity : Activity() {
     companion object {
         private const val STALL_MS = 20_000L
         private const val MAX_RECONNECTS = 3
+        /** Expired access codes: one fresh-address try per this long, and this many empty tries in a row before giving up. */
+        private const val RENEW_MIN_GAP_MS = 60_000L
+        private const val MAX_RENEWALS_FAILED = 3
         private const val FIRST_FRAME_MS = 8_000L
 
         /** Set when tunneled playback misbehaved; stays off until the app restarts (never saved). */
@@ -145,6 +148,10 @@ class PlayerActivity : Activity() {
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
     private var linkGen = 0
+    /** Expiring access codes: when the last renewal started, how many in a row found nothing, and whether one is running. */
+    private var lastRenewAt = 0L
+    private var renewFailures = 0
+    private var renewing = false
 
     private val handler: (String, String?) -> Unit = { c, v -> onCommand(c, v) }
 
@@ -198,6 +205,9 @@ class PlayerActivity : Activity() {
         linkGen++
         cancelLinkRun()
         set = s
+        lastRenewAt = 0L
+        renewFailures = 0
+        renewing = false
         countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
         smoothThisRun = false
         emptyStallTimes.clear()
@@ -819,6 +829,8 @@ class PlayerActivity : Activity() {
         Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
 
         val src = set?.sources?.getOrNull(sourceIndex)
+        // A signed address that played fine and is now refused: its access code probably expired.
+        if (http == 403 && playingSince != 0L && src != null && StreamUrls.hasQuery(src.url) && renewAccess(src)) return
         // Only "not allowed" answers can be fixed by claiming a different page; "not found" can't.
         if ((http == 401 || http == 403) && playingSince == 0L &&
             src != null && refererIndex + 1 < src.referers.size
@@ -828,6 +840,52 @@ class PlayerActivity : Activity() {
             return
         }
         recover(why)
+    }
+
+    /**
+     * The playing source's address carries a short-lived access code and the server now refuses it. Quietly
+     * look for a fresh address (a light sniff of the page, or of the link player the source came from, in the
+     * idle page loader) and restart on it at the live point, without leaving the player. At most one try per
+     * 60 s and 3 empty tries in a row; returns false (caller falls through to the normal recovery) when a try
+     * is not allowed. While a try runs, returns true.
+     */
+    private fun renewAccess(old: Source): Boolean {
+        if (renewing) return true
+        val now = System.currentTimeMillis()
+        if (renewFailures >= MAX_RENEWALS_FAILED || now - lastRenewAt < RENEW_MIN_GAP_MS) return false
+        val page = set?.pageUrl?.takeIf { it.startsWith("http") } ?: return false
+        renewing = true
+        lastRenewAt = now
+        Report.log("Access code expired; getting a fresh address…")
+        val gen = linkGen
+        val target = old.playerUrl.ifEmpty { page }
+        val ref = if (old.playerUrl.isNotEmpty()) page else null
+        sniffer.sniff(target, collectLinks = false, referer = ref, light = true) { r ->
+            if (gen != linkGen || isDestroyed) return@sniff
+            renewing = false
+            val ok = r.sources.filter { it.verified }
+            val fresh = ok.firstOrNull { StreamUrls.sameStream(it.url, old.url) } ?: ok.firstOrNull()
+            val cur = set
+            val idx = cur?.sources?.indexOfFirst { it.url == old.url } ?: -1
+            if (fresh == null || cur == null || idx < 0) {
+                renewFailures++
+                Report.log("No fresh address found ($renewFailures of $MAX_RENEWALS_FAILED)")
+                recover("server said 403")
+                return@sniff
+            }
+            renewFailures = 0
+            Report.log("Fresh address found" + (if (StreamUrls.sameStream(fresh.url, old.url)) "" else " (a different stream)") + "; resuming at live")
+            val list = cur.sources.toMutableList()
+            list[idx] = fresh.copy(label = old.label, isDefaultLink = old.isDefaultLink, playerUrl = old.playerUrl)
+            val updated = cur.copy(sources = list)
+            set = updated
+            if (Session.current === cur) Session.current = updated
+            if (sourceIndex != idx) return@sniff // the viewer switched source meanwhile; only the address was refreshed
+            refererIndex = 0
+            playingSince = 0
+            play()
+        }
+        return true
     }
 
     private fun recover(why: String) {
@@ -1003,10 +1061,10 @@ class PlayerActivity : Activity() {
     private var linksAdded = 0
 
     /** Merges sources found by a link run (dedup by [LinkOrder.mergeExtra]); each is shown under [label] when given. Returns how many were added. */
-    private fun addLinkSources(found: List<Source>, label: String): Int {
+    private fun addLinkSources(found: List<Source>, label: String, player: String = ""): Int {
         val cur = set ?: return 0
         // Only streams that passed the playlist check; the rest are not offered as sources.
-        val verified = found.filter { it.verified }
+        val verified = found.filter { it.verified }.map { it.copy(playerUrl = player) }
         val extra = if (label.isEmpty()) verified else verified.map { it.copy(label = LinkOrder.sourceLabel(label, Report.host(it.url), "single quality", true), isDefaultLink = false) }
         val merged = LinkOrder.mergeExtra(cur.sources, extra)
         val added = merged.size - cur.sources.size
@@ -1035,7 +1093,7 @@ class PlayerActivity : Activity() {
                     ?: if (r.sources.isNotEmpty()) "only non-playlist media found" else r.reason
                 Report.log("Links: $label: no stream" + if (why.isNotEmpty()) " ($why)" else "")
             } else {
-                val n = addLinkSources(r.sources, label)
+                val n = addLinkSources(r.sources, label, frame)
                 Report.log("Links: $label: stream found" + if (n == 0) " (already known)" else "")
                 linksAdded += n
             }

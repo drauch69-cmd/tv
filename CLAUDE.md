@@ -79,8 +79,12 @@ Playback pipeline:
    into view, or a player box before its frame exists; tapped every nudge, max 6), blocks popups and redirects, and
    watches network requests
    for playlists (`StreamUrls.classify`, judged by path; addresses hidden inside other requests are extracted).
+   A playlist address found only inside another request (an analytics ping) usually lacks the player's signed
+   access code (`t=` query): the sniffer waits up to 8 s for the player's own request, which replaces the copy
+   (`StreamUrls.sameStream`) and is checked first; embedded-only stays as the last resort.
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
-   being tried (`Headers.originFor`). Only verified sources play.
+   being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
+   (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play.
 4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
 5. **Extra sources.** After 10 s of stall-free play, a background run finds the page's other link buttons and sniffs
@@ -110,6 +114,11 @@ Remote tabs; prefetch toggle).
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.
+- **Expiring access codes.** If a playing source whose address has a query gets 403 after it had played fine,
+  `PlayerActivity.renewAccess` quietly runs a light sniff of the same page (or the link player the source came
+  from, `Source.playerUrl`), takes the verified source with the same address path (else any verified one) and
+  restarts on it at live. At most one try per 60 s, gives up after 3 empty tries (then the normal reconnect).
+  Report lines: "Access code expired; getting a fresh address…", then the outcome. Not yet tested on the TV.
 - **Updater.** Checks its channel's GitHub release, verifies SHA-256 and signing cert, and installs only after the
   user presses OK (see README).
 

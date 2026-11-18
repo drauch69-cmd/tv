@@ -72,8 +72,14 @@ class HeadersTest {
             frames,
             { it.contains("adnet") },
         )
+        // each full address is followed by its bare origin; the cap of 4 cuts the tail
         assertEquals(
-            listOf("https://carrier.example.com/page", "https://newest.example.com/p", "https://older.example.com/p"),
+            listOf(
+                "https://carrier.example.com/page",
+                "https://carrier.example.com/",
+                "https://newest.example.com/p",
+                "https://newest.example.com/",
+            ),
             out,
         )
     }
@@ -85,5 +91,49 @@ class HeadersTest {
         assertEquals(4, out.size)
         assertEquals("https://f1.example.com/", out[0])
         assertEquals(4, Headers.embeddedReferers("https://c.example.com/", frames, { false }).size)
+    }
+
+    @Test
+    fun originFormFollowsFullFormAndNeverDisplacesTheFirstFrame() {
+        val out = Headers.withOriginForms(
+            listOf("https://dembed.st/premiumtv/daddy.php?id=45", "https://thedaddy.li/embed/x"),
+            4,
+        )
+        assertEquals(
+            listOf(
+                "https://dembed.st/premiumtv/daddy.php?id=45",
+                "https://dembed.st/",
+                "https://thedaddy.li/embed/x",
+                "https://thedaddy.li/",
+            ),
+            out,
+        )
+        // tight cap: the first frame and its origin come before anything from the second
+        assertEquals(
+            listOf("https://dembed.st/premiumtv/daddy.php?id=45", "https://dembed.st/"),
+            Headers.withOriginForms(listOf("https://dembed.st/premiumtv/daddy.php?id=45", "https://thedaddy.li/embed/x"), 2),
+        )
+    }
+
+    @Test
+    fun originFormsSkipDuplicatesByOrigin() {
+        val out = Headers.withOriginForms(listOf("https://a.example.com/x", "https://a.example.com/y"), 5)
+        assertEquals(
+            listOf("https://a.example.com/x", "https://a.example.com/", "https://a.example.com/y"),
+            out,
+        )
+        assertEquals(listOf("https://a.example.com/"), Headers.withOriginForms(listOf("https://a.example.com/"), 5))
+    }
+
+    @Test
+    fun originForABareOriginRefererHasNoTrailingSlash() {
+        assertEquals("https://dembed.st", Headers.originFor("https://dembed.st/", null))
+    }
+
+    @Test
+    fun describeRefererForTheReport() {
+        assertEquals("dembed.st/…", Headers.describeReferer("https://dembed.st/premiumtv/daddy.php?id=45"))
+        assertEquals("dembed.st/", Headers.describeReferer("https://dembed.st/"))
+        assertEquals("none", Headers.describeReferer(""))
     }
 }

@@ -45,13 +45,37 @@ object Headers {
     }
 
     /**
+     * Each referer followed by its bare origin with a trailing slash ("https://host/"), which is what a
+     * browser sends under strict referrer policies; de-duplicated and capped at [max]. The cap cuts the
+     * tail, so the first referers are never lost to the extra origin forms.
+     */
+    fun withOriginForms(referers: List<String>, max: Int): List<String> {
+        val out = LinkedHashSet<String>()
+        for (r in referers) {
+            out.add(r)
+            originOf(r)?.let { out.add("$it/") }
+        }
+        return out.toList().take(max)
+    }
+
+    /** A referer as the report shows it: "host/…" for a page address, "host/" for a bare origin, "none" for no referer. */
+    fun describeReferer(referer: String): String {
+        if (referer.isEmpty()) return "none"
+        val origin = originOf(referer) ?: return referer.take(30)
+        val host = origin.substringAfter("://")
+        val bare = referer.trim().removePrefix(origin).let { it.isEmpty() || it == "/" }
+        return if (bare) "$host/" else "$host/…"
+    }
+
+    /**
      * Referers to try for a stream found inside another request: the carrier request's Referer first,
-     * then the player frames (given newest first), leaving out ad hosts; de-duplicated and capped at [max].
-     * Only http(s) URLs qualify, so about: and javascript: never appear.
+     * then the player frames (given newest first), leaving out ad hosts; each also as a bare origin right
+     * after its full form; de-duplicated and capped at [max]. Only http(s) URLs qualify, so about: and
+     * javascript: never appear.
      */
     fun embeddedReferers(carrier: String?, framesNewestFirst: List<String>, isAdHost: (String) -> Boolean, max: Int = 4): List<String> {
         val fromCarrier = listOfNotNull(carrier).filter { originOf(it) != null }
         val frames = framesNewestFirst.filter { originOf(it) != null && !isAdHost(it) }
-        return (fromCarrier + frames).distinct().take(max)
+        return withOriginForms((fromCarrier + frames).distinct(), max)
     }
 }

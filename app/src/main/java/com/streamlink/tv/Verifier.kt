@@ -114,10 +114,12 @@ object Verifier {
     }
 
     private fun check(c: StreamCandidate, log: (String) -> Unit): Checked {
-        // Up to 4 real referers, then the no-referer attempt last.
-        val refs = (c.referers.filter { it.isNotEmpty() }.take(4) + "").distinct()
+        // Up to 5 real referers (the finder already caps each list), then the no-referer attempt last.
+        val refs = (c.referers.filter { it.isNotEmpty() }.take(5) + "").distinct()
         var note = "no response"
+        val tried = ArrayList<String>()
         for (ref in refs) {
+            tried.add(Headers.describeReferer(ref))
             val r = fetch(c.url, c.headers, ref, log) ?: continue
             if (r.code !in 200..299) {
                 note = "server said ${r.code}"
@@ -155,6 +157,8 @@ object Verifier {
                 if (adLike) " — looks like an ad" else "")
             return Checked(c, true, master, isDash, live, adLike, ref, variants)
         }
+        // A refusal: say which referers were tried (hosts only, never tokens).
+        if (note.startsWith("server said 403")) note += "; tried: " + tried.joinToString(", ")
         log("✗ ${Report.short(c.url)}: $note")
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
     }
