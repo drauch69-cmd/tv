@@ -10,7 +10,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   main thread and ScoreMatch's single cache slot thrashed against the home model. Fixed: sport/streams screens compute
   off the main thread with a look check, ScoreMatch keeps 6 prepared game lists, stable per-league game views. Added the
   crash/freeze recorder ("Last exit:" / "Crash:" lines at the top of the report) and renderer-gone handling in all
-  hidden browsers. Focus outlines no longer clipped (no-clip containers, focus scroll keeps 12 dp around the card).
+  hidden browsers. Focus clipping attempt (no-clip containers, FocusScroll, lifted/scaled card) was reverted: it looked worse. New focus style (user approved): same size, brighter fill, accent ring drawn as a foreground stroke inside the view's bounds (`Ui.focusCard`). Not yet tested on the TV.
   Untested on the TV: next check the NBA tile; if it still fails, the report's "Last exit" lines say why.
 - **No problems since build 188** (user, 2026-11-18 02:55): no stalls or crashes reported after the home speed fix, so
   the performance review batches are now preventive, not urgent.

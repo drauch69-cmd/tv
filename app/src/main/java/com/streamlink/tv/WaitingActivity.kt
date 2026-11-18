@@ -384,7 +384,7 @@ class WaitingActivity : Activity() {
 
     private fun button(label: String, onClick: () -> Unit) = text(label, 13f, Ui.TEXT, true).apply {
         setPadding(dp(14), dp(9), dp(14), dp(9))
-        background = Ui.focusable(this@WaitingActivity, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+        Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
         isFocusable = true; isClickable = true
         setOnClickListener { onClick() }
     }

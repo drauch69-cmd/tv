@@ -464,17 +464,16 @@ class MainActivity : Activity() {
             val live = e.status == ListStatus.LIVE
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = Ui.focusable(this@MainActivity, radiusDp = 12f)
+                Ui.focusCard(this, radiusDp = 12f)
                 setPadding(dp(15), dp(13), dp(15), dp(13))
                 isFocusable = true
                 isClickable = true
                 tag = e.item.url
                 if (e.status == ListStatus.UPCOMING) alpha = 0.75f
                 setOnClickListener { playListItem(e.list, e.item.url, e.item.startMillis) }
-                // Head start: set before growOnFocus, which chains to this listener.
+                // Head start on focus.
                 setOnFocusChangeListener { _, has -> if (has) prefetcher.focus(e.item) else prefetcher.blur() }
             }
-            Ui.growOnFocus(card)
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
             val badgeText = HomeFeed.badge(e.item, e.status, now, zone, locale)
             if (badgeText.isNotEmpty()) top.addView(Ui.badge(this, badgeText, live, 10f))
@@ -533,14 +532,13 @@ class MainActivity : Activity() {
             val g = gf.game
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = Ui.focusable(this@MainActivity, radiusDp = 12f)
+                Ui.focusCard(this, radiusDp = 12f)
                 setPadding(dp(15), dp(13), dp(15), dp(13))
                 isFocusable = true
                 isClickable = true
                 tag = g.id
                 setOnClickListener { startActivity(StreamsActivity.gameIntent(this@MainActivity, g.league, g.id)) }
             }
-            Ui.growOnFocus(card)
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
             top.addView(Ui.badge(this, "LIVE", true, 10f))
             top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
@@ -576,14 +574,13 @@ class MainActivity : Activity() {
         fun tile(key: String, name: String, line: String, foot: String, open: () -> Unit) {
             val t = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                background = Ui.focusable(this@MainActivity, radiusDp = 11f)
+                Ui.focusCard(this, radiusDp = 11f)
                 setPadding(dp(15), dp(13), dp(15), dp(13))
                 isFocusable = true
                 isClickable = true
                 tag = key
                 setOnClickListener { open() }
             }
-            Ui.growOnFocus(t)
             t.addView(Ui.text(this, name, 15f, Ui.TEXT, bold = true).apply { maxLines = 1 })
             val sb = SpannableStringBuilder(line)
             val i = line.indexOf(" live")
@@ -626,8 +623,8 @@ class MainActivity : Activity() {
     }
 
     private fun styleHome() {
-        sendLink.background = Ui.focusable(this, normal = Ui.SURFACE, radiusDp = 9f)
-        yourLists.background = Ui.focusable(this, normal = Ui.SURFACE, radiusDp = 9f)
+        Ui.focusCard(sendLink, normal = Ui.SURFACE, radiusDp = 9f)
+        Ui.focusCard(yourLists, normal = Ui.SURFACE, radiusDp = 9f)
         val listsIcon = GradientDrawable().apply { setColor(Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(10)) }
         yourLists.setCompoundDrawablesRelativeWithIntrinsicBounds(listsIcon, null, null, null)
         val qrIcon = GradientDrawable().apply { setColor(0); setStroke(dp(2), Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(14)) }
@@ -635,10 +632,10 @@ class MainActivity : Activity() {
         val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Ui.ACCENT); setSize(dp(12), dp(12)) }
         findViewById<TextView>(R.id.brand).setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
         findViewById<View>(R.id.qrCard).background = Ui.rounded(this, Ui.SURFACE, 16f, Ui.BORDER, 1f)
-        checkUpdate.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
-        prefetchToggle.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
-        findViewById<View>(R.id.qrClose).background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
-        updateSettings.background = Ui.focusable(this, normal = Ui.CHIP, radiusDp = 8f)
+        Ui.focusCard(checkUpdate, normal = Ui.CHIP, radiusDp = 8f)
+        Ui.focusCard(prefetchToggle, normal = Ui.CHIP, radiusDp = 8f)
+        Ui.focusCard(findViewById<View>(R.id.qrClose), normal = Ui.CHIP, radiusDp = 8f)
+        Ui.focusCard(updateSettings, normal = Ui.CHIP, radiusDp = 8f)
         findViewById<TextView>(R.id.versionText).text = "StreamLink ${BuildConfig.VERSION_NAME}" +
             if (BuildConfig.CHANNEL == "main") "" else " (${BuildConfig.CHANNEL})"
     }
@@ -668,8 +665,8 @@ class MainActivity : Activity() {
         // Only a banner you can press needs to be focusable.
         updateBanner.isFocusable = phase == UpdateState.Phase.READY
         updateBanner.isClickable = phase == UpdateState.Phase.READY
-        updateBanner.background = if (phase == UpdateState.Phase.READY) Ui.focusable(this, normal = Ui.NEUTRAL_BADGE, radiusDp = 14f)
-        else Ui.rounded(this, Ui.SURFACE, 14f)
+        if (phase == UpdateState.Phase.READY) Ui.focusCard(updateBanner, normal = Ui.NEUTRAL_BADGE, radiusDp = 14f)
+        else { updateBanner.background = Ui.rounded(this, Ui.SURFACE, 14f); updateBanner.foreground = null }
         val needAllow = phase == UpdateState.Phase.READY && !canInstall
         updatePerm.visibility = if (needAllow) View.VISIBLE else View.GONE
         updateSettings.visibility = if (needAllow) View.VISIBLE else View.GONE
@@ -752,7 +749,7 @@ class MainActivity : Activity() {
                 setSingleLine(true)
                 ellipsize = android.text.TextUtils.TruncateAt.END
                 maxWidth = dp(260)
-                background = Ui.focusable(this@MainActivity, radiusDp = 9f)
+                Ui.focusCard(this, radiusDp = 9f)
                 setPadding(dp(13), dp(9), dp(13), dp(9))
                 isFocusable = true
                 isClickable = true

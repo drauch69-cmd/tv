@@ -37,7 +37,7 @@ object ListTiles {
             setStroke(Ui.dp(a, 2), Ui.BORDER, Ui.dp(a, 6).toFloat(), Ui.dp(a, 5).toFloat())
         }
         return StateListDrawable().apply {
-            addState(intArrayOf(android.R.attr.state_focused), Ui.rounded(a, Ui.SURFACE_FOCUS, 11f, Ui.ACCENT, 3f))
+            addState(intArrayOf(android.R.attr.state_focused), Ui.rounded(a, Ui.SURFACE_FOCUS, 11f))
             addState(intArrayOf(), normal)
         }
     }
@@ -59,7 +59,7 @@ object ListTiles {
             val c = cachedById[l.id]
             val tile = LinearLayout(a).apply {
                 orientation = LinearLayout.VERTICAL
-                background = Ui.focusable(a, radiusDp = 11f)
+                Ui.focusCard(this, radiusDp = 11f)
                 setPadding(Ui.dp(a, 15), Ui.dp(a, 13), Ui.dp(a, 15), Ui.dp(a, 13))
                 isFocusable = true
                 isClickable = true
@@ -67,7 +67,6 @@ object ListTiles {
                 setOnClickListener { onOpen(l) }
                 setOnLongClickListener { onRemove(l); true }
             }
-            Ui.growOnFocus(tile)
             tile.addView(Ui.text(a, l.name, 15f, Ui.TEXT, bold = true).apply {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
@@ -111,6 +110,7 @@ object ListTiles {
         val add = Ui.text(a, "Add a list from your phone", 13f, Ui.TEXT_2).apply {
             gravity = Gravity.CENTER
             background = dashedFocusable(a)
+            Ui.focusRing(this, 11f)
             setPadding(Ui.dp(a, 15), Ui.dp(a, 13), Ui.dp(a, 15), Ui.dp(a, 13))
             isFocusable = true
             isClickable = true
@@ -118,7 +118,6 @@ object ListTiles {
             minHeight = Ui.dp(a, 70)
             setOnClickListener { onAdd() }
         }
-        Ui.growOnFocus(add)
         row.addView(add, ViewGroup.MarginLayoutParams(Ui.dp(a, 200), Ui.dp(a, 70)).apply { bottomMargin = Ui.dp(a, 15) })
         if (addFocused) focusTarget = add
         if (focusedId != null && focusTarget == null) focusTarget = row.getChildAt(0) // its list was removed

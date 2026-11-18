@@ -127,7 +127,7 @@ items side by side, "Your lists" and "Send a link", and Recent follows the rows;
 still owns the background list reader and tells it to redraw through `ListEvents`; Session.mode "list"),
 `SportActivity` (one sport: game sections, "All games" toggle, "Other" streams), `StreamsActivity` (one game's score card and
 streams, or the 24/7 channels),
-`Ui.kt` (shared UI kit), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
+`Ui.kt` (shared UI kit; focus look = `Ui.focusCard` / `Ui.primaryCard` / `Ui.focusRing`: the focused view never changes size (no scaling); its fill brightens (SURFACE_FOCUS) and an accent ring is a `View.foreground` stroke drawn inside the view's own bounds, so nothing can clip it; default Android focus highlight is off), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
 Remote tabs; prefetch toggle).
 
 ## Key mechanisms

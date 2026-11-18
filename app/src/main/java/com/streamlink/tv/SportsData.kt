@@ -35,7 +35,7 @@ object SportsUi {
         val row = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            background = Ui.focusable(ctx)
+            Ui.focusCard(this)
             setPadding(Ui.dp(ctx, 14), Ui.dp(ctx, 10), Ui.dp(ctx, 14), Ui.dp(ctx, 10))
             isFocusable = true; isClickable = true
             tag = GameFolders.urlKey(item.url)

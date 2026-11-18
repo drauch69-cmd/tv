@@ -210,7 +210,7 @@ class SportActivity : Activity() {
         })
         top.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         allChip = Ui.text(this, SportsText.allGamesChip(showAll()), 13f, Ui.TEXT, bold = true).apply {
-            background = Ui.focusable(this@SportActivity, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
+            Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 8f)
             setPadding(dp(14), dp(9), dp(14), dp(9))
             isFocusable = true; isClickable = true
             setOnClickListener {
@@ -223,7 +223,7 @@ class SportActivity : Activity() {
         refreshBtn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
-            background = Ui.focusable(this@SportActivity, 0, Ui.SURFACE_FOCUS, 10f)
+            Ui.focusCard(this, 0, Ui.SURFACE_FOCUS, 10f)
             setPadding(dp(10), dp(6), dp(10), dp(6))
             isFocusable = true; isClickable = true
             setOnClickListener { maybeReadAll(0) }
@@ -359,7 +359,7 @@ class SportActivity : Activity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = Ui.focusable(this@SportActivity)
+            Ui.focusCard(this)
             setPadding(dp(14), dp(10), dp(14), dp(10))
             isFocusable = true; isClickable = true
             tag = "g:" + g.id
