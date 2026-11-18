@@ -952,7 +952,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         /** Possible playlists (disguised addresses) looked at per run. */
         private const val MAX_POSSIBLES = 4
         /** Separate budget for possibles found by repeating (see [RepeatWatch]). */
-        private const val MAX_REPEAT_POSSIBLES = 3
+        private const val MAX_REPEAT_POSSIBLES = 6
         private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 
         /** A media segment (not a playlist): the background link finder never downloads these. */

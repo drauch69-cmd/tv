@@ -5,6 +5,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Repeating requests as possible playlists** (2026-11-18, Sports app): a sub-resource address requested again
+  1.5–20 s later is checked by content like a disguised playlist (own budget of 6 per run). Aimed at CrackStreams'
+  `/…/application5` playlist. Not tested on the TV; next: the user opens a CrackStreams game and sends the report
+  (look for "A repeating request may be a playlist").
 - **The user runs StreamLink Sports** (build 174 on 2026-11-18), not StreamLink Test. Work aimed at the user's TV goes to
   `sports` (merge `test` into it; never the other way without the user's OK). `test` was merged into `sports` on
   2026-11-18 (list reader fixes, stale markers, countdowns, ESPN-driven status).

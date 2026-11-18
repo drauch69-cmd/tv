@@ -95,7 +95,7 @@ Playback pipeline:
    **Repeating requests** (`RepeatWatch` in StreamUrls.kt): a sub-resource GET to an address that is not a stream, not an
    image/script/style/font/media piece, and is requested a 2nd time 1.5-20 s after the first (a live playlist refresh,
    even with no extension or playlist word) is also a possible playlist, checked exactly like the word-based ones, but
-   with its own budget (max 3 per run, separate from the 4) so ad beacons cannot starve them. Fires once per address;
+   with its own budget (max 6 per run; repeating ad beacons are cheap to reject, separate from the 4) so ad beacons cannot starve them. Fires once per address;
    reset per run; light runs get it too. Report line: "A repeating request may be a playlist: <host>/…; checking it".
    Not yet tested on the TV.
    **Empty player box.** Some pages show an empty 16:9 box that only loads video after one of the page's own source
