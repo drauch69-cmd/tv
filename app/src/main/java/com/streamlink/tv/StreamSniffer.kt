@@ -360,10 +360,18 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
             override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
-                if (isStreamUrl(u)) {
-                    playlistSeen = true
-                    val headers = HashMap(request.requestHeaders ?: emptyMap())
-                    main.post { found(u, headers) }
+                val (isStream, embedded) = StreamUrls.classify(u)
+                if (!isStream && embedded.isEmpty()) return
+                if (isStream) playlistSeen = true
+                val headers = HashMap(request.requestHeaders ?: emptyMap())
+                main.post {
+                    // Addresses carried inside another request (e.g. an analytics ping): the request's
+                    // Referer goes with them, through the headers passed to found().
+                    for (e in embedded) {
+                        if (!candidates.containsKey(e)) log("Found a stream address inside another request: ${Report.host(e)}/…")
+                        found(e, headers)
+                    }
+                    if (isStream) found(u, headers)
                 }
             }
 
@@ -736,19 +744,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         /** How long a clicked link is given to swap in a new player frame. */
         private const val LINK_WAIT_MS = 6_000L
         /** Time for one per-player run ([sniff] with light = true). */
-        const val LIGHT_TIMEOUT_MS = 15_000L
+        const val LIGHT_TIMEOUT_MS = 25_000L
         private const val LINK_GRACE_MS = 900L
         private const val LINK_TAP_AFTER_MS = 3_500L
         private const val LINK_TICK_MS = 300L
         private const val LINK_MIN_LEFT_MS = 2_500L
 
-        fun isStreamUrl(url: String): Boolean {
-            val u = url.lowercase()
-            if (!u.startsWith("http://") && !u.startsWith("https://")) return false
-            val path = u.substringBefore('?').substringBefore('#')
-            if (path.endsWith(".js") || path.endsWith(".css")) return false
-            return u.contains("m3u8") || path.endsWith(".mpd") || u.contains(".mpd?")
-        }
+        fun isStreamUrl(url: String): Boolean = StreamUrls.classify(url).first
 
         /**
          * The hidden loader must never be heard, in any frame (a player frame from another site that
