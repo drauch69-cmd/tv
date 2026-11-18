@@ -240,7 +240,7 @@ class ListActivity : Activity() {
         content.addView(errorView)
 
         val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        scroll = ScrollView(this).apply {
+        scroll = FocusScrollView(this).apply {
             isVerticalScrollBarEnabled = false; isSmoothScrollingEnabled = true
             clipToPadding = false
             setPadding(dp(3), dp(3), dp(3), dp(3))
@@ -249,6 +249,7 @@ class ListActivity : Activity() {
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         body.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         panel = buildPanel()
+        Ui.noClip(rows, body, content, top, panel)
         body.addView(panel, LinearLayout.LayoutParams(dp(248), ViewGroup.LayoutParams.MATCH_PARENT).apply { marginStart = dp(20) })
         content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
         content.addView(text("OK  Play   ·   Menu  Refresh now   ·   “Maybe ended” events are at the bottom", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
