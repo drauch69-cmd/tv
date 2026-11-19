@@ -5,6 +5,26 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Batch after build 211** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV):
+  (1) finder: early finish when an adaptive/DASH stream passes its check, page sources read after the player starts,
+  head start uses remembered addresses, list reads paused while a stream is found or plays; (2) player network:
+  per-host split downloader (pieces from another host get only cross-site headers, 30 s read), piece-only failure
+  rule (restart Chrome's engine with QUIC off, then pieces on the other engine, then switch source without reload),
+  servers that refuse standard networking are remembered, playlist 404/410 twice = recover at once, stall waits
+  while a piece is still arriving; (3) learned site habits (tap spot, source button) replayed right after load;
+  (4) "Live now" narrowing + "Other" games only, per the user's plan (see the next item).
+  Cause found for "every ntv channel stuck on the loading screen until a force close": the shared Chrome network
+  engine kept a dead connection to the video-piece CDN (playlists fine, pieces timed out); a force close fixed it.
+  Next: the user plays ntv channels and sends reports; look for the new piece/engine lines and "Timing:".
+- **"Live now" word list is a deliberate exception** (user, 2026-11-19) to "never key on page words": it is the
+  user's own viewing filter (default ESPN, NFL, NBA, RedZone; editable on the phone), not detection.
+- **Next step (agreed in principle, 2026-11-19, build after this batch):** recovery both ways at once (keep the
+  stream trying, reload the page in the hidden browser and quick-check known addresses in parallel; first picture
+  wins); learn per server how long saved addresses last (ntv codes die within minutes; skip the shortcut where they
+  always fail); while watching, quietly re-find ONLY the game being watched (light mode, interval from the learned
+  lifetime, only with a healthy buffer, auto-off for the watch if it ever causes a stall) so a drop switches to a
+  fresh address in 1-2 s. No idle background refresh of other games.
+
 - **Speed plan, step 1 built** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV).
   Diagnosis: most of the wait is the site itself (page scripts, player taps, other sites' players needing 10-15 s),
   then the Onn's slow processor running the page; network speed matters least. Built: (1) one "Timing:" report line
