@@ -5,7 +5,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **Batch after build 211** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV):
+- **Batch after build 211, released as Sports build 224** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV):
   (1) finder: early finish when an adaptive/DASH stream passes its check, page sources read after the player starts,
   head start uses remembered addresses, list reads paused while a stream is found or plays; (2) player network:
   per-host split downloader (pieces from another host get only cross-site headers, 30 s read), piece-only failure
@@ -18,12 +18,13 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   Next: the user plays ntv channels and sends reports; look for the new piece/engine lines and "Timing:".
 - **"Live now" word list is a deliberate exception** (user, 2026-11-19) to "never key on page words": it is the
   user's own viewing filter (default ESPN, NFL, NBA, RedZone; editable on the phone), not detection.
-- **Next step (agreed in principle, 2026-11-19, build after this batch):** recovery both ways at once (keep the
-  stream trying, reload the page in the hidden browser and quick-check known addresses in parallel; first picture
-  wins); learn per server how long saved addresses last (ntv codes die within minutes; skip the shortcut where they
-  always fail); while watching, quietly re-find ONLY the game being watched (light mode, interval from the learned
-  lifetime, only with a healthy buffer, auto-off for the watch if it ever causes a stall) so a drop switches to a
-  fresh address in 1-2 s. No idle background refresh of other games.
+- **Next step (agreed in principle, 2026-11-19, build after Sports build 224):** recovery both ways at once (keep the
+  stream trying while backups are readied; first picture wins); learn per server how long saved addresses last (ntv codes
+  die within minutes; skip the shortcut where they always fail); while watching, keep fresh addresses for the BACKUP
+  sources of the same game (user, 08:16: the page's other sources and other sites' streams for that game, not the
+  playing one): light runs, one at a time, top 1-2 backups only (preferred list first, a different site/CDN preferred),
+  interval from the learned lifetime, only with a healthy buffer, auto-off for the watch if it ever causes a stall; on a
+  drop, switch to the freshest backup in 1-2 s. No idle background refresh of other games.
 
 - **Speed plan, step 1 built** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV).
   Diagnosis: most of the wait is the site itself (page scripts, player taps, other sites' players needing 10-15 s),
