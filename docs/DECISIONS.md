@@ -9,7 +9,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
   other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old
   tracker referer stays remembered until its 7-day expiry (harmless).
-- **Build 234 on the TV (13:50), off-air channel:** offline verdict at 15.6 s (was a 90 s reload loop). Fixed after (user's
+- **Build 234 on the TV (13:50), off-air channel:** offline verdict at 15.6 s (was a 90 s reload loop). Fixed in Sports build 235 (user's
   go 13:59, NOT tested on the TV): a channel (no start time) gives up on the first offline verdict instead of searching
   again (~30 s saved); an offline/refused stream no longer counts as a learned-habit miss (the habit was wrongly dropped).
 - **Build 234 on the TV (13:45):** confirmed working: early finish + learned habit (picture at 10.8 s on ntv), backup
