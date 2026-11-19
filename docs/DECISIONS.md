@@ -5,6 +5,22 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Speed plan, step 1 built** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV).
+  Diagnosis: most of the wait is the site itself (page scripts, player taps, other sites' players needing 10-15 s),
+  then the Onn's slow processor running the page; network speed matters least. Built: (1) one "Timing:" report line
+  per play (page loaded / tapped / stream seen / checked / picture, path, first-browser cost); (2) last working
+  address per page, re-checked in parallel with the page load (3 s limit), plays at once if still live; (3) per
+  stream server, the referer and network engine that worked are tried first. Next: the user plays 3-4 games
+  (reopen one) and sends reports; read the Timing lines.
+- **Speed plan, step 2 (waiting on step 1's timing reports):** site recipes learned automatically from successful
+  searches (frame depth, source button by position, taps needed, ad-popup first tap, usual seconds), replayed on the
+  same page load with the normal search carrying on if they fail; one recipe setting "open the player frame
+  directly" (outer page as referer; ~8 s then full page; 2 failures = never for that site). Build direct-frame only
+  if Timing lines show the outer page costs several seconds. Also discussed, not planned: keeping the browser engine
+  loaded at app start (small, safe); reusing one hidden browser (rejected: wrong-stream and stuck-browser risks for
+  ~1 s); pre-finding only the single most likely game (big gain, memory cost); a PC-side finder (addresses may be
+  tied to the browser/session that found them).
+
 - **Sources rework, show-more, preferred list** (user, 2026-11-19; built on `sports`, compiled and unit-tested in CI,
   page scripts checked in headless Chrome and against the live ntv.st page in the desktop browser; NOT tested on the TV).
   What to check on the TV:
