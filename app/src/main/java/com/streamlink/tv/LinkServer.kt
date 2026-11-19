@@ -32,6 +32,8 @@ class LinkServer(
     private val onListRemove: (String) -> Boolean = { false },
     /** POST /lists/sport (id, sport: comma-separated "nfl", "cfb", "nba" or empty for none; unknown values ignored): false if there is no such list. */
     private val onListSport: (String, Set<String>) -> Boolean = { _, _ -> false },
+    /** POST /lists/preferred (id, on = "1" or "0"): makes that list the one preferred list (on) or clears the mark; false if there is no such list. */
+    private val onListPreferred: (String, Boolean) -> Boolean = { _, _ -> false },
     /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
     private val onListRefresh: (String) -> Boolean = { false },
     /** POST /list/play (id, url, start): plays an event of a list; start is its start time (epoch ms) if known. */
@@ -209,6 +211,11 @@ class LinkServer(
                 val sports = Sports.parse((formValue(body, "sport") ?: "").take(40))
                 if (!id.isNullOrEmpty() && onListSport(id, sports)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
             }
+            method == "POST" && path == "/lists/preferred" -> {
+                val id = formValue(body, "id")
+                val on = formValue(body, "on")?.trim() == "1"
+                if (!id.isNullOrEmpty() && onListPreferred(id, on)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
+            }
             method == "POST" && path == "/list/refresh" -> {
                 val id = formValue(body, "id")
                 if (!id.isNullOrEmpty() && onListRefresh(id)) respond(c, 200, text, "Refreshing") else respond(c, 404, text, "No such list")
@@ -240,7 +247,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/list/refresh", "/list/play")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/preferred", "/list/refresh", "/list/play")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

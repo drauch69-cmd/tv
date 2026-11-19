@@ -197,11 +197,11 @@
   var SPORTS = [['nfl', 'NFL'], ['cfb', 'College football'], ['nba', 'NBA']];
   function chipValue(g){
     var v = [];
-    Array.prototype.forEach.call(g.children, function(b){ if (b.getAttribute('aria-pressed') === 'true') v.push(b.getAttribute('data-sport')); });
+    Array.prototype.forEach.call(g.children, function(b){ if (b.getAttribute('data-sport') && b.getAttribute('aria-pressed') === 'true') v.push(b.getAttribute('data-sport')); });
     return v.join(',');
   }
   function setChips(g, on){
-    Array.prototype.forEach.call(g.children, function(b){ b.setAttribute('aria-pressed', on.indexOf(b.getAttribute('data-sport')) >= 0 ? 'true' : 'false'); });
+    Array.prototype.forEach.call(g.children, function(b){ if (!b.getAttribute('data-sport')) return; b.setAttribute('aria-pressed', on.indexOf(b.getAttribute('data-sport')) >= 0 ? 'true' : 'false'); });
   }
   function makeChips(g, on, onChange){
     SPORTS.forEach(function(o){
@@ -316,7 +316,7 @@
   function loadLive(){
     var seq = ++liveSeq;
     fetch('/lists', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
-      var ls = d.lists || [];
+      var ls = (d.lists || []).filter(function(l){ return l.preferred; }).concat((d.lists || []).filter(function(l){ return !l.preferred; }));
       return Promise.all(ls.map(function(l){
         return fetch('/list?id=' + encodeURIComponent(l.id), {cache:'no-store'}).then(function(r){
           return r.ok ? r.json() : null;
@@ -375,6 +375,15 @@
         makeChips(sp, l.sports || [], function(v){
           post('/lists/sport', 'id=' + encodeURIComponent(l.id) + '&sport=' + encodeURIComponent(v)).then(function(){ listsKey = ''; loadLists(); });
         });
+        // "Preferred": one list at most; its streams come first wherever a game has several. Same chip style.
+        var pf = el('button', null, '★ Preferred'); pf.type = 'button'; pf.setAttribute('data-pref', '1');
+        pf.setAttribute('aria-pressed', l.preferred ? 'true' : 'false');
+        pf.onclick = function(){
+          var on = pf.getAttribute('aria-pressed') !== 'true';
+          pf.setAttribute('aria-pressed', on ? 'true' : 'false');
+          post('/lists/preferred', 'id=' + encodeURIComponent(l.id) + '&on=' + (on ? '1' : '0')).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
+        };
+        sp.appendChild(pf);
         row.appendChild(b); row.appendChild(x); row.appendChild(sp); box.appendChild(row);
       });
     }).catch(function(){});

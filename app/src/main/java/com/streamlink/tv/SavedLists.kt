@@ -5,9 +5,40 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** [sports] holds any of "nfl", "cfb", "nba" (empty = no sport); see [Sports]. One index page can mix leagues. */
-data class SavedList(val id: String, val name: String, val url: String, val sports: Set<String> = emptySet()) {
+/**
+ * [sports] holds any of "nfl", "cfb", "nba" (empty = no sport); see [Sports]. One index page can mix leagues.
+ * [preferred]: the user's one preferred list (at most one list has it, see [Preferred]); its streams come first.
+ */
+data class SavedList(
+    val id: String, val name: String, val url: String, val sports: Set<String> = emptySet(),
+    val preferred: Boolean = false,
+) {
     fun has(league: String): Boolean = league in sports
+}
+
+/** The "one preferred list" rules. Pure, so it can be unit tested. */
+object Preferred {
+    /** The id of the preferred list, or null when none. */
+    fun idOf(lists: List<SavedList>): String? = lists.firstOrNull { it.preferred }?.id
+
+    /**
+     * The lists after setting or clearing the mark. [on] with an [id] that exists: only that list is preferred.
+     * Not [on]: that list's mark is cleared ([id] null clears all). An [id] that does not exist changes nothing.
+     */
+    fun set(lists: List<SavedList>, id: String?, on: Boolean): List<SavedList> {
+        if (id != null && lists.none { it.id == id }) return lists
+        return lists.map { l ->
+            val want = if (on && id != null) l.id == id else if (id == null || l.id == id) false else l.preferred
+            if (want == l.preferred) l else l.copy(preferred = want)
+        }
+    }
+
+    /** [items] with the one belonging to the preferred list [id] first, the rest in their order. [listIdOf] gives an item's list id. */
+    fun <T> first(items: List<T>, id: String?, listIdOf: (T) -> String): List<T> {
+        if (id == null || items.none { listIdOf(it) == id }) return items
+        val (pref, rest) = items.partition { listIdOf(it) == id }
+        return pref + rest
+    }
 }
 
 /** The sports a saved list can be tagged with. */
@@ -37,7 +68,7 @@ object SavedListsJson {
             a.optJSONObject(i)?.let { o ->
                 val id = o.optString("id"); val url = o.optString("url")
                 if (id.isEmpty() || url.isEmpty()) null
-                else SavedList(id, o.optString("name").ifEmpty { Report.host(url) }, url, readSports(o))
+                else SavedList(id, o.optString("name").ifEmpty { Report.host(url) }, url, readSports(o), o.optBoolean("preferred", false))
             }
         }
     } catch (_: Exception) {
@@ -54,7 +85,7 @@ object SavedListsJson {
     fun toJson(lists: List<SavedList>): String {
         val a = JSONArray()
         lists.forEach { l ->
-            a.put(JSONObject().put("id", l.id).put("name", l.name).put("url", l.url).put("sports", JSONArray(l.sports.toList())))
+            a.put(JSONObject().put("id", l.id).put("name", l.name).put("url", l.url).put("sports", JSONArray(l.sports.toList())).put("preferred", l.preferred))
         }
         return a.toString()
     }
@@ -154,6 +185,19 @@ object SavedLists {
         if (cur.none { it.id == id }) return false
         val tags = Sports.cleanSet(sports)
         save(ctx, cur.map { if (it.id == id) it.copy(sports = tags) else it })
+        return true
+    }
+
+    /** The id of the preferred list, or null when none. */
+    fun preferredId(ctx: Context): String? = Preferred.idOf(all(ctx))
+
+    /** Marks list [id] as the one preferred list (clearing every other), or clears it ([on] false; [id] null clears all). False if there is no such list. */
+    @Synchronized
+    fun setPreferred(ctx: Context, id: String?, on: Boolean): Boolean {
+        val cur = all(ctx)
+        if (id != null && cur.none { it.id == id }) return false
+        val next = Preferred.set(cur, id, on)
+        if (next != cur) save(ctx, next) // a new raw string: the parsed lists in memory are replaced on the next all()
         return true
     }
 
