@@ -5,6 +5,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Build 234 on the TV (2026-11-19 13:41):** the broken CrackStreams NFL Network stream (pieces 403) gave up in
+  15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
+  other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old
+  tracker referer stays remembered until its 7-day expiry (harmless).
 - **Review round after build 229, released as Sports build 234** (user's go, 2026-11-19 13:18; on `sports`, compiled and unit-tested in CI, NOT tested
   on the TV). Trigger: a broken CrackStreams stream (pieces 403, site's own player fails too) took ~3 min to give up.
   Refused pieces now stop at once (no engine restart, no referer cycling, no reload of the same refused stream; other
