@@ -5,6 +5,13 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Fixes after build 227 TV reports** (user's go, 2026-11-19 12:33; on `sports`, compiled and unit-tested in CI, NOT
+  tested on the TV): offline verdict ignores fetches that threw (an off-air channel was played and reloaded 3x instead of
+  "offline"); failed early checks are reused (no double check); when every check gets no answer on Chrome's engine (the
+  wedged-engine signature after hours of uptime) the engine is restarted and the checks repeated once, and silent sources
+  are no longer played unchecked; same restart for a silent playlist before the first picture; a Source the user picks
+  uses the keeper's fresh backup (quick-check, no search); the doubled "Opening … as its own page" line was only logged
+  twice (removed). Site habits are per site (domain), not per page (user asked).
 - **Backups while watching + parallel recovery + offline streams, Sports build 227** (user's go, 2026-11-19 08:27/08:34; on `sports`,
   compiled and unit-tested in CI, NOT tested on the TV): per-server address lifetime learning (SHORT/LONG/unknown);
   BackupKeeper refreshes up to 2 backups of the watched game (other-site entries first) with light quiet runs only while
