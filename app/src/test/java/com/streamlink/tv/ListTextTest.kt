@@ -115,6 +115,12 @@ class ListTextTest {
         val i = o.getJSONArray("items").getJSONObject(0)
         assertEquals(title, i.getString("title"))
         assertEquals("upcoming", i.getString("status"))
+        assertFalse(i.getBoolean("liveNow")) // unmatched and not a channel with a word
+        val ch = SavedList("a2", "Ch", "https://events.example/ch")
+        val cc = CachedList(ListResult(ch.url, "T", listOf(item(now + 5 * hour, "ESPN 2"), item(now + 5 * hour, "Fox Footy")), "automatic", null), now)
+        val items = org.json.JSONObject(ListJson.listForPhone(ch, cc, false, null, now)).getJSONArray("items")
+        val byTitle = (0 until items.length()).associate { items.getJSONObject(it).getString("title") to items.getJSONObject(it).getBoolean("liveNow") }
+        assertEquals(mapOf("ESPN 2" to true, "Fox Footy" to false), byTitle)
         assertTrue(o.isNull("error"))
         val none = org.json.JSONObject(ListJson.listForPhone(l, null, true, "Couldn't read", now))
         assertEquals(0, none.getJSONArray("items").length())

@@ -14,6 +14,8 @@ class HomeModel(
     /** Streams already shown as live game cards (the "Live now" row skips them). */
     val matched: Set<String>,
     val liveRows: List<HomeFeed.Entry>,
+    /** The user's channel words the "Live now" row was built with. */
+    val liveWords: List<String>,
     /** Tile counts per list id (only for lists that have been read). */
     val counts: Map<String, HomeFeed.Counts>,
     val taggedCounts: Map<String, Int>,
@@ -24,6 +26,7 @@ class HomeModel(
     companion object {
         fun build(
             lists: List<SavedList>, cachedById: Map<String, CachedList>, games: List<Game>, now: Long, zone: ZoneId,
+            liveWords: List<String> = ChannelFilter.DEFAULT_WORDS,
         ): HomeModel {
             val pref = Preferred.idOf(lists)
             // The preferred list first: same game, same start time -> its event leads in the rows.
@@ -34,7 +37,7 @@ class HomeModel(
             }
             val matched = LiveGames.matchedUrls(folders)
             fun shown(i: ListItem) = i.url !in matched && GameFolders.urlKey(i.url) !in matched
-            val liveRows = HomeFeed.liveRow(cached.map { it.first to it.second.result.items.filter { i -> shown(i) } }, now, games = games)
+            val liveRows = HomeFeed.liveRow(cached.map { it.first to it.second.result.items.filter { i -> shown(i) } }, now, games = games, words = liveWords)
             val counts = LinkedHashMap<String, HomeFeed.Counts>()
             for ((l, c) in cached) counts[l.id] = HomeFeed.counts(c.result.items, now, games)
             val tagged = Sports.ALL.associateWith { lg -> lists.count { it.has(lg) } }
@@ -42,8 +45,10 @@ class HomeModel(
 
             val sb = StringBuilder()
             sb.append("p:").append(pref).append('#')
-            // Same as the old "home look": the unfiltered live row and the tile counts...
-            for (e in HomeFeed.liveRow(cached.map { it.first to it.second.result.items }, now, games = games))
+            // The words change what the live row holds, so they are part of the look.
+            sb.append("w:").append(ChannelFilter.joinWords(liveWords).replace('\n', ',')).append('#')
+            // Same as the old "home look": the live row and the tile counts...
+            for (e in HomeFeed.liveRow(cached.map { it.first to it.second.result.items }, now, games = games, words = liveWords))
                 sb.append(e.item.url).append('|').append(e.status).append('|').append(e.item.startMillis).append(';')
             for ((l, _) in cached) sb.append(HomeFeed.countsText(counts.getValue(l.id))).append(';')
             // ...plus what the sports rows show, so a score change redraws them.
@@ -53,7 +58,7 @@ class HomeModel(
             for (f in folders) sb.append(SportsText.sportTileLine(tagged.getValue(f.league), f)).append(';')
             sb.append(SportsText.alwaysOnLine(alwaysOn)).append('#')
             for (e in liveRows) sb.append(e.item.url).append('|').append(e.status).append(';')
-            return HomeModel(lists, cached, folders, matched, liveRows, counts, tagged, alwaysOn, sb.toString())
+            return HomeModel(lists, cached, folders, matched, liveRows, liveWords, counts, tagged, alwaysOn, sb.toString())
         }
     }
 }

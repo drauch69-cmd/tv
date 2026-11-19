@@ -55,8 +55,8 @@ class GamesTest {
     @Test fun duplicateUrlsAreKeptOnceFirstWins() {
         val f = build(listOf(
             list("a") to listOf(item("Commanders vs Giants", "https://x.example/e/1/")),
-            list("b") to listOf(item("Commanders vs Giants again", "https://x.example/e/1"), item("Totally unrelated show", "https://x.example/o")),
-            list("c") to listOf(item("Another unrelated", "https://x.example/o/")),
+            list("b") to listOf(item("Commanders vs Giants again", "https://x.example/e/1"), item("Totally vs Unrelated", "https://x.example/o")),
+            list("c") to listOf(item("Another vs Unrelated", "https://x.example/o/")),
         ))
         assertEquals(listOf("a"), f.games.first { it.game.id == "1" }.streams.map { it.listId })
         assertEquals(1, f.other.size)
@@ -65,7 +65,7 @@ class GamesTest {
 
     @Test fun unmatchedGoesToOtherAndSubtitleIsTriedSecond() {
         val f = build(listOf(list("a") to listOf(
-            item("Premium Channel 7", "https://a.example/ch7"),
+            item("Premium vs Channel 7", "https://a.example/ch7"),
             item("Main Event", "https://a.example/me", sub = "Bears vs Lions"),
         )))
         assertEquals(listOf("https://a.example/ch7"), f.other.map { it.item.url })
@@ -76,8 +76,8 @@ class GamesTest {
         val f = build(listOf(list("a") to listOf(
             item("24/7 Football Channel", "https://a.example/247", now - 48 * hour),
             item("Commanders vs Giants replay", "https://a.example/old", now - 30 * hour),
-            item("Old unrelated game", "https://a.example/fin", now - 10 * hour),
-            item("Unknown time thing", "https://a.example/unk"),
+            item("Old unrelated vs game", "https://a.example/fin", now - 10 * hour),
+            item("Unknown vs thing", "https://a.example/unk"),
         )))
         assertEquals(listOf("https://a.example/unk"), f.other.map { it.item.url })
         assertTrue(f.games.all { it.streams.isEmpty() })
@@ -197,7 +197,7 @@ class GamesTest {
         val items = listOf(
             item("Commanders vs Giants", "https://a.example/n"),
             item("Ohio State vs Michigan", "https://a.example/c"),
-            item("Premium Channel 7", "https://a.example/x"),
+            item("Premium vs Channel 7", "https://a.example/x"),
         )
         val games = listOf(gWsh, cOsu)
         val nfl = build(listOf(l to items), games, "nfl")
@@ -248,5 +248,23 @@ class GamesTest {
             SportFolders("cfb", listOf(folder(l3, "https://x/c")), emptyList()),
             SportFolders("nfl", listOf(folder(l2, "https://x/n")), emptyList())))
         assertEquals(listOf("nfl-same", "cfb-same", "b2"), order.map { it.game.id })
+    }
+
+    @Test fun otherKeepsOnlyTwoSidedTitles() {
+        val f = build(listOf(list("a") to listOf(
+            item("Fox Footy", "https://a.example/ff", live = true),
+            item("Sky Sports Golf", "https://a.example/sg", live = true),
+            item("Cricket One vs Cricket Two", "https://a.example/cr"),
+            item("Rams at Seahawks", "https://a.example/rs"),
+        )))
+        assertEquals(listOf("https://a.example/cr", "https://a.example/rs"), f.other.map { it.item.url })
+    }
+
+    @Test fun channelDroppedFromOtherDoesNotHideALaterCopyThatMatches() {
+        val f = build(listOf(
+            list("a") to listOf(item("Fox Footy", "https://a.example/same")),
+            list("b") to listOf(item("Commanders vs Giants", "https://a.example/same/")),
+        ))
+        assertEquals(1, f.games.first { it.game.id == "1" }.streams.size)
     }
 }

@@ -99,7 +99,7 @@ class MainActivity : Activity() {
         val lists = SavedLists.all(ctx)
         val byId = HashMap<String, CachedList>()
         for (l in lists) SavedLists.cached(ctx, l.id)?.let { byId[l.id] = it }
-        return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault())
+        return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault(), LiveWords.get(ctx))
     }
 
     /**
@@ -194,12 +194,14 @@ class MainActivity : Activity() {
             lists = { ListJson.listsForPhone(SavedLists.all(this), { SavedLists.cached(this, it) }, { SavedLists.isBusy(it) }, { SavedLists.lastError(it) }, System.currentTimeMillis()) },
             list = { id ->
                 SavedLists.get(this, id)?.let { l ->
-                    ListJson.listForPhone(l, SavedLists.cached(this, id), SavedLists.isBusy(id), SavedLists.lastError(id), System.currentTimeMillis())
+                    ListJson.listForPhone(l, SavedLists.cached(this, id), SavedLists.isBusy(id), SavedLists.lastError(id), System.currentTimeMillis(), LiveWords.get(this))
                 }
             },
             onListAdd = { url, name, sports -> addList(url, name, sports) },
             onListSport = { id, sports -> SavedLists.setSports(this, id, sports) },
             onListPreferred = { id, on -> SavedLists.setPreferred(this, id, on).also { ok -> if (ok) runOnUiThread { renderLists() } } },
+            liveWords = { LiveWords.get(this) },
+            onLiveWords = { w -> if (w == null) LiveWords.reset(this) else LiveWords.set(this, w); runOnUiThread { renderLists() } },
             onListRemove = { id -> removeList(id) },
             onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id) }; true } ?: false },
             onListPlay = { id, url, start ->
