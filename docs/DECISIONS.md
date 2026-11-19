@@ -10,7 +10,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   then the Onn's slow processor running the page; network speed matters least. Built: (1) one "Timing:" report line
   per play (page loaded / tapped / stream seen / checked / picture, path, first-browser cost); (2) last working
   address per page, re-checked in parallel with the page load (3 s limit), plays at once if still live; (3) per
-  stream server, the referer and network engine that worked are tried first. Released as Sports build 211. Next: the user plays 3-4 games
+  stream server, the referer and network engine that worked are tried first. Released as Sports build 211. First TV reports (build 211, ntv.st 24/7 channels, 2026-11-19): remembered address worked on one server (picture at 1.9 s vs ~11 s full search) and failed on two others whose path codes change per page load (403 on all referers, no time lost: it runs beside the page load). Full search split: page loaded ~1 s, tap 1.5-4.4 s, stream seen 6.5-7.3 s, ~1.2 s sibling wait before checking, check <1 s, ~1.5 s page-sources read before the player starts, picture ~0.8 s after the player. Browser creation ~0 s (engine already warm), so warming it and skipping the outer page would save little on this site. Offered next: check the first stream at once, read page sources after the picture, remembered address for head starts. Next: the user plays 3-4 games
   (reopen one) and sends reports; read the Timing lines.
 - **Speed plan, step 2 (waiting on step 1's timing reports):** site recipes learned automatically from successful
   searches (frame depth, source button by position, taps needed, ad-popup first tap, usual seconds), replayed on the
