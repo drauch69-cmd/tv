@@ -101,7 +101,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private val possibleRejected = HashSet<String>()
     private var onResult: ((StreamSet) -> Unit)? = null
     /** Early check result per direct stream address (true = working, non-ad playlist); see [EarlyFinish]. Main thread. */
-    private val prechecked = HashMap<String, Boolean>()
+    private val prechecked = HashMap<String, EarlyFinish.State>()
     private var lateExtras = false
     /** The page kept alive after the hand-over while its numbered addresses are read (see [finishThenRead]). */
     private var lateView: WebView? = null
@@ -446,19 +446,18 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun precheck(c: StreamCandidate) {
         val gen = generation
         thread(isDaemon = true, name = "early-check") {
-            val good = try { Verifier.precheck(c) { m -> log(m) } } catch (e: Exception) { false }
+            val st = try { Verifier.precheck(c) { m -> log(m) } } catch (e: Exception) { EarlyFinish.State.BAD }
             main.post {
                 if (gen != generation || done || verifying) return@post
-                prechecked[c.url] = good
-                if (good) tryEarlyFinish()
+                prechecked[c.url] = st
+                if (st == EarlyFinish.State.GOOD_ADAPTIVE) tryEarlyFinish()
             }
         }
     }
 
     private fun tryEarlyFinish() {
         val items = candidates.values.map {
-            val st = when (prechecked[it.url]) { true -> EarlyFinish.State.GOOD; false -> EarlyFinish.State.BAD; null -> EarlyFinish.State.PENDING }
-            EarlyFinish.Item(it.url, it.embedded, it.possible, st)
+            EarlyFinish.Item(it.url, it.embedded, it.possible, prechecked[it.url] ?: EarlyFinish.State.PENDING)
         }
         val keep = EarlyFinish.keep(items) ?: return
         candidates.keys.retainAll(keep)
@@ -501,7 +500,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     return@post
                 }
                 candidates[c.url] = cur.copy(possible = false)
-                prechecked[c.url] = true // its content was just checked (kept for the ranking)
+                prechecked[c.url] = EarlyFinish.State.GOOD_SINGLE // content just checked (kept for the ranking); never triggers an early finish
                 tm(Timing.SEEN)
                 log("The possible playlist is a playlist; using it as a stream")
                 playlistSeen = true

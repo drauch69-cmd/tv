@@ -87,12 +87,12 @@ object Verifier {
 
     /**
      * Early check of the first stream the sniffer sees (started the moment it is found, before the wait for siblings
-     * is over). Call off the main thread. True when it is a working, non-ad playlist. A pass is kept briefly for [rank];
+     * is over). Call off the main thread. Says whether it is a working non-ad playlist, and whether that is adaptive (master/DASH). A pass is kept briefly for [rank];
      * a failure is not kept (rank looks again).
      */
-    fun precheck(c: StreamCandidate, log: (String) -> Unit = { Report.log(it) }): Boolean {
+    fun precheck(c: StreamCandidate, log: (String) -> Unit = { Report.log(it) }): EarlyFinish.State {
         val task = java.util.concurrent.FutureTask(Callable { check(c, log) })
-        if (inflight.putIfAbsent(c.url, task) != null) return false
+        if (inflight.putIfAbsent(c.url, task) != null) return EarlyFinish.State.BAD
         try {
             task.run()
             val r = task.get()
@@ -100,9 +100,13 @@ object Verifier {
                 if (pre.size > 20) pre.clear()
                 pre[c.url] = Pre(r, System.currentTimeMillis())
             }
-            return r.ok && !r.adLike
+            return when {
+                !r.ok || r.adLike -> EarlyFinish.State.BAD
+                r.master || r.dash -> EarlyFinish.State.GOOD_ADAPTIVE
+                else -> EarlyFinish.State.GOOD_SINGLE
+            }
         } catch (e: Exception) {
-            return false
+            return EarlyFinish.State.BAD
         } finally {
             inflight.remove(c.url)
         }

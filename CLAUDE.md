@@ -132,7 +132,7 @@ Playback pipeline:
 
 **Early finish and late page sources** (not yet tested on the TV). On a primary run each direct stream is checked the moment it is
    found (`Verifier.precheck`, in the background, while the 1.2 s sibling wait runs; `rank` reuses or waits for that check, so an
-   address is never fetched twice). When one passes (working, not ad-like), `EarlyFinish.keep` ends the search at once, keeping
+   address is never fetched twice). When one passes AND is an adaptive (master) playlist or DASH, `EarlyFinish.keep` ends the search at once (a single-quality pass waits out the normal window), keeping
    only streams whose check already passed (still-running ones are dropped); copies found only inside other requests and
    unverified possible playlists never trigger it, so the 8 s embedded wait is intact. Report line "A stream checked out; not
    waiting for more". Page sources are read AFTER the hand-over (`lateExtras = true` for the home screen, the waiting screen and a
