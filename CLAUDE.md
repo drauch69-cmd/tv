@@ -162,6 +162,21 @@ Remote tabs; prefetch toggle).
   `Prefetcher` gives
   Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block images,
   fonts and similar.
+- **Learned habits per site** (`SiteHabits.kt`, pure helpers unit tested in `SiteHabitsTest`; not the hand-written list recipes).
+  Pref `site_habits_1`, per host (lower case, no www.), max 80 (LRU), 14-day expiry. Recorded in `StreamSniffer.finish` (via
+  `habitFinished`) after a primary search (not light, not click-only, not the remembered-address path) ends with a verified stream:
+  the last tap made before the first stream was seen (position as a FRACTION of the hidden browser's size, kind player-spot or
+  page-middle, 1 or 2+ taps; `noteTap` in `tapStep`), the source button pressed before it (index of count, from `pressSource` or the
+  habit's own press), and seconds from page loaded to stream seen (report only). Nothing to do on the page = nothing recorded (a habit
+  that was used and worked then only clears its misses). Used by `applyHabit` right after `onLoaded` (no FIRST_NUDGE_MS / SOURCE_FIRST_MS
+  wait): taps the remembered spot (2+ taps: the second ~1 s later) and presses the remembered source button through `SourcePress.press`
+  (`expectedCount`: only if the page shows the same number of buttons, and it does not skip the active one); `sourceNext` is moved
+  past the pressed button so the normal search does not press it again. The normal nudge/tap/source search keeps running untouched
+  beside it (worst case = today). No stream within the habit's usual seconds + 5 s, or a run that ends with nothing = one miss; 2 misses
+  in a row drop the habit. Prefetcher runs (`timed == false`) may use and record habits but never count misses (background runs are
+  often cut short or compete for the network, so a miss there would make habits flap). Light runs never use or record. Report lines:
+  "Using what worked on this site last time: tap at player spot|middle of the page, 1 tap|2 taps" and/or "... source button N of M",
+  "The learned habit worked (stream after X s)", "The learned habit stopped working; forgetting it". Not yet tested on the TV.
 - **Fast-start memories** (`FastStart.kt`; pure helpers unit tested in `FastStartTest`). `LastAddress`: when a stream first
   renders (`onRenderedFirstFrame`, verified, not an openPage entry) the whole set is saved per page address (the address
   the search was asked to open, `StreamSet.requestedUrl`, and the final page if different; normalized: no click fragment,
