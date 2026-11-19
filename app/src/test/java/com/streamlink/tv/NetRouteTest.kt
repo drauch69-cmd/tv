@@ -105,4 +105,21 @@ class NetRouteTest {
         assertEquals(m, ServerMemory.fromJson(ServerMemory.toJson(m)))
         assertFalse(ServerMemory.withReferer(m, "x", "https://r", 20L + 8 * D).containsKey("h"))
     }
+
+    @Test
+    fun playlistGoneNeedsTwoInARowWithNoSuccess() {
+        val w = PieceWatch()
+        w.playlistFailed(1, 404)
+        assertFalse(w.playlistGone())
+        w.playlistFailed(2, 404)
+        assertTrue(w.playlistGone())
+        w.playlistOk(3)
+        assertFalse(w.playlistGone())
+        w.playlistFailed(4, 404); w.playlistFailed(5, 0) // a timeout in between breaks the run
+        assertFalse(w.playlistGone())
+        w.playlistFailed(6, 410); w.playlistFailed(7, 410)
+        assertTrue(w.playlistGone())
+        w.clearGone()
+        assertFalse(w.playlistGone())
+    }
 }

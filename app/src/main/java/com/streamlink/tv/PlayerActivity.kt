@@ -143,6 +143,8 @@ class PlayerActivity : Activity() {
     /** Where this source's requests go (playlist host vs piece hosts) and how its pieces are doing; kept while the source stays the same. */
     private var route: NetRoute? = null
     private var stallExtensions = 0
+    /** The playlist-gone recovery already started for this play (a later error for the same failure must not start another). */
+    private var goneHandled = false
     /** The engine ("chrome"/"standard") this source's server was remembered to work with and the player started on; null when nothing was remembered or it was given up. */
     private var engineRemembered: String? = null
     /** Use the TV's software video decoder (slower, more forgiving) for this link. */
@@ -357,6 +359,7 @@ class PlayerActivity : Activity() {
             ?: NetRoute(src.url, ServerMemory.key(Report.host(src.url)) ?: "") { ServerMemory.refusesStandard(it) }.also { route = it }
         r.playlistChrome = engine != null
         stallExtensions = 0
+        goneHandled = false
 
         // Tunneled playback: the video chip syncs audio/video and draws frames itself, bypassing
         // Android's normal video path. Smoother and less work for the processor on TV boxes.
@@ -608,6 +611,15 @@ class PlayerActivity : Activity() {
             val why = (error as? HttpDataSource.InvalidResponseCodeException)?.let { "server said ${it.responseCode}" }
                 ?: (error.message ?: error.javaClass.simpleName).take(120)
             Report.log("  failed ${kind(data)} ${Report.short(info.uri.toString())}: $why")
+            // The media playlist itself is gone (404/410 twice in a row) after it had played: no point waiting for the stall
+            // check or the timeout error; recover now. The player is released by the recovery, so the later error never arrives.
+            val w = route?.watch
+            if (!goneHandled && playingSince != 0L && data.dataType == C.DATA_TYPE_MANIFEST && w != null && w.playlistGone()) {
+                goneHandled = true
+                w.clearGone()
+                Report.log("The stream's playlist is gone (${(error as? HttpDataSource.InvalidResponseCodeException)?.let { "server said ${it.responseCode}" } ?: "no answer"}); getting a fresh one")
+                main.post { if (player != null) recover("playlist gone") }
+            }
         }
     }
 

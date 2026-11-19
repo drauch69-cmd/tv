@@ -128,7 +128,7 @@ class SplitDataSource(
         failed = true
         val now = System.currentTimeMillis()
         if (!piece) {
-            route.watch.playlistFailed(now)
+            route.watch.playlistFailed(now, (e as? HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0)
             return
         }
         route.watch.pieceFailed(host, startedAt)

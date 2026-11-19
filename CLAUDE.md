@@ -298,6 +298,10 @@ Remote tabs; prefetch toggle).
   switch without reloading the page ("Video pieces still failing; switching to another source instead of reloading the
   page"), else the normal reconnect. A 403 on a piece host's standard networking sends only that host's pieces back to
   Chrome ("Video pieces from <host> refused standard networking; ...").
+  **Playlist gone**: when the media playlist answers 404/410 on 2 consecutive requests (no success between) after the
+  stream had played, `PlayerActivity` recovers at once (the normal order: reconnect, then automatic switch) instead of
+  waiting for the stall check or the timeout error; line "The stream's playlist is gone (server said 404); getting a
+  fresh one"; once per play (`goneHandled`), and the recovery releases the player so the later error never fires.
   **Failed piece line** (max 4 per source): "  Piece from <host> failed (<engine>): no bytes after 15.0s | N bytes, first
   after X s, failed at Y s[, server said NNN], <exception>". The protocol (h2/h3) is not exposed by Media3's Cronet data
   source, so it is not logged.

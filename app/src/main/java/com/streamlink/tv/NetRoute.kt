@@ -113,8 +113,20 @@ class PieceWatch {
 
     private fun host(h: String) = hosts.getOrPut(h) { Host() }
 
-    @Synchronized fun playlistOk(now: Long) { playlistOkAt = now }
-    @Synchronized fun playlistFailed(now: Long) { playlistFailAt = now }
+    private var goneRun = 0
+
+    @Synchronized fun playlistOk(now: Long) { playlistOkAt = now; goneRun = 0 }
+
+    /** A playlist request failed; [status] is the HTTP status when the server answered (404/410 = gone). */
+    @Synchronized fun playlistFailed(now: Long, status: Int = 0) {
+        playlistFailAt = now
+        goneRun = if (status == 404 || status == 410) goneRun + 1 else 0
+    }
+
+    /** The playlist answered "not found / gone" on [times] consecutive requests with no success between. */
+    @Synchronized fun playlistGone(times: Int = 2): Boolean = goneRun >= times
+
+    @Synchronized fun clearGone() { goneRun = 0 }
     @Synchronized fun pieceOk(h: String) { host(h).ok++ }
 
     @Synchronized fun pieceFailed(h: String, startedAt: Long) {
