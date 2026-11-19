@@ -11,6 +11,14 @@ object Refusal {
     /** "Not allowed" answers. 404/410 (gone), 5xx and no answer at all are something else. */
     fun isRefusal(status: Int?) = status == 401 || status == 403 || status == 451
 
+    /** Appended to a check's note when every referer got an HTTP refusal (see [isRefusedSource]). */
+    const val REFUSED_MARK = "; refused on every referer"
+    fun isRefusedSource(s: Source): Boolean = !s.verified && !s.openPage && s.note.endsWith(REFUSED_MARK)
+    const val REFUSED_LINE = "The stream server refuses this stream (server said 403 to every referer); not playing it"
+
+    /** The HTTP status that best explains a failed check: a refusal if any try was refused, else the last HTTP status, else 0. */
+    fun statusOf(answers: List<Int>): Int = answers.firstOrNull { isRefusal(it) } ?: answers.lastOrNull { it != 0 } ?: 0
+
     /** Every try of a check got an HTTP answer and every answer was a refusal (a try that threw or timed out means it is not a clear refusal). */
     fun allRefused(answers: List<Int>) = answers.isNotEmpty() && answers.all { isRefusal(it) }
 

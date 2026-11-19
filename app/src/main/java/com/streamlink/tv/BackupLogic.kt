@@ -287,6 +287,13 @@ object DeadStream {
         return if (answers.all { it == 0 || isGoneCode(it) }) gone else 0
     }
     fun goneNote(code: Int) = "server said $code$MARK"
+    /** Two 404/410 answers are enough: the remaining referers would say the same (each slow try costs seconds). */
+    fun enough(answers: List<Int>): Boolean = answers.count { isGoneCode(it) } >= 2
+    /** Note of a check cut off by the time limit, from the answers it had already got: gone when [goneVerdict] says so, else too slow. */
+    fun cutOffNote(answers: List<Int>): String {
+        val g = goneVerdict(answers)
+        return if (g != 0) goneNote(g) else NoAnswer.TOO_SLOW
+    }
     fun isGone(s: Source): Boolean = !s.verified && s.note.contains(MARK)
     /** The sources minus the gone ones. */
     fun playable(sources: List<Source>): List<Source> = sources.filter { !isGone(it) }

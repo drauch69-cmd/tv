@@ -458,6 +458,15 @@ object ServerMemory {
         return lifetimeEstimate(current()[k]?.samples ?: emptyList(), System.currentTimeMillis())
     }
 
+    /** Whether a re-check of a saved address says anything about its lifetime: a pass, or a 401/403 answer. A timeout, slow engine, non-live/ad-like body or 404 says nothing. */
+    fun lifetimeSample(passed: Boolean, status: Int): Boolean? = if (passed) true else if (Refusal.isRefusal(status)) false else null
+
+    /** [recordAge] for the outcome of a quick re-check (see [lifetimeSample]); nothing is recorded when it says nothing. */
+    fun recordCheck(host: String?, ageMs: Long, passed: Boolean, status: Int) {
+        val ok = lifetimeSample(passed, status) ?: return
+        recordAge(host, ageMs, ok)
+    }
+
     /** Records that an address of [host] that was [ageMs] old (since it was found) still worked ([ok]) or was refused. */
     @Synchronized
     fun recordAge(host: String?, ageMs: Long, ok: Boolean) {

@@ -158,17 +158,25 @@ object Verifier {
         // Check all candidates at once, with a hard overall time limit, so a slow site can't keep
         // the TV on "Finding the video…" for minutes.
         val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 12))
+        // The answer of each try so far, per candidate: a candidate cut off by the time limit is judged on what it already
+        // answered (a slow 404 is offline, not "too slow"). Checks still running after this returns write no more lines.
+        val answers = cands.map { java.util.Collections.synchronizedList(ArrayList<Int>()) }
+        val over = java.util.concurrent.atomic.AtomicBoolean(false)
+        val quietLog: (String) -> Unit = { m -> if (!over.get()) log(m) }
         val futures = try {
-            pool.invokeAll(cands.map { c -> Callable { (if (fresh) { pre.remove(c.url); null } else takePre(c)) ?: check(c, log) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
+            pool.invokeAll(cands.mapIndexed { i, c -> Callable { (if (fresh) { pre.remove(c.url); null } else takePre(c)) ?: check(c, quietLog, answers[i], over) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
         } finally {
             pool.shutdownNow()
         }
+        val partial = answers.map { a -> synchronized(a) { a.toList() } }
+        over.set(true)
         val checked = cands.mapIndexed { i, c ->
             val f = futures[i]
             try {
                 if (f.isCancelled) {
-                    log("✗ ${Report.short(c.url)}: ${NoAnswer.TOO_SLOW}")
-                    unchecked(c, NoAnswer.TOO_SLOW)
+                    val note = DeadStream.cutOffNote(partial[i])
+                    log("✗ ${Report.short(c.url)}: $note")
+                    unchecked(c, note)
                 } else {
                     f.get()
                 }
@@ -210,23 +218,39 @@ object Verifier {
      * One quick check of a remembered source (see [LastAddress]): true live playlist (HLS/DASH, live, not ad-like) within
      * [limitMs]. Returns the source with the referer that worked first and its content type, or null. Call off the main thread.
      */
-    fun quickCheck(c: StreamCandidate, limitMs: Long = 3000L, log: (String) -> Unit = { Report.log(it) }): Source? {
-        val task = java.util.concurrent.FutureTask(Callable { check(c, log) })
+    fun quickCheck(c: StreamCandidate, limitMs: Long = 3000L, log: (String) -> Unit = { Report.log(it) }): Source? =
+        quickCheckStatus(c, limitMs, log).source
+
+    /** Result of [quickCheckStatus]: the source when it passed, else null, plus the HTTP status that explains a failure (see [QuickStatus]). */
+    class QuickResult(val source: Source?, val status: Int)
+
+    /** Same as [quickCheck], but also returns the HTTP status answered (a refusal code if any try was refused, else the last HTTP status; 0 = no answer / not a playlist). */
+    fun quickCheckStatus(c: StreamCandidate, limitMs: Long = 3000L, log: (String) -> Unit = { Report.log(it) }): QuickResult {
+        val answers = java.util.Collections.synchronizedList(ArrayList<Int>())
+        val over = java.util.concurrent.atomic.AtomicBoolean(false)
+        val task = java.util.concurrent.FutureTask(Callable { check(c, { m -> if (!over.get()) log(m) }, answers, over) })
         val t = Thread(task, "quick-check")
         t.isDaemon = true
         t.start()
         val r = try {
             task.get(limitMs, TimeUnit.MILLISECONDS)
         } catch (e: Exception) {
+            over.set(true)
             task.cancel(true)
-            return null
+            return QuickResult(null, Refusal.statusOf(synchronized(answers) { answers.toList() }))
         }
-        if (!r.ok || !r.live || r.adLike) return null
+        if (!r.ok || !r.live || r.adLike) return QuickResult(null, Refusal.statusOf(synchronized(answers) { answers.toList() }))
         val refs = if (r.workingReferer != null) listOf(r.workingReferer) + c.referers.filter { it != r.workingReferer } else c.referers
-        return Source(c.url, c.headers, refs, c.linkLabel, c.isDefault, verified = true, mime = r.mime)
+        return QuickResult(Source(c.url, c.headers, refs, c.linkLabel, c.isDefault, verified = true, mime = r.mime), 200)
     }
 
-    private fun check(c: StreamCandidate, log: (String) -> Unit): Checked {
+    private fun check(
+        c: StreamCandidate,
+        log: (String) -> Unit,
+        /** Filled with the answer of each try as it comes (see [rank]); [over] says the caller stopped waiting. */
+        answers: MutableList<Int> = java.util.Collections.synchronizedList(ArrayList<Int>()),
+        over: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+    ): Checked {
         // Up to 5 real referers (the finder already caps each list), then the no-referer attempt last.
         // The referer this stream server accepted last time goes first (see [ServerMemory]).
         val host = Report.host(c.url)
@@ -237,8 +261,8 @@ object Verifier {
         val tried = ArrayList<String>()
         // Every try answered 404/410: the address is gone (the stream is offline), not refused (see [DeadStream]).
         // The answer of each try: the HTTP status, or 0 when the fetch threw (no answer at all; see [DeadStream.goneVerdict]).
-        val answers = ArrayList<Int>()
         for (ref in refs) {
+            if (over.get() || DeadStream.enough(synchronized(answers) { answers.toList() })) break
             tried.add(Headers.describeReferer(ref))
             val r = fetch(c.url, c.headers, ref, log)
             if (r == null) { answers.add(0); continue }
@@ -284,11 +308,15 @@ object Verifier {
         }
         // A refusal: say which referers were tried (hosts only, never tokens).
         if (note.startsWith("server said 403")) note += "; tried: " + tried.joinToString(", ")
-        val goneCode = DeadStream.goneVerdict(answers)
+        val seen = synchronized(answers) { answers.toList() }
+        val goneCode = DeadStream.goneVerdict(seen)
         if (goneCode != 0) note = DeadStream.goneNote(goneCode)
-        else if (NoAnswer.silent(answers)) note = NoAnswer.SILENT
+        else if (NoAnswer.silent(seen)) note = NoAnswer.SILENT
         // Every referer refused (and every try answered): the player's requests to this host will be refused too.
-        if (Refusal.allRefused(answers)) RefusedHosts.record(host)
+        if (Refusal.allRefused(seen)) {
+            RefusedHosts.record(host)
+            note += Refusal.REFUSED_MARK
+        }
         log("✗ ${Report.short(c.url)}: $note")
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
     }

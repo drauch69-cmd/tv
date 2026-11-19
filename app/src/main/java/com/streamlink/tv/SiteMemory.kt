@@ -30,6 +30,17 @@ object SiteMemory {
     internal fun afterResult(e: Entry?, found: Boolean, now: Long): Entry? =
         if (found) null else Entry(if (e == null || now - e.at >= EXPIRE_MS) 1 else e.fails + 1, now)
 
+    /**
+     * What a finished search tells the site memory: true = found (clears misses), false = one miss, null = nothing (not a finder failure).
+     * A miss only for a primary search that saw no candidate at all and whose stream was not offline; never from light or reconnect searches.
+     */
+    internal fun outcome(light: Boolean, reconnect: Boolean, found: Boolean, candidateSeen: Boolean, offline: Boolean): Boolean? = when {
+        light || reconnect -> null
+        found -> true
+        candidateSeen || offline -> null
+        else -> false
+    }
+
     internal fun key(host: String?): String? =
         host?.trim()?.lowercase()?.removePrefix("www.")?.ifEmpty { null }
 
