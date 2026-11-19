@@ -92,7 +92,7 @@ object BackupChoice {
 object BackupTiming {
     const val FIRST_DELAY_MS = 30_000L
     const val LONG_INTERVAL_MS = 10 * 60_000L
-    const val MIN_SHORT_INTERVAL_MS = 90_000L
+    const val MIN_SHORT_INTERVAL_MS = 180_000L
     const val MAX_BACKOFF_MS = 15 * 60_000L
     /** A stall that starts within this long after a refresh run ended is blamed on it. */
     const val STALL_BLAME_MS = 5_000L

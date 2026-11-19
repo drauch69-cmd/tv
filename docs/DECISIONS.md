@@ -5,6 +5,16 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Backups while watching + parallel recovery + offline streams** (user's go, 2026-11-19 08:27/08:34; on `sports`,
+  compiled and unit-tested in CI, NOT tested on the TV): per-server address lifetime learning (SHORT/LONG/unknown);
+  BackupKeeper refreshes up to 2 backups of the watched game (other-site entries first) with light quiet runs only while
+  playback is healthy (>= 10 s ahead, or 60 s calm with >= 3 s ahead), every 10 min (long/unknown) or 2/3 of the learned
+  lifetime, min 3 min (lead raised the helper's 90 s to keep it light), auto-off for the watch if a stall follows a run;
+  on a drop a fresh backup is quick-checked and switched to, else reload + known-address checks race (first live answer
+  wins). A 404/410 address is never played; a page whose only stream is 404 is "offline" (other sources, else site
+  player); a reload that returns the same dead address stops reconnecting. First TV check: the keeper's hidden browser sits
+  under the video (black player background) -- look for any page showing over or around the picture. Open: a 403 drop on an
+  expiring-code server still renews first (no instant switch).
 - **Batch after build 211, released as Sports build 224** (user's go, 2026-11-19; on `sports`, compiled and unit-tested in CI, NOT tested on the TV):
   (1) finder: early finish when an adaptive/DASH stream passes its check, page sources read after the player starts,
   head start uses remembered addresses, list reads paused while a stream is found or plays; (2) player network:

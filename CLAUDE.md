@@ -139,7 +139,7 @@ Playback pipeline:
    source just a `Verifier.quickCheck`. One run at a time (`BackupPacing`); first run 30 s after the picture; only when
    healthy (`BackupTiming.healthy`: playing, no recovery, and >= 10 s of video ahead, or >= 60 s since the picture / last stall
    with >= 3 s ahead because low delay buffers little); interval from the server's learned lifetime (`BackupTiming.interval`:
-   short = 2/3 of the oldest age that still worked, at least 90 s; long/unknown = 10 min); a run that finds nothing doubles its
+   short = 2/3 of the oldest age that still worked, at least 3 min (kept light for the Onn); long/unknown = 10 min); a run that finds nothing doubles its
    wait (max 15 min); a run still going after 60 s is stopped. Paused (no run) during stalls, reconnects, renewals, quick switches
    and while away on a link page; resumes at the next picture. **Auto-off:** a stall that starts while a run is active or within 5 s
    after one ended turns it off for the rest of the watch (`BackupWatch.off`, reset with `AutoSwitch.reset()`, so it survives
