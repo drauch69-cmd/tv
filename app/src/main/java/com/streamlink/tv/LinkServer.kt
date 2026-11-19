@@ -122,7 +122,7 @@ class LinkServer(
 
                 // Links and commands only from our own phone page or a Shortcut, never from another
                 // website (which a browser would label with its own Origin / Sec-Fetch-Site).
-                val changes = path in CHANGING_PATHS
+                val changes = path in CHANGING_PATHS || (path == "/livenow/words" && method == "POST") // GET on that path only reads
                 if (changes && method != "POST") {
                     respond(c, 405, "text/plain; charset=utf-8", "Use POST")
                     return
@@ -266,7 +266,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/preferred", "/livenow/words", "/list/refresh", "/list/play")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/preferred", "/list/refresh", "/list/play")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 
