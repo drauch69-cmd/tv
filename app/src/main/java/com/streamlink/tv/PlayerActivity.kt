@@ -136,6 +136,8 @@ class PlayerActivity : Activity() {
     private var smoothThisRun = false
     private val emptyStallTimes = ArrayList<Long>()
     private var stalls = 0
+    /** The current stall was already counted and logged (the buffering event), so the stall check does not count it again. */
+    private var stallLogged = false
     /** Chrome's network engine for this link; turned off if a stream never starts with it. */
     private var useChromeNet = true
     /** A server refused standard networking (403): keep Chrome's engine for this page load, never drop it again. */
@@ -204,6 +206,7 @@ class PlayerActivity : Activity() {
         setIntent(intent)
         Session.commandHandler = handler
         awayOnLinkPage = false
+        cancelRecovery() // a reconnect still running for the old stream must not overwrite the new one
         loadSession()
     }
 
@@ -228,10 +231,25 @@ class PlayerActivity : Activity() {
         play()
     }
 
+    /**
+     * Stops every recovery step that could still act on this player (pending reload, running page search, access renewal, backup
+     * quick check, engine restart): they all check [linkGen], so bumping it makes their callbacks drop out. Used when the viewer
+     * leaves for a link page, picks another source, or a new session replaces this one.
+     */
+    private fun cancelRecovery() {
+        linkGen++
+        reloadPending?.let { main.removeCallbacks(it) }
+        reloadPending = null
+        sniffer.cancel()
+        episode.end()
+        renewing = false
+        fastChecking = false
+    }
+
     override fun onStop() {
         super.onStop()
         noteAddressAge(true)
-        sniffer.cancel()
+        cancelRecovery()
         release()
         // Away on a link's page: stay in the back stack so Back returns here.
         if (awayOnLinkPage) return
@@ -518,6 +536,7 @@ class PlayerActivity : Activity() {
                 }
                 Player.STATE_BUFFERING -> {
                     stallExtensions = 0
+                    stallLogged = false
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                     if (playingSince != 0L) {
                         lastStallAt = System.currentTimeMillis()
@@ -704,7 +723,7 @@ class PlayerActivity : Activity() {
         val p = player ?: return@Runnable
         val buffered = (p.bufferedPosition - p.currentPosition) / 1000.0
         if (playingSince == 0L && !tunnelEngaged() && buffered >= 8.0) {
-            logStall()
+            logStall(fromCheck = true)
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
             decodeProblem()
@@ -797,6 +816,7 @@ class PlayerActivity : Activity() {
 
     private val stallCheck: Runnable = Runnable {
         // Slow but moving: a big piece is still arriving, so this is not a stall yet (recover only when no bytes come).
+        if (fastChecking) return@Runnable // a ready backup is being checked; it decides
         val watch = route?.watch
         if (watch != null && stallExtensions < MAX_STALL_EXTENSIONS && watch.progressing(System.currentTimeMillis())) {
             stallExtensions++
@@ -806,8 +826,8 @@ class PlayerActivity : Activity() {
             main.postDelayed(stallCheck, STALL_EXTENSION_MS)
             return@Runnable
         }
-        Report.log("Stalled for ${STALL_MS / 1000}s")
-        logStall()
+        Report.log("Stalled for ${(STALL_MS + stallExtensions * STALL_EXTENSION_MS) / 1000}s")
+        logStall(fromCheck = true)
         val buffered = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
         if (tunnelEngaged() && !firstFrame) {
             retryWithoutTunneling("stalled before the first picture")
@@ -817,7 +837,7 @@ class PlayerActivity : Activity() {
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
             decodeProblem()
-        } else if (pieceOnlyProblem(false)) {
+        } else if (pieceOnlyProblem()) {
             // Handled: the pieces got the other engine, or another source was started (or a plain reconnect began).
         } else if (playlistSilentProblem()) {
             // Handled: Chrome's network engine is being restarted; the source starts again when it is done.
@@ -857,6 +877,8 @@ class PlayerActivity : Activity() {
     /** Logs [line], rebuilds Chrome's network engine off the main thread, then starts the source again. */
     private fun restartEngineThenPlay(line: String) {
         Report.log(line)
+        // Let go of the old player first: while the engine is rebuilt it could only error or start a second recovery.
+        release()
         val gen = linkGen
         Thread {
             val how = ChromeNet.reset()
@@ -929,9 +951,8 @@ class PlayerActivity : Activity() {
      * page cannot help (the pieces come from the same host again) and switching the playlist's engine is wrong, so:
      * first the other engine for that host's pieces only, then another source. Returns true when it dealt with the
      * situation (including a plain reconnect when no other source exists); false when this is not a piece-only problem.
-     * [fatal]: the player already gave up (error), so it must be restarted rather than left running.
      */
-    private fun pieceOnlyProblem(fatal: Boolean): Boolean {
+    private fun pieceOnlyProblem(): Boolean {
         val r = route ?: return false
         val host = r.watch.pieceOnlyHost(1) ?: return false
         // Refused (not timed out): no engine change helps; see refusedPieces.
@@ -997,15 +1018,18 @@ class PlayerActivity : Activity() {
     }
 
     /** For the report: is it the connection or the stream? */
-    private fun logStall() {
+    private fun logStall(fromCheck: Boolean = false) {
         Report.log(decoderStats())
-        stalls++
+        // The buffering event and the 20 s check describe the same stall: count it once.
+        val again = fromCheck && stallLogged
+        if (!again) stalls++
+        stallLogged = true
         val have = DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate
         val need = player?.videoFormat?.bitrate ?: -1
         val mbps = { b: Long -> String.format(java.util.Locale.US, "%.1f Mbps", b / 1_000_000.0) }
         val ahead = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
         Report.log(
-            "Buffering (stall #$stalls): connection ≈ ${mbps(have)}" +
+            (if (again) "Still buffering (stall #$stalls)" else "Buffering (stall #$stalls)") + ": connection ≈ ${mbps(have)}" +
                 (if (need > 0) ", this quality needs ≈ ${mbps(need.toLong())}" else "") +
                 String.format(java.util.Locale.US, ", %.1fs of video was buffered", ahead)
         )
@@ -1119,6 +1143,7 @@ class PlayerActivity : Activity() {
 
     private fun handleError(error: PlaybackException) {
         val p = player ?: return
+        if (fastChecking) return // a ready backup is being checked; it decides
         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
             Report.log("Fell behind the live point; jumping back to live")
             p.seekToDefaultPosition()
@@ -1191,7 +1216,7 @@ class PlayerActivity : Activity() {
             return
         }
         if (playingSince == 0L && playlistSilentProblem()) return
-        if (playingSince == 0L && pieceOnlyProblem(true)) return
+        if (playingSince == 0L && pieceOnlyProblem()) return
         recover(why)
     }
 
@@ -1203,8 +1228,8 @@ class PlayerActivity : Activity() {
      * is not allowed. While a try runs, returns true.
      */
     private fun renewAccess(old: Source): Boolean {
-        if (renewing) return true
         val now = System.currentTimeMillis()
+        if (RenewGuard.inFlight(renewing, lastRenewAt, now)) return true
         if (renewFailures >= MAX_RENEWALS_FAILED || now - lastRenewAt < RENEW_MIN_GAP_MS) return false
         val page = set?.pageUrl?.takeIf { it.startsWith("http") } ?: return false
         renewing = true
@@ -1223,7 +1248,7 @@ class PlayerActivity : Activity() {
             if (fresh == null || cur == null || idx < 0) {
                 renewFailures++
                 Report.log("No fresh address found ($renewFailures of $MAX_RENEWALS_FAILED)")
-                recover("server said 403")
+                recoverAfterEmptyRenewal("server said 403")
                 return@sniff
             }
             renewFailures = 0
@@ -1260,6 +1285,19 @@ class PlayerActivity : Activity() {
         if (playingSince != 0L && !episode.isOpen) episode.begin()
         if (playingSince != 0L && fastBackup(why) { recoverSlow(why) }) return
         recoverSlow(why)
+    }
+
+    /**
+     * The page was just looked at (the renewal's light search) and showed nothing, so reloading it again is the last resort:
+     * a ready backup first, then another source (automatic switch), and only when neither exists the usual reconnect.
+     */
+    private fun recoverAfterEmptyRenewal(why: String) {
+        if (fastChecking) return
+        if (set == null) return finish()
+        if (playingSince != 0L && !episode.isOpen) episode.begin()
+        val noBackup = { if (!tryAutoSwitch(why)) recoverSlow(why) }
+        if (playingSince != 0L && fastBackup(why, noBackup)) return
+        noBackup()
     }
 
     private fun recoverSlow(why: String) {
@@ -1311,8 +1349,11 @@ class PlayerActivity : Activity() {
             main.post {
                 fastChecking = false
                 if (gen != linkGen || isDestroyed) return@post
-                if (win == null || !switchToBackup(best, win.second, true)) {
+                if (win == null) {
                     Report.log("The saved backup no longer answers; reconnecting as usual")
+                    onMiss()
+                } else if (!switchToBackup(best, win.second, true)) {
+                    Report.log("The saved backup is no longer in the source list; reconnecting as usual")
                     onMiss()
                 }
             }
@@ -1337,6 +1378,7 @@ class PlayerActivity : Activity() {
         episode.end()
         reloadPending?.let { main.removeCallbacks(it) }
         sniffer.cancel()
+        renewing = false
         val host = Report.host(checked.url)
         Report.log(
             if (withAge) "Stream went down; switching to ${best.label} ($host), found ${((now - best.foundAt) / 1000).coerceAtLeast(0)} s ago"
@@ -1434,6 +1476,7 @@ class PlayerActivity : Activity() {
         if (playingSince != 0L && !episode.isOpen) episode.begin()
         release()
         playingSince = 0
+        renewing = false // this search takes over the page loader; a running renewal's answer will never arrive
         val page = set?.pageUrl ?: return finish()
         showCover("Reconnecting…\n($why)")
         AppStatus.text = "Reconnecting to ${Session.title}…"
@@ -1445,6 +1488,7 @@ class PlayerActivity : Activity() {
             reloadPending = null
             if (gen != linkGen) return@Runnable
             sniffer.sniff(page, useRemembered = false) { fresh ->
+                if (gen != linkGen || isDestroyed) return@sniff // the viewer moved on (another source, a link page, a new link)
                 val dead = goneUrl
                 val verified = fresh.sources.filter { it.verified && !it.openPage }
                 val sameDead = dead != null && verified.isNotEmpty() && verified.all { DeadStream.samePath(it.url, dead) }
@@ -1463,12 +1507,11 @@ class PlayerActivity : Activity() {
                     reconnects = MAX_RECONNECTS
                     if (!tryAutoSwitch(why)) openSitePlayer("the site's stream is offline")
                 } else if (fresh.sources.isEmpty()) {
+                    // One empty reload is enough: the page has nothing to give, and the clean player would only get the old, dead set.
+                    reconnects = MAX_RECONNECTS
                     Report.log("No stream found while reconnecting")
-                    if (reconnects < MAX_RECONNECTS) {
-                        reconnects++
-                        reconnect(why)
-                    } else if (!tryAutoSwitch(why)) {
-                        openCleanPlayer(why)
+                    if (EmptyReload.next(AutoSwitch.canSwitch()) != EmptyReload.Step.AUTO_SWITCH || !tryAutoSwitch(why)) {
+                        openSitePlayer("no stream found when reconnecting")
                     }
                 } else {
                     if (!episode.claim(ep)) return@sniff // a known address checked out first
@@ -1478,6 +1521,7 @@ class PlayerActivity : Activity() {
                     val kept = if (old == null) fresh else fresh.copy(sources = Alternatives.append(fresh.sources, old.sources.filter { it.openPage }))
                     set = kept
                     Session.current = kept
+                    keeper?.dropStreamResults() // their addresses belonged to the old set
                     sourceIndex = 0
                     refererIndex = 0
                     // A fresh page load often gives a different server: start again on Chrome's engine.
@@ -1604,6 +1648,7 @@ class PlayerActivity : Activity() {
         val s = set ?: return
         if (i !in s.sources.indices) return
         val chosen = s.sources[i]
+        cancelRecovery() // a reload still running would overwrite this choice when it lands
         if (chosen.openPage) return openLinkPage(chosen)
         val go = {
             Report.log("Switching to source ${i + 1}")
@@ -1688,6 +1733,7 @@ class PlayerActivity : Activity() {
         awayTitle = Session.title
         awayListId = Session.listId; awayListName = Session.listName; awayListItemUrl = Session.listItemUrl
         awayOnLinkPage = true
+        cancelRecovery()
         release()
         // A page of another site never gets our page as referer; this site's own numbered addresses do.
         startActivity(WaitingActivity.linkPageIntent(this, target, src.label, src.referers.firstOrNull { it.isNotBlank() }))

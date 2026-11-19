@@ -96,10 +96,20 @@ class BackupKeeper(
         }
     }
 
-    /** Ready backups, best (list order) first, with those whose pages went dead left out. */
+    /** The page replaced the playing set (a reconnect): addresses saved for STREAM backups may be gone; PAGE results stay. */
+    fun dropStreamResults() {
+        results.values.removeAll { it.kind == BackupKind.STREAM }
+    }
+
+    /** Ready backups, best (list order) first, with those whose pages went dead and the playing address left out. */
     fun ready(now: Long): List<BackupResult> {
         val order = picks().map { it.url }
-        val list = results.values.filter { !AutoSwitch.isDead(it.target, now) && !AutoSwitch.isDead(it.url, now) }
+        val cur = current()
+        val playingUrl = cur?.first?.sources?.getOrNull(cur.second)?.url
+        val list = results.values.filter {
+            !AutoSwitch.isDead(it.target, now) && !AutoSwitch.isDead(it.url, now) &&
+                !BackupReady.isPlaying(it.url, it.set.sources.map { s -> s.url }, playingUrl)
+        }
         return list.sortedBy { order.indexOf(it.url).let { i -> if (i < 0) Int.MAX_VALUE else i } }
     }
 
