@@ -116,8 +116,9 @@ class BackupLogicTest {
     @Test fun intervalFromLifetime() {
         assertEquals(10 * M, BackupTiming.interval(Lifetime(LifeKind.UNKNOWN)))
         assertEquals(10 * M, BackupTiming.interval(Lifetime(LifeKind.LONG, 30 * M)))
-        assertEquals(90 * S, BackupTiming.interval(Lifetime(LifeKind.SHORT, 60 * S)))
-        assertEquals(120 * S, BackupTiming.interval(Lifetime(LifeKind.SHORT, 180 * S)))
+        assertEquals(3 * M, BackupTiming.interval(Lifetime(LifeKind.SHORT, 60 * S)))
+        assertEquals(3 * M, BackupTiming.interval(Lifetime(LifeKind.SHORT, 180 * S)))
+        assertEquals(4 * M, BackupTiming.interval(Lifetime(LifeKind.SHORT, 6 * M)))
     }
 
     @Test fun backoffDoublesToCap() {
