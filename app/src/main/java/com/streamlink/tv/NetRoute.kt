@@ -84,7 +84,7 @@ object PieceRecovery {
 
 /**
  * Tracks playlist and piece requests of one source. Piece-only failure = for one host, pieces failed
- * ([minFails] or more), none from it ever completed, and a playlist refresh completed after the first failed
+ * ([minFails] or more), none from it completed since the first of those failures, and a playlist refresh completed after the first failed
  * piece began (so the playlist host answered while the pieces hung) with no playlist failure since.
  * Thread safe (reports come from loader threads).
  */
@@ -143,7 +143,22 @@ class PieceWatch {
     @Synchronized fun playlistGone(times: Int = 2): Boolean = goneRun >= times
 
     @Synchronized fun clearGone() { goneRun = 0 }
-    @Synchronized fun pieceOk(h: String) { host(h).ok++ }
+    @Synchronized fun pieceOk(h: String) {
+        val e = host(h)
+        e.ok++
+        // Failures are judged since the host's last success: a wedge in the middle of a watch still counts.
+        e.fails = 0
+        e.answered = 0
+        e.firstFailStart = 0L
+    }
+
+    /** A new play of the same source (a reconnect that kept the route): forget old failure counts; per-host restarted/retried flags stay. */
+    @Synchronized fun resetCounters() {
+        for (e in hosts.values) { e.fails = 0; e.answered = 0; e.firstFailStart = 0L }
+        playlistOkAt = 0L; playlistFailAt = 0L
+        lastPieceByteAt = 0L; lastPieceBytes = 0L
+        goneRun = 0; silentRun = 0
+    }
 
     /** A piece failed; [status] is the HTTP status when the server answered (a refusal is not a timeout), 0 otherwise. */
     @Synchronized fun pieceFailed(h: String, startedAt: Long, status: Int = 0) {
@@ -177,7 +192,7 @@ class PieceWatch {
 
     @Synchronized fun pieceOnlyHost(minFails: Int): String? {
         for ((name, e) in hosts) {
-            if (e.fails >= minFails && e.ok == 0 && playlistOkAt >= e.firstFailStart && playlistOkAt != 0L && playlistFailAt <= playlistOkAt) return name
+            if (e.fails >= minFails && playlistOkAt >= e.firstFailStart && playlistOkAt != 0L && playlistFailAt <= playlistOkAt) return name
         }
         return null
     }

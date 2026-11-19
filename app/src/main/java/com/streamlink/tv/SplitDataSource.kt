@@ -37,6 +37,8 @@ class SplitDataSource(
     private data class Key(val chrome: Boolean, val sameHost: Boolean, val piece: Boolean)
 
     private val sources = HashMap<Key, DataSource>()
+    /** The Chrome engine each cached Chrome data source was built on; a restarted engine ([ChromeNet.reset]) means a rebuild. */
+    private val builtOn = HashMap<Key, Any?>()
     private val listeners = ArrayList<TransferListener>()
     private var current: DataSource? = null
 
@@ -77,6 +79,17 @@ class SplitDataSource(
         return f.createDataSource().also { s -> listeners.forEach { s.addTransferListener(it) } }
     }
 
+    /** The cached data source for [k]; a Chrome one is rebuilt when the shared engine was replaced since it was built (the old engine is shut down later). */
+    private fun sourceFor(k: Key): DataSource {
+        val engine = if (k.chrome) ChromeNet.engine else null
+        val cached = sources[k]
+        if (cached != null && (!k.chrome || builtOn[k] === engine)) return cached
+        val fresh = build(k)
+        sources[k] = fresh
+        builtOn[k] = engine
+        return fresh
+    }
+
     override fun open(dataSpec: DataSpec): Long {
         val uri = dataSpec.uri
         host = ServerMemory.key(uri.host) ?: ""
@@ -88,7 +101,7 @@ class SplitDataSource(
         failed = false
         finished = false
         val k = Key(chrome, route.isPlaylistHost(host), piece)
-        val src = sources.getOrPut(k) { build(k) }
+        val src = sourceFor(k)
         current = src
         try {
             return src.open(dataSpec)

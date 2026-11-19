@@ -140,4 +140,29 @@ class NetRouteTest {
         assertTrue(w.playlistRestarted())
         assertFalse(w.playlistSilent())
     }
+
+    @Test
+    fun midWatchWedgeIsPieceOnlyAfterEarlierSuccess() {
+        val w = PieceWatch()
+        w.pieceOk("cdn"); w.pieceOk("cdn")
+        w.playlistOk(100)
+        w.pieceFailed("cdn", 200)
+        w.playlistOk(300)
+        assertEquals("cdn", w.pieceOnlyHost(1))
+        assertFalse(w.pieceAnswered("cdn"))
+    }
+
+    @Test
+    fun resetCountersForgetsFailuresButKeepsRestartFlags() {
+        val w = PieceWatch()
+        w.playlistOk(10); w.pieceFailed("c", 1, 500); w.playlistOk(20)
+        w.markRestarted("c")
+        w.pieceFailed("c", 30, 500); w.playlistFailed(40, 0)
+        assertTrue(w.playlistSilent())
+        w.resetCounters()
+        assertNull(w.pieceOnlyHost(1))
+        assertFalse(w.pieceAnswered("c"))
+        assertFalse(w.playlistSilent())
+        assertTrue(w.restarted("c"))
+    }
 }

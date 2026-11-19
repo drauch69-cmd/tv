@@ -33,6 +33,7 @@ object ChromeNet {
         private set
 
     private const val RESET_GAP_MS = 60_000L
+    private const val SHUTDOWN_TRIES = 4
 
     /** Start the engine in the background; call once at app start. */
     fun init(context: Context) {
@@ -49,12 +50,15 @@ object ChromeNet {
         }
     }
 
+    /** An engine exists but was restarted less than a minute ago (a new restart would not be allowed). */
+    fun recentlyReset(now: Long = System.currentTimeMillis()): Boolean = engine != null && now - lastResetAt < RESET_GAP_MS
+
     /** A restart is allowed (engine present, and none in the last minute). */
     fun canReset(now: Long = System.currentTimeMillis()): Boolean = engine != null && app != null && now - lastResetAt >= RESET_GAP_MS
 
     /**
      * Replaces the shared engine with a fresh one (a dead pooled connection to one host can wedge every request to it
-     * until the app restarts). Everything reads [engine] per request, so new requests use the fresh one at once; the old
+     * until the app restarts). Each player data source ([SplitDataSource]) rebuilds its Chrome downloader when it sees a new [engine] at the next request, so new requests use the fresh one at once; the old
      * one is shut down a minute later (requests still running on it finish or fail first; if it refuses, it is dropped).
      * The fresh engine is built with QUIC off (HTTP/2 over TCP only). Blocking: call off the main thread.
      * Returns a short description of what was built, or null when nothing changed.
@@ -78,10 +82,20 @@ object ChromeNet {
         quicOff = how.contains("QUIC off")
         engine = fresh
         thread(isDaemon = true, name = "cronet-old") {
-            try {
-                Thread.sleep(RESET_GAP_MS)
-                old.shutdown()
-            } catch (_: Throwable) {}
+            // Shutdown throws while requests are still running on the old engine (the wedged case): retry a few times.
+            var done = false
+            var tries = 0
+            while (!done && tries < SHUTDOWN_TRIES) {
+                tries++
+                try {
+                    Thread.sleep(RESET_GAP_MS)
+                    old.shutdown()
+                    done = true
+                } catch (_: InterruptedException) {
+                    return@thread
+                } catch (_: Throwable) {}
+            }
+            if (!done) Report.log("The old network engine could not be shut down")
         }
         return how
     }

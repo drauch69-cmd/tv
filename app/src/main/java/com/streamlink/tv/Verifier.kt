@@ -123,14 +123,20 @@ object Verifier {
     /**
      * [rank], plus the stuck-engine rule: when every candidate (and at least one; possible playlists left out) got no HTTP
      * answer at all on Chrome's engine, the engine is restarted (off the main thread: call this off it; rate limited by
-     * [ChromeNet.canReset]) and those candidates are checked once more. Still no answer: they come back marked
+     * [ChromeNet.canReset]; never when [allowRestart] is false: light/quiet runs beside a playing stream) and those candidates are checked once more. Still no answer: they come back marked
      * [NoAnswer.FINAL], which the sniffer treats as no stream instead of playing them unchecked.
      */
-    fun rankWithRestart(cands: List<StreamCandidate>, log: (String) -> Unit = { Report.log(it) }): List<Source> {
+    fun rankWithRestart(cands: List<StreamCandidate>, allowRestart: Boolean = true, log: (String) -> Unit = { Report.log(it) }): List<Source> {
         val first = rank(cands, log)
         val possible = cands.filter { it.possible }.map { it.url }.toSet()
         if (!NoAnswer.allSilent(first.filter { it.url !in possible })) return first
-        if (ChromeNet.engine == null || !ChromeNet.canReset()) return first
+        if (ChromeNet.engine == null || !allowRestart) return first
+        if (!ChromeNet.canReset()) {
+            // Restarted less than a minute ago: the silence is about the server, not the engine. Do not play them unchecked.
+            if (!ChromeNet.recentlyReset()) return first
+            log("Still no answer from the stream server (the engine was restarted a moment ago)")
+            return first.map { if (it.url !in possible) NoAnswer.markFinal(listOf(it)).first() else it }
+        }
         log("No answer from the stream server; restarting Chrome's network engine and checking again")
         val how = ChromeNet.reset()
         if (how == null) {

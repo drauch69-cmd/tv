@@ -400,6 +400,7 @@ class PlayerActivity : Activity() {
         val r = route?.takeIf { it.sourceUrl == src.url }
             ?: NetRoute(src.url, ServerMemory.key(Report.host(src.url)) ?: "") { ServerMemory.refusesStandard(it) }.also { route = it }
         r.playlistChrome = engine != null
+        r.watch.resetCounters()
         stallExtensions = 0
         goneHandled = false
 

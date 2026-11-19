@@ -400,12 +400,12 @@ Remote tabs; prefetch toggle).
   playlists 15/15. A stall check that finds piece bytes arrived in the last 8 s waits 10 s and looks again (max 3 times,
   line "No picture after 20s, but a video piece is still arriving (N bytes so far); waiting a little longer"): recover
   only when no bytes come.
-  **Piece-only failures** (`PieceWatch`): for one host, pieces failed, none from it completed, and a playlist refresh
+  **Piece-only failures** (`PieceWatch`): for one host, pieces failed, none from it completed since the first of those failures (counted since the host's last success, so a wedge in mid-watch counts; `PieceWatch.resetCounters` at every `play()` clears the counts but keeps the per-host restarted/retried flags), and a playlist refresh
   completed after the first failed piece began with no playlist failure since. Checked at the stall check (1 failure)
   and when the player gives up with an error before the first picture. Steps, each once per host: (1) restart Chrome's
   engine (`ChromeNet.reset`, off the main thread: a fresh engine with QUIC off built from the provider's builder, falling
-  back to the default builder; every user reads `ChromeNet.engine` per request so all pick it up; old one shut down 60 s
-  later; at most once per minute; "Video pieces keep timing out; restarting Chrome's network engine", then "Chrome's network
+  back to the default builder; each `SplitDataSource` rebuilds its Chrome downloader at the next request when `ChromeNet.engine` changed (so a player already running moves to the fresh engine); old one shut down 60 s
+  later (retried every 60 s, 4 tries; line "The old network engine could not be shut down"); at most once per minute; "Video pieces keep timing out; restarting Chrome's network engine", then "Chrome's network
   engine restarted (...)"); (2) the other engine for that host's pieces only ("Video pieces from <host> time out but the
   playlist is fine; retrying the pieces with standard networking" / "...with Chrome's network engine"); (3) automatic
   switch without reloading the page ("Video pieces still failing; switching to another source instead of reloading the
@@ -480,3 +480,5 @@ Remote tabs; prefetch toggle).
 - **Recipes** are read from the build's own branch (`test` or `main`).
 - **Built-in browser:** with the user's permission, inspect a live site's frames and network requests from the
   desktop app's browser pane.
+
+**Engine restart rules (not yet tested on the TV).** `Verifier.rankWithRestart(allowRestart)`: light/quiet runs (backup keeper, access-code renewal, prefetcher) never restart Chrome's engine (`allowRestart = !light && !quiet` in `StreamSniffer`). When all candidates are silent and the engine was restarted less than a minute ago, they are marked final at once (no unchecked play; line "Still no answer from the stream server (the engine was restarted a moment ago)").

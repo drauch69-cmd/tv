@@ -669,7 +669,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         log("Checking ${list.size} stream(s)…")
         thread(isDaemon = true, name = "stream-check") {
             val raw = try {
-                Verifier.rankWithRestart(list) { m -> log(m) }
+                Verifier.rankWithRestart(list, allowRestart = !light && !quiet) { m -> log(m) }
             } catch (e: Exception) {
                 log("Checking failed: ${e.javaClass.simpleName}")
                 list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault, verified = false, note = "checking failed") }
