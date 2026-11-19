@@ -45,8 +45,13 @@ object GameFolders {
      * - Always-on channels are never placed anywhere; finished items are placed only when they match a game
      *   (never in other).
      * - The same address (see [urlKey]) is placed once: first list in saved order, first item in page order.
+     * - [preferredListId]: that list is handled first, so its streams come first in every game and in other (and
+     *   win a duplicate address); otherwise the order is unchanged.
      */
-    fun build(league: String, games: List<Game>, lists: List<Pair<SavedList, List<ListItem>>>, now: Long, zone: ZoneId): SportFolders {
+    fun build(
+        league: String, games: List<Game>, lists: List<Pair<SavedList, List<ListItem>>>, now: Long, zone: ZoneId,
+        preferredListId: String? = null,
+    ): SportFolders {
         val (from, to) = window(now, zone)
         val windowAll = GameViews.window(games, from, to)
         val inWindow = windowAll.filter { it.league == league }
@@ -54,7 +59,7 @@ object GameFolders {
         for (g in inWindow) perGame[g.id] = ArrayList()
         val other = ArrayList<GameStream>()
         val seen = HashSet<String>()
-        for ((list, items) in lists) {
+        for ((list, items) in Preferred.first(lists, preferredListId) { it.first.id }) {
             if (!list.has(league)) continue
             val pool = GameViews.forLeagues(windowAll, list.sports)
             for (item in items) {
@@ -117,11 +122,11 @@ object GameSections {
 
 /** The 24/7 tile: channels that are always on. */
 object AlwaysOn {
-    /** Always-on items (started more than 24 h ago) of ALL saved lists, tagged or not; same address once; saved-list order. */
-    fun collect(lists: List<Pair<SavedList, List<ListItem>>>, now: Long): List<GameStream> {
+    /** Always-on items (started more than 24 h ago) of ALL saved lists, tagged or not; same address once; saved-list order, the [preferredListId] list first. */
+    fun collect(lists: List<Pair<SavedList, List<ListItem>>>, now: Long, preferredListId: String? = null): List<GameStream> {
         val seen = HashSet<String>()
         val out = ArrayList<GameStream>()
-        for ((list, items) in lists) for (item in items) {
+        for ((list, items) in Preferred.first(lists, preferredListId) { it.first.id }) for (item in items) {
             val start = item.startMillis ?: continue
             if (!ListStatus.isAlwaysOn(start, now)) continue
             if (seen.add(GameFolders.urlKey(item.url))) out.add(GameStream(list.id, list.name, item))

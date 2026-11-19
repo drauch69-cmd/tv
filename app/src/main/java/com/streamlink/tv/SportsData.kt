@@ -13,7 +13,7 @@ object SportsData {
         ctx: Context, league: String, now: Long = System.currentTimeMillis(),
         lists: List<Pair<SavedList, List<ListItem>>> = lists(ctx),
     ): SportFolders = try {
-        GameFolders.build(league, ScoreFeed.latest(), lists, now, ZoneId.systemDefault())
+        GameFolders.build(league, ScoreFeed.latest(), lists, now, ZoneId.systemDefault(), Preferred.idOf(lists.map { it.first }))
     } catch (_: Exception) {
         SportFolders(league, emptyList(), emptyList())
     }
@@ -30,7 +30,7 @@ object SportsData {
 /** Shared pieces of the sports screens. Text from pages is shown as plain text only. */
 object SportsUi {
     /** One stream row (title, "list name · when", status badge). Tag = the stream's address key. */
-    fun streamRow(ctx: Context, s: GameStream, now: Long, onOpen: () -> Unit, onFocus: (Boolean) -> Unit): android.view.View {
+    fun streamRow(ctx: Context, s: GameStream, now: Long, onOpen: () -> Unit, onFocus: (Boolean) -> Unit, preferred: Boolean = false): android.view.View {
         val item = s.item
         val row = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
@@ -46,7 +46,7 @@ object SportsUi {
         col.addView(Ui.text(ctx, ListText.displayTitle(item), 16f, Ui.TEXT, bold = true).apply {
             maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END
         })
-        val meta = listOf(s.listName, ListSections.meta(item, now)).filter { it.isNotBlank() }.joinToString("  ·  ")
+        val meta = listOf(if (preferred) "★ Preferred" else "", s.listName, ListSections.meta(item, now)).filter { it.isNotBlank() }.joinToString("  ·  ")
         if (meta.isNotEmpty()) col.addView(Ui.text(ctx, meta, 11f, Ui.TEXT_2).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, Ui.dp(ctx, 3), 0, 0)
         })

@@ -71,6 +71,7 @@ object ListTiles {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             })
+            if (l.preferred) tile.addView(Ui.text(a, "★ Preferred", 10.5f, Ui.ACCENT, bold = true).apply { setPadding(0, Ui.dp(a, 3), 0, 0) })
             val cn = counts[l.id]
             val line = SpannableStringBuilder()
             if (cn == null) {
