@@ -54,7 +54,7 @@ object Alternatives {
         val now = System.currentTimeMillis()
         val games = ScoreFeed.latest()
         toSources(pick(SportsData.both(ctx, now), listOf(listItemUrl, pageUrl), preferredListId(ctx),
-            { ListStatus.of(it, now, games) == ListStatus.FINISHED }))
+            isFinished = { ListStatus.of(it, now, games) == ListStatus.FINISHED }))
     } catch (_: Exception) {
         emptyList()
     }
