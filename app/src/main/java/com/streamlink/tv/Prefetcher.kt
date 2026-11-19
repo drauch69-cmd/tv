@@ -110,6 +110,7 @@ class Prefetcher(private val context: Context, holder: ViewGroup, private val sc
         running = true
         muted = true
         Report.muted = true
+        sniffer.timed = false
         sniffer.sniff(u) { set ->
             running = false
             url = null

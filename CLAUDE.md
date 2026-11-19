@@ -284,6 +284,14 @@ Remote tabs; prefetch toggle).
   Not yet tested on the TV.
 - **Report:** the in-app log the user copies from TV or phone. Look for "Page sources:", "Stream went down", "List: pressed" lines, and
   Verifier failure details (size and first characters of the response).
+- **Timing line** (`Timing.kt`, pure formatting tested in `TimingTest`): one "Timing: ..." report line per foreground play
+  attempt showing seconds since Play for: browser ready (and how long creating it took; notes "first browser since the
+  app opened" for the first hidden browser of the app process), page loaded, tapped, stream seen, checking, checked,
+  player, picture, then "path: full search / head start / remembered address / site player". Reset by `Report.start`;
+  each mark keeps its first time; written once (on the first picture, or when handing off to the site player). Only
+  foreground runs mark: Prefetcher runs, light runs and the player's reconnect/renew sniffs do not (`StreamSniffer.timed`);
+  a new link opened while the player is in front is a new attempt and does mark. Marks never set are left out.
+  Not yet tested on the TV.
 - **Save sample:** zip with list page and stream page snapshots plus the log. The stream page comes from the player
   search when it found nothing, or from the links search; its info.txt line says which and what was tapped. Playlists
   the site player loaded are kept too. May be sanitized; words are examples only.

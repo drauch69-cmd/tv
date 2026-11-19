@@ -166,7 +166,7 @@ class PlayerActivity : Activity() {
         buildCover()
         buildOverlay()
         buildPicker()
-        sniffer = StreamSniffer(this, findViewById<FrameLayout>(R.id.webHolder))
+        sniffer = StreamSniffer(this, findViewById<FrameLayout>(R.id.webHolder)).also { it.timed = false }
         Session.commandHandler = handler
         loadSession()
         main.post(snapshotTick)
@@ -290,6 +290,7 @@ class PlayerActivity : Activity() {
             sourceIndex = LinkOrder.firstPlayable(s.sources) ?: return openSitePlayer("no playable source")
             return play()
         }
+        Timing.mark(Timing.PLAYER)
 
         val headers = HashMap<String, String>()
         var userAgent: String? = null
@@ -470,6 +471,8 @@ class PlayerActivity : Activity() {
 
         override fun onRenderedFirstFrame() {
             firstFrame = true
+            Timing.mark(Timing.PICTURE)
+            Timing.emit()
             main.removeCallbacks(firstFrameCheck)
         }
 
@@ -1062,8 +1065,11 @@ class PlayerActivity : Activity() {
         Session.title = site
         showCover("Finding the video on $site…", 1)
         AppStatus.text = "Finding the video on $site…"
+        sniffer.timed = true // a new link in front of the player is a new attempt
         sniffer.sniff(url) { found ->
+            sniffer.timed = false
             if (found.sources.isEmpty()) {
+                Timing.emit(Timing.PATH_SITE_PLAYER)
                 openSitePlayer("no direct stream found", found.pageUrl)
             } else {
                 Session.current = found

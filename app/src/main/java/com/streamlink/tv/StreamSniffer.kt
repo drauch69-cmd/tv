@@ -77,6 +77,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     /** Quiet run beside a playing stream (see [sniff], used by the access-code renewal): same page loader, but light (blocks all but playlists once one is seen). */
     @Volatile private var light = false
+    /** False for quiet runs (Prefetcher, the player's renew/reconnect): they never set Timing marks. Light runs never do either. */
+    @Volatile var timed = true
+    private fun tm(name: String) { if (timed && !light) Timing.mark(name) }
     @Volatile private var playlistSeen = false
     private var lastReason = ""
     private fun log(m: String) = Report.log(if (light) "Links: · $m" else m)
@@ -360,6 +363,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             embedded -> " (no access code)"
             else -> ""
         }
+        tm(Timing.SEEN)
         log("Found stream: ${Report.short(url)}$note")
         scheduleCollect(embedded)
         if (candidates.values.count { !it.possible } >= MAX_CANDIDATES) verifyAndFinish()
@@ -400,6 +404,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     return@post
                 }
                 candidates[c.url] = cur.copy(possible = false)
+                tm(Timing.SEEN)
                 log("The possible playlist is a playlist; using it as a stream")
                 playlistSeen = true
                 scheduleCollect(false)
@@ -421,6 +426,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val list = candidates.values.sortedWith(compareBy<StreamCandidate>({ it.possible }, { it.embedded }))
         val page = currentPage()
         val gen = generation
+        tm(Timing.CHECKING)
         log("Checking ${list.size} stream(s)…")
         thread(isDaemon = true, name = "stream-check") {
             val raw = try {
@@ -434,6 +440,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val sources = if (maybe.isEmpty()) raw else raw.filter { it.verified || it.url !in maybe }
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile
+                tm(Timing.CHECKED)
                 val set = result(sources).copy(pageUrl = page)
                 // Primary search that found a playable stream: one quick look for the page's own numbered addresses.
                 // (verifying stays true meanwhile, so nothing else restarts the check.)
@@ -487,7 +494,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     }
 
     private fun createWebView(url: String): WebView {
+        val tmStart = SystemClock.uptimeMillis()
         val wv = WebView(context)
+        Timing.browserCreated(SystemClock.uptimeMillis() - tmStart, timed && !light)
         wv.isFocusable = false
         wv.isFocusableInTouchMode = false
         SafeWeb.configure(wv)
@@ -563,6 +572,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 light && playlistSeen && !isStreamUrl(request.url.toString())
 
             override fun onLoaded() {
+                tm(Timing.LOADED)
                 if (clickRef != null && clickPhase == 0) {
                     // list page of a click-only event: let it settle, then click the row (nudging first could tap another row)
                     clickPhase = 1
@@ -690,9 +700,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             if (hasPlayer && playerTaps < MAX_PLAYER_TAPS) {
                 playerTaps++
                 if (firstPlayerTapAt == 0L) firstPlayerTapAt = SystemClock.uptimeMillis()
+                tm(Timing.TAPPED)
                 tap(wv, playerX, playerY)
             } else if (!hasPlayer && nudgeCount % 2 == 0) {
                 if (!pageTapLogged) { pageTapLogged = true; log("No player box seen yet; tapping the middle of the page") }
+                tm(Timing.TAPPED)
                 tap(wv, wv.width / 2f, wv.height / 2f)
             }
         }

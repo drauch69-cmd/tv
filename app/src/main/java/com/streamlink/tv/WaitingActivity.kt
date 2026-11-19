@@ -134,6 +134,7 @@ class WaitingActivity : Activity() {
         if (checking || handedOff || gaveUp) return
         if (!linkPage) Prefetch.take(item.url)?.let { head ->
             checkCount++
+            Timing.path = Timing.PATH_HEAD_START
             Report.log("Head start: stream already found while you were browsing")
             found(head)
             return
@@ -181,6 +182,7 @@ class WaitingActivity : Activity() {
                 if (noTimeGiveUp && !linkPage) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
                 handedOff = true
                 main.removeCallbacksAndMessages(null)
+                Timing.emit(Timing.PATH_SITE_PLAYER)
                 AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
                 startActivity(SitePlayerActivity.intent(this, pageUrl, referer))
                 finish()
