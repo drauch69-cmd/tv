@@ -734,7 +734,7 @@ class PlayerActivity : Activity() {
     /** Tunneling was requested AND the player actually uses it for the current tracks. */
     private fun tunnelEngaged(): Boolean = tunneling && player?.isTunnelingEnabled == true
 
-    private val stallCheck = Runnable {
+    private val stallCheck: Runnable = Runnable {
         // Slow but moving: a big piece is still arriving, so this is not a stall yet (recover only when no bytes come).
         val watch = route?.watch
         if (watch != null && stallExtensions < MAX_STALL_EXTENSIONS && watch.progressing(System.currentTimeMillis())) {
