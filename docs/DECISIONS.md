@@ -5,7 +5,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **Review round after build 229** (user's go, 2026-11-19 13:18; on `sports`, compiled and unit-tested in CI, NOT tested
+- **Review round after build 229, released as Sports build 234** (user's go, 2026-11-19 13:18; on `sports`, compiled and unit-tested in CI, NOT tested
   on the TV). Trigger: a broken CrackStreams stream (pieces 403, site's own player fails too) took ~3 min to give up.
   Refused pieces now stop at once (no engine restart, no referer cycling, no reload of the same refused stream; other
   sources, else site player; ~15 s); only page/player-frame referers are remembered. A fresh reviewer (read-only) then
