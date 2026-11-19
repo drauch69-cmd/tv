@@ -27,8 +27,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cronet.CronetDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -62,6 +60,9 @@ class PlayerActivity : Activity() {
 
     companion object {
         private const val STALL_MS = 20_000L
+        /** A stall check that finds a piece still arriving waits this long and looks again, up to [MAX_STALL_EXTENSIONS] times. */
+        private const val STALL_EXTENSION_MS = 10_000L
+        private const val MAX_STALL_EXTENSIONS = 3
         private const val MAX_RECONNECTS = 3
         /** Expired access codes: one fresh-address try per this long, and this many empty tries in a row before giving up. */
         private const val RENEW_MIN_GAP_MS = 60_000L
@@ -139,6 +140,9 @@ class PlayerActivity : Activity() {
     private var useChromeNet = true
     /** A server refused standard networking (403): keep Chrome's engine for this page load, never drop it again. */
     private var chromeForced = false
+    /** Where this source's requests go (playlist host vs piece hosts) and how its pieces are doing; kept while the source stays the same. */
+    private var route: NetRoute? = null
+    private var stallExtensions = 0
     /** The engine ("chrome"/"standard") this source's server was remembered to work with and the player started on; null when nothing was remembered or it was given up. */
     private var engineRemembered: String? = null
     /** Use the TV's software video decoder (slower, more forgiving) for this link. */
@@ -240,6 +244,7 @@ class PlayerActivity : Activity() {
         reconnects = 0
         playingSince = 0
         stalls = 0
+        route = null
         useChromeNet = true
         chromeForced = false
         applyRememberedEngine()
@@ -290,7 +295,9 @@ class PlayerActivity : Activity() {
         val s = set ?: return
         val src = s.sources.getOrNull(sourceIndex)?.takeIf { !it.openPage }
             ?: s.sources.getOrNull(LinkOrder.firstPlayable(s.sources) ?: return) ?: return
-        val mem = ServerMemory.engineFor(Report.host(src.url))
+        val host0 = Report.host(src.url)
+        // A server known to refuse standard networking never starts on it, whatever else was remembered.
+        val mem = ServerMemory.engineFor(host0).takeUnless { it == ServerMemory.STANDARD && ServerMemory.refusesStandard(host0) }
         val start = ServerMemory.engineStart(mem, ChromeNet.engine != null)
         useChromeNet = start.useChromeNet
         chromeForced = start.chromeForced
@@ -344,20 +351,12 @@ class PlayerActivity : Activity() {
             "net-${engine != null}",
             "Network: " + if (engine != null) ChromeNet.describe() else "Android's standard networking",
         )
-        val http: HttpDataSource.Factory = if (engine != null) {
-            CronetDataSource.Factory(engine, ChromeNet.executor)
-                .setConnectionTimeoutMs(15_000)
-                .setReadTimeoutMs(15_000)
-                .setDefaultRequestProperties(headers)
-                .apply { userAgent?.let { setUserAgent(it) } }
-        } else {
-            DefaultHttpDataSource.Factory()
-                .setAllowCrossProtocolRedirects(true)
-                .setConnectTimeoutMs(15_000)
-                .setReadTimeoutMs(15_000)
-                .setDefaultRequestProperties(headers)
-                .apply { userAgent?.let { setUserAgent(it) } }
-        }
+        // One downloader that splits by host: the playlist host keeps the captured headers and the chosen engine;
+        // video pieces from other hosts get browser-like cross-site headers and their own engine (see SplitDataSource).
+        val r = route?.takeIf { it.sourceUrl == src.url }
+            ?: NetRoute(src.url, ServerMemory.key(Report.host(src.url)) ?: "") { ServerMemory.refusesStandard(it) }.also { route = it }
+        r.playlistChrome = engine != null
+        stallExtensions = 0
 
         // Tunneled playback: the video chip syncs audio/video and draws frames itself, bypassing
         // Android's normal video path. Smoother and less work for the processor on TV boxes.
@@ -371,7 +370,7 @@ class PlayerActivity : Activity() {
         )
         Report.logOnce("tunnel-$tunneling", "Tunneled playback: ${if (tunneling) "on" else "off"}")
 
-        val dataSource = UnwrapDataSourceFactory(http)
+        val dataSource = UnwrapDataSourceFactory(SplitDataSourceFactory(r, headers, userAgent))
 
         // Bigger cushion: wait for 8s of video after a stall (not 5s) so one hiccup doesn't
         // turn into several stalls in a row.
@@ -473,6 +472,7 @@ class PlayerActivity : Activity() {
                     AppStatus.text = "Playing ${Session.title}"
                 }
                 Player.STATE_BUFFERING -> {
+                    stallExtensions = 0
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                     if (playingSince != 0L) {
                         logStall()
@@ -735,6 +735,16 @@ class PlayerActivity : Activity() {
     private fun tunnelEngaged(): Boolean = tunneling && player?.isTunnelingEnabled == true
 
     private val stallCheck = Runnable {
+        // Slow but moving: a big piece is still arriving, so this is not a stall yet (recover only when no bytes come).
+        val watch = route?.watch
+        if (watch != null && stallExtensions < MAX_STALL_EXTENSIONS && watch.progressing(System.currentTimeMillis())) {
+            stallExtensions++
+            Report.logOnce("stall-wait", String.format(java.util.Locale.US,
+                "No picture after %ds, but a video piece is still arriving (%,d bytes so far); waiting a little longer",
+                STALL_MS / 1000, watch.bytesSoFar()))
+            main.postDelayed(stallCheck, STALL_EXTENSION_MS)
+            return@Runnable
+        }
         Report.log("Stalled for ${STALL_MS / 1000}s")
         logStall()
         val buffered = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
@@ -746,8 +756,10 @@ class PlayerActivity : Activity() {
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
             decodeProblem()
+        } else if (pieceOnlyProblem(false)) {
+            // Handled: the pieces got the other engine, or another source was started (or a plain reconnect began).
         } else if (playingSince == 0L && engineRemembered != null && set?.sources?.getOrNull(sourceIndex) != null &&
-            (engineRemembered == ServerMemory.STANDARD && !useChromeNet || engineRemembered == ServerMemory.CHROME && chromeForced)
+            (engineRemembered == ServerMemory.STANDARD && !useChromeNet || engineRemembered == ServerMemory.CHROME && chromeForced && !playlistRefusesStandard())
         ) {
             // The engine remembered for this server did not start the stream: forget it; the normal fallbacks run from here.
             val wasChrome = engineRemembered == ServerMemory.CHROME
@@ -766,14 +778,77 @@ class PlayerActivity : Activity() {
             } else {
                 recover("stalled")
             }
-        } else if (playingSince == 0L && useChromeNet && !chromeForced && ChromeNet.engine != null) {
+        } else if (playingSince == 0L && useChromeNet && !chromeForced && ChromeNet.engine != null && !playlistRefusesStandard()) {
             // Never started with Chrome's engine: some servers work badly with it. Try once without.
             useChromeNet = false
             Report.log("No progress with Chrome's network engine; retrying with standard networking")
             play()
         } else {
+            if (playlistRefusesStandard() && playingSince == 0L && useChromeNet) {
+                Report.logOnce("refuses-std", "This server refuses standard networking; not trying it")
+            }
             recover("stalled")
         }
+    }
+
+    private fun playlistRefusesStandard(): Boolean {
+        val u = set?.sources?.getOrNull(sourceIndex)?.url ?: return false
+        return ServerMemory.refusesStandard(Report.host(u))
+    }
+
+    /**
+     * Playlists refresh fine but the video pieces from one host fail (see [PieceWatch.pieceOnlyHost]). Reloading the
+     * page cannot help (the pieces come from the same host again) and switching the playlist's engine is wrong, so:
+     * first the other engine for that host's pieces only, then another source. Returns true when it dealt with the
+     * situation (including a plain reconnect when no other source exists); false when this is not a piece-only problem.
+     * [fatal]: the player already gave up (error), so it must be restarted rather than left running.
+     */
+    private fun pieceOnlyProblem(fatal: Boolean): Boolean {
+        val r = route ?: return false
+        val host = r.watch.pieceOnlyHost(1) ?: return false
+        val nowChrome = r.usesChrome(host)
+        val otherAllowed = if (nowChrome) !ServerMemory.refusesStandard(host) else ChromeNet.engine != null
+        if (nowChrome && !otherAllowed && !r.watch.retried(host)) {
+            Report.logOnce("refuses-std-$host", "This server refuses standard networking; not trying it")
+        }
+        // First a fresh Chrome engine (a wedged pooled connection to this host is the likeliest cause), once per host.
+        if (nowChrome && !r.watch.restarted(host) && ChromeNet.canReset()) {
+            r.watch.markRestarted(host)
+            Report.log("Video pieces keep timing out; restarting Chrome's network engine")
+            val gen = linkGen
+            Thread {
+                val how = ChromeNet.reset()
+                main.post {
+                    if (gen != linkGen || isDestroyed) return@post
+                    Report.log(if (how != null) "Chrome's network engine restarted ($how)" else "Chrome's network engine could not be restarted")
+                    play()
+                }
+            }.start()
+            return true
+        }
+        when (PieceRecovery.next(r.watch.retried(host), otherAllowed)) {
+            PieceStep.RETRY_OTHER_ENGINE -> {
+                r.setPieceEngine(host, !nowChrome)
+                r.watch.markRetried(host)
+                Report.log(
+                    "Video pieces from $host time out but the playlist is fine; retrying the pieces with " +
+                        if (nowChrome) "standard networking" else "Chrome's network engine"
+                )
+                play()
+            }
+            PieceStep.SWITCH_SOURCE -> {
+                if (AutoSwitch.canSwitch()) {
+                    Report.log("Video pieces still failing; switching to another source instead of reloading the page")
+                    if (!tryAutoSwitch("video pieces failing")) {
+                        Report.log("No other source to switch to; reconnecting as usual")
+                        recover("stalled")
+                    }
+                } else {
+                    recover("stalled")
+                }
+            }
+        }
+        return true
     }
 
     /** Playing, but no picture ever appeared: a known tunneling bug on some boxes. */
@@ -942,7 +1017,18 @@ class PlayerActivity : Activity() {
         val src = set?.sources?.getOrNull(sourceIndex)
         // Refused while on standard networking: many stream servers only serve Chrome-like clients (the checker,
         // which uses Chrome's engine, passed). Go back to Chrome's engine instead of trying other referers.
+        val failHost = httpError?.dataSpec?.uri?.host?.let { ServerMemory.key(it) }
+        val r = route
+        if (http == 403 && r != null && failHost != null && failHost != r.playlistHost && !r.usesChrome(failHost) && ChromeNet.engine != null) {
+            // A piece host refused standard networking: only its pieces go back to Chrome's engine.
+            r.setPieceEngine(failHost, true)
+            ServerMemory.recordRefusesStandard(failHost)
+            Report.log("Video pieces from $failHost refused standard networking; using Chrome's network engine for them")
+            play()
+            return
+        }
         if (http == 403 && !useChromeNet && ChromeNet.engine != null) {
+            src?.let { ServerMemory.recordRefusesStandard(Report.host(it.url)) }
             useChromeNet = true
             chromeForced = true
             refererIndex = 0
@@ -962,6 +1048,7 @@ class PlayerActivity : Activity() {
             play()
             return
         }
+        if (playingSince == 0L && pieceOnlyProblem(true)) return
         recover(why)
     }
 

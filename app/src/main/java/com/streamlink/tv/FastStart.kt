@@ -209,7 +209,8 @@ object ServerMemory {
     private const val PREFS = "streamlink"
     private const val KEY = "server_memory_1"
 
-    data class Entry(val referer: String?, val refererAt: Long, val engine: String?, val engineAt: Long)
+    /** [refuseStdAt]: when this host last refused standard networking (403); 0 = never. */
+    data class Entry(val referer: String?, val refererAt: Long, val engine: String?, val engineAt: Long, val refuseStdAt: Long = 0L)
 
     /** What the player starts with for one source. [note] is the report line to log, or null. */
     data class EngineStart(val useChromeNet: Boolean, val chromeForced: Boolean, val note: String?)
@@ -225,7 +226,9 @@ object ServerMemory {
     internal fun engine(e: Entry?, now: Long): String? =
         e?.takeIf { (it.engine == CHROME || it.engine == STANDARD) && now - it.engineAt in 0 until EXPIRE_MS }?.engine
 
-    private fun alive(e: Entry, now: Long) = referer(e, now) != null || engine(e, now) != null
+    internal fun refusal(e: Entry?, now: Long): Boolean = e != null && e.refuseStdAt > 0 && now - e.refuseStdAt in 0 until EXPIRE_MS
+
+    private fun alive(e: Entry, now: Long) = referer(e, now) != null || engine(e, now) != null || refusal(e, now)
 
     /** [map] with [update] applied to [host]'s entry, which becomes the newest; dead entries removed, oldest dropped beyond [MAX_HOSTS]. */
     internal fun updated(map: Map<String, Entry>, host: String, now: Long, update: (Entry) -> Entry): LinkedHashMap<String, Entry> {
@@ -242,6 +245,9 @@ object ServerMemory {
 
     internal fun withEngine(map: Map<String, Entry>, host: String, engine: String, now: Long) =
         updated(map, host, now) { it.copy(engine = engine, engineAt = now) }
+
+    internal fun withRefusesStandard(map: Map<String, Entry>, host: String, now: Long) =
+        updated(map, host, now) { it.copy(refuseStdAt = now) }
 
     internal fun withoutEngine(map: Map<String, Entry>, host: String, now: Long) =
         updated(map, host, now) { it.copy(engine = null, engineAt = 0L) }
@@ -272,6 +278,7 @@ object ServerMemory {
             val j = JSONObject()
             if (e.referer != null) j.put("ref", e.referer).put("refAt", e.refererAt)
             if (e.engine != null) j.put("eng", e.engine).put("engAt", e.engineAt)
+            if (e.refuseStdAt > 0) j.put("rsAt", e.refuseStdAt)
             o.put(h, j)
         }
         return o.toString()
@@ -287,6 +294,7 @@ object ServerMemory {
                 out[k] = Entry(
                     if (j.has("ref")) j.optString("ref") else null, j.optLong("refAt"),
                     if (j.has("eng")) j.optString("eng") else null, j.optLong("engAt"),
+                    j.optLong("rsAt"),
                 )
             }
         } catch (_: Exception) {
@@ -353,5 +361,19 @@ object ServerMemory {
         val now = System.currentTimeMillis()
         if (engine(current()[k], now) == null) return
         store(withoutEngine(current(), k, now))
+    }
+
+    @Synchronized
+    fun refusesStandard(host: String?): Boolean {
+        val k = key(host) ?: return false
+        return refusal(current()[k], System.currentTimeMillis())
+    }
+
+    @Synchronized
+    fun recordRefusesStandard(host: String?) {
+        val k = key(host) ?: return
+        val now = System.currentTimeMillis()
+        if (refusal(current()[k], now)) return
+        store(withRefusesStandard(current(), k, now))
     }
 }
