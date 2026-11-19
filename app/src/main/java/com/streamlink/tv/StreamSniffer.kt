@@ -68,6 +68,8 @@ data class StreamCandidate(
     val embedded: Boolean = false,
     /** Only looks like a playlist by its address words (see [StreamUrls.isPossiblePlaylist]); must pass the content check. */
     val possible: Boolean = false,
+    /** The referers of [referers] that may be remembered for the stream server (the page itself or its player frame; see [RefererTrust]). */
+    val rememberable: List<String> = emptyList(),
 )
 
 /**
@@ -392,6 +394,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         playerY = -1f
         playerKind = ""
         playerForeign = false
+        playerFrameHost = ""
         playerLogged = false
         pageTapLogged = false
         playerTaps = 0
@@ -556,7 +559,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val dropped = candidates.entries.filter { it.value.embedded && StreamUrls.sameStream(it.value.url, url) }.map { it.key }
             for (k in dropped) candidates.remove(k)
         }
-        candidates[url] = StreamCandidate(url, headers, referers, "", true, embedded, possible)
+        val trusted = listOf(siteHost, Report.host(currentPage()), Report.host(this.referer ?: ""), playerFrameHost)
+        candidates[url] = StreamCandidate(url, headers, referers, "", true, embedded, possible, RefererTrust.eligibleReferers(referers, trusted))
         if (possible) {
             // Not a stream yet: no wait is started and playlistSeen stays as it is. A quick content check decides.
             log("Found a possible playlist: ${Report.host(url)}/… (checking its content)")
@@ -929,6 +933,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     playerY = (o.optDouble("py") * scale).toFloat()
                     playerKind = o.optString("kind", "video")
                     val fh = o.optString("fh", "")
+                    if (playerKind == "frame" && fh.isNotEmpty()) playerFrameHost = fh
                     playerForeign = playerKind == "frame" && fh.isNotEmpty() && !sameSite(fh, siteHost)
                     if (!playerLogged) {
                         playerLogged = true
@@ -993,6 +998,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private var playerKind = ""
     private var playerForeign = false
+    /** Host of the player frame the nudge picked (the biggest landscape frame); "" when none. Trusted as a referer to remember. */
+    private var playerFrameHost = ""
     private var playerLogged = false
     private var pageTapLogged = false
     private var playerTaps = 0

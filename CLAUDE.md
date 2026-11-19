@@ -251,6 +251,11 @@ Remote tabs; prefetch toggle).
   chromeForced ("Staying on Chrome's network engine for this server (it worked last time)"); if the remembered engine then
   stalls or gets 403, it is forgotten and the other engine is tried once (remembered chrome -> standard; remembered
   standard -> Chrome's engine, kept), then the normal recovery. Not yet tested on the TV.
+  **Which referers are remembered** (`RefererTrust`, `StreamCandidate.rememberable`): `Verifier.check` records a passing referer in
+  `ServerMemory` only when it is one the sniffer marked rememberable, decided by structure: its host is the same site as the page the
+  search opened (or where it ended, or the page that sent the user there) or as the player frame the nudge picked (biggest landscape
+  frame, host `fh`). The Referer a request carried on its own (its initiator, often a tracker/pixel frame) and other sub-frame
+  addresses are tried as before but never remembered. Candidates built elsewhere (backups, quick checks) remember nothing.
   **Address lifetime per server** (`ServerMemory` samples, JSON "life", max 12 per host, 7 days): each re-check of an address records
   (age since found, ok/refused): the remembered-address shortcut, the keeper's re-check of its previous backup result, a playing
   address refused with 403 (fail) and one that played fine until the screen was left (ok). `lifetimeEstimate`: SHORT = at least 2
@@ -417,6 +422,21 @@ Remote tabs; prefetch toggle).
   networking. Such a host never gets standard networking for its playlist (stall branches skip it, line "This server
   refuses standard networking; not trying it") nor for its pieces, and a remembered "standard" engine is ignored for it.
   Not yet tested on the TV.
+  **Refused pieces (403)** (`Refusal.kt`, `RefusalTest`; not yet tested on the TV). A refusal (401/403/451) is a server decision, not a
+  timeout: `PieceWatch` counts refused and HTTP-answered failures per piece host (`pieceFailed(h, start, status)`, `pieceRefused`,
+  `pieceAnswered`). The finder's check (`Verifier.check`) records a host in `RefusedHosts` (memory, 10 min) when EVERY referer got an HTTP
+  refusal (a try that timed out means no record). Before the first picture, a refused piece from a host other than the playlist's:
+  `Refusal.cycleReferers` stops the per-error referer cycling when `RefusedHosts` already knows the host (otherwise the referers are still
+  cycled, then the same stop); `PlayerActivity.refusedPieces` then logs "Video pieces from <host> are refused (server said 403); this
+  stream can't play here", marks the source dead, remembers the host and `refusedUrl`, and follows `Refusal.afterRefusal`: the next
+  playable source ("Trying the next source"), else the automatic switch (other sites' streams, backups), else ONE page reload only when
+  the finder had not seen the host refuse, else "Not reloading the page: its stream would be refused the same way" and the site player.
+  No engine restart (the restart line is only for pieces with no HTTP answer at all, and now names the host: "Video pieces from <host>
+  keep timing out (no answer); restarting Chrome's network engine"), no standard networking and no clean browser player
+  (`Refusal.cleanPlayerCanHelp`; `recoverSlow` goes to the site player when `refusedUrl` is set). In `reconnect`, a reload that hands back
+  only the same stream (same address ignoring the query, `Refusal.sameRefusedStream`) logs "The page keeps giving the same refused
+  stream; trying other sources" and goes to the automatic switch, else the site player. Pieces that were refused only AFTER the stream
+  had played (`playingSince != 0`) keep the old recovery (reconnect / renewal). `refusedUrl` is reset at a new session and at the first picture.
 - **Expiring access codes.** If a playing source whose address has a query gets 403 after it had played fine,
   `PlayerActivity.renewAccess` quietly runs a light sniff of the same page (or the link player the source came
   from, `Source.playerUrl`), takes the verified source with the same address path (else any verified one) and

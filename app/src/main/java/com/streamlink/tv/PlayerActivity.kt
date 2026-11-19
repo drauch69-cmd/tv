@@ -170,6 +170,8 @@ class PlayerActivity : Activity() {
     private var reloadPending: Runnable? = null
     /** The playing source's address answered 404/410 (or its playlist went away): a reload that hands back the same address is not used. */
     private var goneUrl: String? = null
+    /** The playing source's video pieces were refused (403): a reload that hands back the same address is not used, nor the clean player (see [Refusal]). */
+    private var refusedUrl: String? = null
     /** When the playing address was found (for the lifetime samples); reset when the address changes. */
     private var addressUrl: String? = null
     private var addressSince = 0L
@@ -258,6 +260,7 @@ class PlayerActivity : Activity() {
         episode.end()
         fastChecking = false
         goneUrl = null
+        refusedUrl = null
         set = s
         lastRenewAt = 0L
         renewFailures = 0
@@ -542,6 +545,7 @@ class PlayerActivity : Activity() {
             firstFrame = true
             episode.end()
             goneUrl = null
+            refusedUrl = null
             keeper?.onPicture()
             Timing.mark(Timing.PICTURE)
             Timing.emit()
@@ -884,6 +888,43 @@ class PlayerActivity : Activity() {
     }
 
     /**
+     * The video pieces of [host] are refused by their server (401/403/451) before the first picture. The server decided who may
+     * ask: other referers (already tried, or already refused in the finder's check), the other network engine, an engine restart
+     * and the clean browser player fetch the same pieces the same way, so none of them is tried. Instead (see [Refusal.afterRefusal]):
+     * another playable source of the page, an automatic switch, one page reload only when the finder had not seen this host refuse,
+     * else the site's own player. [corroborated]: the finder's check had already seen this host refuse every referer.
+     */
+    private fun refusedPieces(host: String, corroborated: Boolean, status: Int) {
+        val s = set ?: return finish()
+        if (fastChecking) return
+        val src = s.sources.getOrNull(sourceIndex)
+        RefusedHosts.record(host)
+        refusedUrl = src?.url
+        Report.log("Video pieces from $host are refused (server said $status); this stream can't play here")
+        AutoSwitch.markDead(src?.url, System.currentTimeMillis())
+        val next = LinkOrder.nextPlayable(s.sources, sourceIndex)
+        var step = Refusal.afterRefusal(next != null, AutoSwitch.canSwitch(), corroborated, reconnects)
+        if (step == Refusal.Step.AUTO_SWITCH && tryAutoSwitch("video pieces refused")) return
+        if (step == Refusal.Step.AUTO_SWITCH) step = Refusal.afterRefusal(next != null, false, corroborated, reconnects)
+        when (step) {
+            Refusal.Step.NEXT_SOURCE -> {
+                sourceIndex = next ?: return openSitePlayer("video pieces refused")
+                refererIndex = 0
+                Report.log("Trying the next source")
+                play()
+            }
+            Refusal.Step.RELOAD_ONCE -> {
+                reconnects++
+                reconnect("video pieces refused")
+            }
+            else -> {
+                Report.log("Not reloading the page: its stream would be refused the same way")
+                openSitePlayer("video pieces refused")
+            }
+        }
+    }
+
+    /**
      * Playlists refresh fine but the video pieces from one host fail (see [PieceWatch.pieceOnlyHost]). Reloading the
      * page cannot help (the pieces come from the same host again) and switching the playlist's engine is wrong, so:
      * first the other engine for that host's pieces only, then another source. Returns true when it dealt with the
@@ -893,15 +934,21 @@ class PlayerActivity : Activity() {
     private fun pieceOnlyProblem(fatal: Boolean): Boolean {
         val r = route ?: return false
         val host = r.watch.pieceOnlyHost(1) ?: return false
+        // Refused (not timed out): no engine change helps; see refusedPieces.
+        if (playingSince == 0L && r.watch.pieceRefused(host)) {
+            refusedPieces(host, RefusedHosts.isRefused(host), 403)
+            return true
+        }
         val nowChrome = r.usesChrome(host)
         val otherAllowed = if (nowChrome) !ServerMemory.refusesStandard(host) else ChromeNet.engine != null
         if (nowChrome && !otherAllowed && !r.watch.retried(host)) {
             Report.logOnce("refuses-std-$host", "This server refuses standard networking; not trying it")
         }
         // First a fresh Chrome engine (a wedged pooled connection to this host is the likeliest cause), once per host.
-        if (nowChrome && !r.watch.restarted(host) && ChromeNet.canReset()) {
+        // Only for pieces that got no answer at all: a piece the server answered (even with an error) is not a wedged engine.
+        if (nowChrome && !r.watch.restarted(host) && !r.watch.pieceAnswered(host) && ChromeNet.canReset()) {
             r.watch.markRestarted(host)
-            restartEngineThenPlay("Video pieces keep timing out; restarting Chrome's network engine")
+            restartEngineThenPlay("Video pieces from $host keep timing out (no answer); restarting Chrome's network engine")
             return true
         }
         when (PieceRecovery.next(r.watch.retried(host), otherAllowed)) {
@@ -1128,11 +1175,19 @@ class PlayerActivity : Activity() {
         }
         if (http == 403 && playingSince != 0L && src != null && StreamUrls.hasQuery(src.url) && LinkOrder.canRenew(src) && renewAccess(src)) return
         // Only "not allowed" answers can be fixed by claiming a different page; "not found" can't.
+        // The exception: the video pieces (another host) are refused and that host already refused every referer in the finder's
+        // check, so the remaining referers would be refused again.
+        val pieceRefused = Refusal.isRefusal(http) && r != null && failHost != null && failHost != r.playlistHost
+        val hostKnown = pieceRefused && RefusedHosts.isRefused(failHost)
         if ((http == 401 || http == 403) && playingSince == 0L &&
-            src != null && refererIndex + 1 < src.referers.size
+            src != null && Refusal.cycleReferers(refererIndex + 1 < src.referers.size, hostKnown)
         ) {
             refererIndex++
             play()
+            return
+        }
+        if (pieceRefused && playingSince == 0L && src != null && failHost != null) {
+            refusedPieces(failHost, hostKnown, http ?: 403)
             return
         }
         if (playingSince == 0L && playlistSilentProblem()) return
@@ -1214,6 +1269,8 @@ class PlayerActivity : Activity() {
             return
         }
         if (tryAutoSwitch(why)) return
+        // The clean browser player would fetch the same refused pieces.
+        if (!Refusal.cleanPlayerCanHelp(refusedUrl != null)) return openSitePlayer(why)
         openCleanPlayer(why)
     }
 
@@ -1391,6 +1448,14 @@ class PlayerActivity : Activity() {
                 val dead = goneUrl
                 val verified = fresh.sources.filter { it.verified && !it.openPage }
                 val sameDead = dead != null && verified.isNotEmpty() && verified.all { DeadStream.samePath(it.url, dead) }
+                if (Refusal.sameRefusedStream(refusedUrl, verified.map { it.url })) {
+                    // The pieces of this stream were refused and the page hands back the very same stream.
+                    Report.log("The page keeps giving the same refused stream; trying other sources")
+                    refusedUrl?.let { AutoSwitch.markDead(it, System.currentTimeMillis()) }
+                    reconnects = MAX_RECONNECTS
+                    if (!tryAutoSwitch(why)) openSitePlayer("video pieces refused")
+                    return@sniff
+                }
                 if (fresh.offline || sameDead) {
                     // The page still leads to the stream that is gone: do not spend the remaining tries on it.
                     if (sameDead) Report.log("The page still points to the same dead stream; trying other sources")

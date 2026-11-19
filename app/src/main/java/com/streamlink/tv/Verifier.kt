@@ -268,7 +268,7 @@ object Verifier {
                 master -> "adaptive"
                 else -> "single quality"
             }
-            if (ref.isNotEmpty()) ServerMemory.recordReferer(host, ref)
+            if (ref.isNotEmpty() && ref in c.rememberable) ServerMemory.recordReferer(host, ref)
             val refText = if (ref.isEmpty()) "none" else Report.short(ref)
             log("✓ ${Report.short(c.url)}: $kind, ${if (live) "live" else "recorded"} (referer: $refText)" +
                 if (adLike) " — looks like an ad" else "")
@@ -281,6 +281,8 @@ object Verifier {
         val goneCode = DeadStream.goneVerdict(answers)
         if (goneCode != 0) note = DeadStream.goneNote(goneCode)
         else if (NoAnswer.silent(answers)) note = NoAnswer.SILENT
+        // Every referer refused (and every try answered): the player's requests to this host will be refused too.
+        if (Refusal.allRefused(answers)) RefusedHosts.record(host)
         log("✗ ${Report.short(c.url)}: $note")
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
     }

@@ -91,6 +91,10 @@ object PieceRecovery {
 class PieceWatch {
     private class Host {
         var fails = 0
+        /** Failures the server answered with a refusal (401/403/451); see [Refusal]. */
+        var refused = 0
+        /** Failures the server answered with any HTTP status (not a timeout / I/O error). */
+        var answered = 0
         var ok = 0
         var firstFailStart = 0L
         var retried = false
@@ -141,11 +145,25 @@ class PieceWatch {
     @Synchronized fun clearGone() { goneRun = 0 }
     @Synchronized fun pieceOk(h: String) { host(h).ok++ }
 
-    @Synchronized fun pieceFailed(h: String, startedAt: Long) {
+    /** A piece failed; [status] is the HTTP status when the server answered (a refusal is not a timeout), 0 otherwise. */
+    @Synchronized fun pieceFailed(h: String, startedAt: Long, status: Int = 0) {
         val e = host(h)
         if (e.fails == 0) e.firstFailStart = startedAt
         e.fails++
+        if (status != 0) e.answered++
+        if (Refusal.isRefusal(status)) e.refused++
     }
+
+    /** Some failed piece of [h] got an HTTP answer: restarting the network engine would not change it. */
+    @Synchronized fun pieceAnswered(h: String): Boolean = (hosts[h]?.answered ?: 0) > 0
+
+    /** A host whose pieces were refused (not timed out) and none of its pieces ever completed. */
+    @Synchronized fun pieceRefusedHost(): String? {
+        for ((name, e) in hosts) if (e.refused >= 1 && e.ok == 0) return name
+        return null
+    }
+
+    @Synchronized fun pieceRefused(h: String): Boolean = hosts[h]?.let { it.refused >= 1 && it.ok == 0 } == true
 
     /** Bytes of a piece arrived at [now]. */
     @Synchronized fun pieceBytes(now: Long, n: Int) {

@@ -131,9 +131,9 @@ class SplitDataSource(
             route.watch.playlistFailed(now, (e as? HttpDataSource.InvalidResponseCodeException)?.responseCode ?: 0)
             return
         }
-        route.watch.pieceFailed(host, startedAt)
-        if (!route.watch.takeDiag()) return
         val status = (e as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+        route.watch.pieceFailed(host, startedAt, status ?: 0)
+        if (!route.watch.takeDiag()) return
         val engine = if (chrome) "Chrome's engine" else "standard networking"
         val timing = if (bytes == 0L) "no bytes after %.1fs".format(java.util.Locale.US, (now - startedAt) / 1000.0)
         else "%,d bytes, first after %.1fs, failed at %.1fs".format(
