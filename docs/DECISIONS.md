@@ -5,6 +5,20 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **403 mid-play after a "standard networking" fallback** (2026-11-19, investigated in the desktop browser, not on
+  the TV). Report: NHL Network page; a `bharat` stream played ~20 s, then every playlist refresh got 403; the
+  `netanyahu` server got 403 on every referer. In the desktop browser the same stream (address
+  `/secure/<code>/0/<expiry>/NHLN/...`, expiry ~24 h ahead, no query) refreshed fine every ~7 s for 30 s with
+  only the page's origin as referer: the code does NOT expire quickly. Likely cause: after the first server
+  stalled, `PlayerActivity` set `useChromeNet = false`, and that sticks for the whole session (only reset when a
+  new stream starts, not on `reconnect`). The checker still uses Chrome's engine (`ChromeNet.open`), so checks
+  pass and "Player reused the checked playlist" plays, then the player's own refresh over standard networking gets
+  403 (server likely refuses non-Chrome clients). Also: `renewAccess` can never fire here (`hasQuery` is false for
+  path-coded addresses), and 403s with all 6 referers waste ~20 s per source. Fix built (user's go,
+  2026-11-19): a fresh page load on reconnect resets to Chrome's engine; a 403 on standard networking switches back
+  to Chrome's engine (report line "Server refused standard networking; going back to Chrome's network engine") and
+  keeps it for that page load instead of cycling referers. Not tested on the TV. Next: the user plays a stream
+  from this site and sends the report. Not done: `renewAccess` for path-coded addresses (low value; codes last ~24 h).
 - **NBA tile fixed** (user, 2026-11-18 03:59, Sports build 197): opens and works. The focus outline change in 197 looked
   worse; the user chose a clean focus style: no growing, a crisp ring drawn on top of the card's content (inside its
   bounds), brighter fill; the 197 clipping changes are reverted. In progress.
