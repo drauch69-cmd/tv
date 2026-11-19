@@ -51,6 +51,8 @@ data class StreamSet(
     val reason: String = "",
     /** The address the search was asked to open (before redirects); "" when unknown. Used by [LastAddress]. */
     val requestedUrl: String = "",
+    /** Nothing playable because every candidate answered 404/410 (the stream behind the page is offline); see [DeadStream]. */
+    val offline: Boolean = false,
 )
 
 /** A stream the page requested, before it has been checked. */
@@ -84,7 +86,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun tm(name: String) { if (timed && !light) Timing.mark(name) }
     @Volatile private var playlistSeen = false
     private var lastReason = ""
-    private fun log(m: String) = Report.log(if (light) "Links: · $m" else m)
+    /** A background run beside a playing stream (BackupKeeper): writes nothing to the report. */
+    @Volatile var quiet = false
+    private fun log(m: String) { if (!quiet) Report.log(if (light) "Links: · $m" else m) }
     private var webView: WebView? = null
     private var client: SafeWebViewClient? = null
     private var done = true
@@ -422,10 +426,17 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val entry = try { LastAddress.get(app, target) } catch (_: Exception) { null } ?: return@thread
             val first = LastAddress.firstPlayable(entry) ?: return@thread
             if (gen != generation) return@thread
-            val mins = ((System.currentTimeMillis() - entry.savedAt) / 60_000L).coerceAtLeast(0)
+            val ageMs = System.currentTimeMillis() - entry.savedAt
+            // This server's addresses are known to die young and the saved one is older than any that still worked: skip the re-check.
+            if (LastAddress.skipShortcut(ServerMemory.lifetimeFor(Report.host(first.url)), ageMs)) {
+                log("Saved addresses from this server expire quickly; skipping the shortcut")
+                return@thread
+            }
+            val mins = (ageMs / 60_000L).coerceAtLeast(0)
             log("Trying the last address that worked (saved $mins min ago)…")
             val cand = StreamCandidate(first.url, first.headers, first.referers, first.label, first.isDefaultLink)
             val checked = try { Verifier.quickCheck(cand, 3000L) { m -> log(m) } } catch (_: Exception) { null }
+            ServerMemory.recordAge(Report.host(first.url), ageMs, checked != null)
             main.post {
                 if (checked == null) {
                     if (gen == generation) log("The last address no longer works; searching the page")
@@ -665,10 +676,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile
                 tm(Timing.CHECKED)
-                val set = result(sources).copy(pageUrl = page)
+                // A candidate whose every check answered 404/410 is offline, not unverified: never played, never a fallback.
+                val gone = sources.count { DeadStream.isGone(it) }
+                val kept = if (gone > 0) DeadStream.playable(sources) else sources
+                val offline = gone > 0 && kept.isEmpty()
+                if (offline) { lastReason = "stream offline (server said 404)"; log(DeadStream.OFFLINE_LINE) }
+                val set = result(kept).copy(pageUrl = page, offline = offline)
                 // Primary search that found a playable stream: one quick look for the page's own numbered addresses.
                 // (verifying stays true meanwhile, so nothing else restarts the check.)
-                if (!light && clickRef == null && sources.any { it.verified }) {
+                if (!light && clickRef == null && kept.any { it.verified }) {
                     if (lateExtras) finishThenRead(page, set) else readPageSources(gen, page, set)
                 } else { verifying = false; finish(set) }
             }
@@ -749,7 +765,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         wv.isFocusable = false
         wv.isFocusableInTouchMode = false
         SafeWeb.configure(wv)
-        wv.webChromeClient = SafeChromeClient()
+        wv.webChromeClient = SafeChromeClient { quiet }
         // In every frame (the player's own frame from another site too): clear invisible ad layers over
         // the video, and press the player's start button, found by shape and position.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
@@ -762,7 +778,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 log("Start helper not added: ${e.javaClass.simpleName}")
             }
         }
-        val c = object : SafeWebViewClient(url) {
+        val c = object : SafeWebViewClient(url, quiet = { quiet }) {
             override fun onRendererGone(view: WebView?, didCrash: Boolean) {
                 main.post {
                     // The view is dead: drop our references first so nothing touches it again.

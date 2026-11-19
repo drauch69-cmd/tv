@@ -54,9 +54,9 @@ fun SafeWeb.dispose(view: WebView?) {
 }
 
 /** Refuses popups and new windows, and silently dismisses alert/confirm/prompt boxes. */
-open class SafeChromeClient : WebChromeClient() {
+open class SafeChromeClient(private val quiet: () -> Boolean = { false }) : WebChromeClient() {
     override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
-        Report.log("Blocked a popup window")
+        if (!quiet()) Report.log("Blocked a popup window")
         return false
     }
 
@@ -89,7 +89,11 @@ open class SafeWebViewClient(
     var siteUrl: String,
     private val allowVideoAds: Boolean = false,
     private val blockAds: Boolean = true,
+    /** True for a background run beside a playing stream (see StreamSniffer.quiet): nothing it blocks or follows goes into the report. */
+    private val quiet: () -> Boolean = { false },
 ) : WebViewClient() {
+    private fun say(m: String) { if (!quiet()) Report.log(m) }
+    private fun sayOnce(k: String, m: String) { if (!quiet()) Report.logOnce(k, m) }
     var firstPageLoaded = false
 
     open fun onFrame(url: String) {}
@@ -115,15 +119,15 @@ open class SafeWebViewClient(
         val target = request.url
         val scheme = target.scheme?.lowercase()
         if (scheme != "http" && scheme != "https") {
-            Report.log("Blocked a jump to a \"$scheme:\" link")
+            say("Blocked a jump to a \"$scheme:\" link")
             return true
         }
         if (AdBlock.isLocalHost(target.host)) {
-            Report.log("Blocked the page from reaching the TV itself")
+            say("Blocked the page from reaching the TV itself")
             return true
         }
         if (AdBlock.isBlockedHost(target.host, allowVideoAds)) {
-            Report.logOnce("nav-${target.host}", "Blocked redirect to ad network ${target.host}")
+            sayOnce("nav-${target.host}", "Blocked redirect to ad network ${target.host}")
             return true
         }
         if (!request.isForMainFrame) {
@@ -133,11 +137,11 @@ open class SafeWebViewClient(
         // A server redirect while the first page is still loading (e.g. the site moved) is allowed.
         if (request.isRedirect && !firstPageLoaded) {
             siteUrl = target.toString()
-            Report.log("Site redirected to ${target.host}")
+            say("Site redirected to ${target.host}")
             return false
         }
         if (!AdBlock.sameSite(target.toString(), siteUrl)) {
-            Report.log("Blocked redirect to ${target.host}")
+            say("Blocked redirect to ${target.host}")
             return true
         }
         return false
@@ -151,11 +155,11 @@ open class SafeWebViewClient(
             return WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         }
         if (AdBlock.isLocalHost(host)) {
-            Report.logOnce("local-$host", "Blocked the page from reaching the TV itself ($host)")
+            sayOnce("local-$host", "Blocked the page from reaching the TV itself ($host)")
             return WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         }
         if (blockAds && AdBlock.isBlockedHost(host, allowVideoAds)) {
-            Report.countBlocked(host)
+            if (!quiet()) Report.countBlocked(host)
             return WebResourceResponse("text/plain", "utf-8", ByteArrayInputStream(ByteArray(0)))
         }
         val u = request.url.toString()

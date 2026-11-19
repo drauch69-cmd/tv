@@ -49,11 +49,11 @@ object LinkOrder {
         (if (linkLabel.isNotBlank()) linkLabel else host) + " · " + kind + (if (responded) "" else " · didn't respond")
 
     /** Index of the first source that can be played directly (not an "open page" entry), or null. */
-    fun firstPlayable(sources: List<Source>): Int? = sources.indexOfFirst { !it.openPage }.takeIf { it >= 0 }
+    fun firstPlayable(sources: List<Source>): Int? = sources.indexOfFirst { !it.openPage && !DeadStream.isGone(it) }.takeIf { it >= 0 }
 
     /** The next directly playable source after [current] (automatic fallback never lands on an "open page" entry), or null. */
     fun nextPlayable(sources: List<Source>, current: Int): Int? =
-        (current + 1 until sources.size).firstOrNull { !sources[it].openPage }
+        (current + 1 until sources.size).firstOrNull { !sources[it].openPage && !DeadStream.isGone(sources[it]) }
 
     /** Whether the access-code renewal may run for this source: only real streams that came with a signed address. */
     fun canRenew(src: Source): Boolean = !src.openPage

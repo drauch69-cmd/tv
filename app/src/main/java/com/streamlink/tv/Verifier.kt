@@ -202,13 +202,19 @@ object Verifier {
         if (remembered != null && refs.firstOrNull() == remembered) log("Trying the referer this server accepted last time")
         var note = "no response"
         val tried = ArrayList<String>()
+        // Every try answered 404/410: the address is gone (the stream is offline), not refused (see [DeadStream]).
+        var goneCode = 0
+        var otherAnswer = false
         for (ref in refs) {
             tried.add(Headers.describeReferer(ref))
-            val r = fetch(c.url, c.headers, ref, log) ?: continue
+            val r = fetch(c.url, c.headers, ref, log)
+            if (r == null) { otherAnswer = true; continue }
             if (r.code !in 200..299) {
                 note = "server said ${r.code}"
+                if (DeadStream.isGoneCode(r.code)) goneCode = r.code else otherAnswer = true
                 continue
             }
+            otherAnswer = true
             val text = String(r.body, Charsets.UTF_8)
             val t = text.trimStart('\uFEFF', ' ', '\r', '\n', '\t')
             val isHls = t.startsWith("#EXTM3U")
@@ -246,6 +252,7 @@ object Verifier {
         }
         // A refusal: say which referers were tried (hosts only, never tokens).
         if (note.startsWith("server said 403")) note += "; tried: " + tried.joinToString(", ")
+        if (goneCode != 0 && !otherAnswer) note = DeadStream.goneNote(goneCode)
         log("✗ ${Report.short(c.url)}: $note")
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
     }

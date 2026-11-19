@@ -129,6 +129,43 @@ Playback pipeline:
    finishes; `WaitingActivity` with `auto=true` tries the next candidate if no stream is found, else the site player).
    Max 3 switches per watch (reset when the user starts an item or link); pages/sources that went down are dead for
    5 min. Toast "Switched to <label>". Not yet tested on the TV.
+   **Backups while watching** (`BackupKeeper.kt`, pure rules in `BackupLogic.kt`, `BackupLogicTest`; not yet tested on the TV).
+   While a picture plays, `PlayerActivity` owns a `BackupKeeper` that keeps fresh addresses for the top 1-2 BACKUP sources
+   of the same game (never the playing one, never another game): `BackupChoice.pick` = page entries (openPage, Source-list
+   order, other sites ahead of this site's numbered addresses; dead ones skipped), then, only to fill the slots, other verified
+   playable sources of the page (a different stream server first). A page backup gets a quiet light look (own `StreamSniffer`,
+   `light`, `timed=false`, `quiet=true`: writes nothing to the report; hidden browser in a holder UNDER the video with the
+   player view's background black; destroyed after every run; its page's referer as the Source list sends it); a playable
+   source just a `Verifier.quickCheck`. One run at a time (`BackupPacing`); first run 30 s after the picture; only when
+   healthy (`BackupTiming.healthy`: playing, no recovery, and >= 10 s of video ahead, or >= 60 s since the picture / last stall
+   with >= 3 s ahead because low delay buffers little); interval from the server's learned lifetime (`BackupTiming.interval`:
+   short = 2/3 of the oldest age that still worked, at least 90 s; long/unknown = 10 min); a run that finds nothing doubles its
+   wait (max 15 min); a run still going after 60 s is stopped. Paused (no run) during stalls, reconnects, renewals, quick switches
+   and while away on a link page; resumes at the next picture. **Auto-off:** a stall that starts while a run is active or within 5 s
+   after one ended turns it off for the rest of the watch (`BackupWatch.off`, reset with `AutoSwitch.reset()`, so it survives
+   automatic switches), line "Backup refresh paused for this watch (it may have caused a stall)". One report line per refresh:
+   "Backup ready: <label> (<host>), checked just now". Before each page refresh the previous result's address is re-checked in the
+   background and (age, ok) is recorded as a lifetime sample.
+   **Parallel recovery** (`PlayerActivity.recover` / `reconnect` / `switchToBackup`, `BackupRecovery.decide`, `RecoveryEpisode`).
+   When a stream that had played drops: a ready backup that is fresh (younger than its server's lifetime allows, 2 min if unknown,
+   30 min if long) is quick-checked (<= 2 s, `QuickRace`) and switched to at once: "Stream went down; switching to <label> (<host>),
+   found N s ago" (counts toward the 3 automatic switches; a playable source plays in place, a page backup goes through
+   `WaitingActivity.linkPageIntent(auto=true)` exactly like an automatic switch, with the found set handed over in `PreFound` so the
+   loading screen skips its search; the quick-check failing logs "The saved backup no longer answers; reconnecting as usual" and
+   the old path runs). Otherwise today's reconnect (page reload) runs AND, at the same time, the already known addresses (other
+   verified playable sources of the page, ready backups) are quick-checked ("Reconnecting, and checking N known address(es) at the
+   same time"); the first verified live answer claims the `RecoveryEpisode`, the other is ignored (reload result dropped /
+   reload cancelled); a race win logs "A known address checked out first; using it (<label>, <host>)". Piece-only steps (engine
+   restart, other engine) and playlist-gone are unchanged; the piece-only "switch source" step and the first recover() also try
+   a fresh backup first. Access-code renewal still runs first for a 403 (unchanged).
+   **Offline streams (404/410).** `Verifier.check` marks a candidate whose every try answered 404/410 as gone (`DeadStream`,
+   note "server said 404 (not found)"); `StreamSniffer` drops gone sources, so they are never played or fallen back to
+   (`LinkOrder.firstPlayable/nextPlayable`, `AutoSwitch.order` also skip them), and a search with only such candidates is "no
+   stream" with `StreamSet.offline` and the line "The site's stream for this page is offline (server said 404)". The loading
+   screen then tries the game's other-site streams through the automatic switch ("Stream offline; switching to <label> (<host>)",
+   cover text "The site's stream is offline. Trying other sources…"), else the site player. In `reconnect`, when the reload hands
+   back the address that just answered 404/410 (or the same path after a playlist-gone recovery) or is offline, the remaining tries
+   are not spent: "The page still points to the same dead stream; trying other sources", then automatic switch, else site player.
 
 **Early finish and late page sources** (not yet tested on the TV). On a primary run each direct stream is checked the moment it is
    found (`Verifier.precheck`, in the background, while the 1.2 s sibling wait runs; `rank` reuses or waits for that check, so an
@@ -196,6 +233,13 @@ Remote tabs; prefetch toggle).
   chromeForced ("Staying on Chrome's network engine for this server (it worked last time)"); if the remembered engine then
   stalls or gets 403, it is forgotten and the other engine is tried once (remembered chrome -> standard; remembered
   standard -> Chrome's engine, kept), then the normal recovery. Not yet tested on the TV.
+  **Address lifetime per server** (`ServerMemory` samples, JSON "life", max 12 per host, 7 days): each re-check of an address records
+  (age since found, ok/refused): the remembered-address shortcut, the keeper's re-check of its previous backup result, a playing
+  address refused with 403 (fail) and one that played fine until the screen was left (ok). `lifetimeEstimate`: SHORT = at least 2
+  refusals at an age of 20 s to 11 min and no success older than the youngest of them (oldest success below it, else half its age,
+  is the max-ok age); LONG = a success of 10 min or more and no short failure; else unknown. The remembered-address shortcut is skipped
+  for a SHORT server when the saved entry is older than its max-ok age ("Saved addresses from this server expire quickly; skipping
+  the shortcut"). Not yet tested on the TV.
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
   by the keyword's trailing number, joined, base64-decoded). A counter of undecodable segments triggers the
   site-player fallback.

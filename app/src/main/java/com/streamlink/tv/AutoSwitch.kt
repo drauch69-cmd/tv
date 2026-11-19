@@ -22,7 +22,7 @@ object AutoSwitch {
     private fun key(url: String) = GameFolders.urlKey(url.substringBefore('#'))
 
     /** A new watch: the user started something. Dead pages are kept (they expire by time). */
-    fun reset() = synchronized(lock) { used = 0; pending = emptyList() }
+    fun reset() { synchronized(lock) { used = 0; pending = emptyList() }; BackupWatch.reset() }
 
     fun markDead(url: String?, now: Long) {
         if (url.isNullOrBlank()) return
@@ -40,7 +40,7 @@ object AutoSwitch {
     /** Indexes of [sources] to try, in order: not the current one, not dead; playable first, then open-page entries. */
     fun order(sources: List<Source>, current: Int, now: Long): List<Int> {
         val ok = sources.indices.filter { it != current && !isDead(sources[it].url, now) }
-        val playable = ok.filter { !sources[it].openPage && sources[it].verified }
+        val playable = ok.filter { !sources[it].openPage && sources[it].verified && !DeadStream.isGone(sources[it]) }
         val pages = ok.filter { sources[it].openPage }
         return playable + pages
     }

@@ -347,7 +347,7 @@ class MainActivity : Activity() {
         setStatus("Finding the video on $site…")
         sniffer.sniff(url, lateExtras = true) { set ->
             if (set.sources.isEmpty()) {
-                setStatus("No direct stream on $site, showing the site's own player")
+                setStatus(if (set.offline) "The site's stream for this page is offline; showing the site's own player" else "No direct stream on $site, showing the site's own player")
                 Timing.emit(Timing.PATH_SITE_PLAYER)
                 startActivity(SitePlayerActivity.intent(this, set.pageUrl))
             } else {

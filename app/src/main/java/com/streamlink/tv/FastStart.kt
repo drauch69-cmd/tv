@@ -80,6 +80,10 @@ object LastAddress {
 
     internal fun fresh(e: Entry?, now: Long): Boolean = e != null && now - e.savedAt in 0 until EXPIRE_MS
 
+    /** The shortcut (re-check of the saved address) is pointless when this server's addresses are known to die young and the saved one is older than any that still worked. */
+    internal fun skipShortcut(life: ServerMemory.Lifetime, ageMs: Long): Boolean =
+        life.kind == ServerMemory.LifeKind.SHORT && ageMs > life.maxOkMs
+
     /** [map] with [e] saved under [key] as the newest; expired entries removed; oldest dropped beyond [MAX_PAGES]. */
     internal fun withEntry(map: Map<String, Entry>, key: String, e: Entry, now: Long): LinkedHashMap<String, Entry> {
         val out = LinkedHashMap<String, Entry>()
@@ -204,13 +208,31 @@ object LastAddress {
 object ServerMemory {
     const val EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
     const val MAX_HOSTS = 100
+    /** Re-check samples kept per host; younger checks than [MIN_SAMPLE_AGE_MS] say nothing about expiry and are not kept. */
+    const val MAX_SAMPLES = 12
+    const val MIN_SAMPLE_AGE_MS = 20_000L
+    /** Failures at or under this age (with no success older than the youngest of them) mean "short lived": above the 10 min refresh, so a failed re-check at the long interval still counts. */
+    const val SHORT_FAIL_MS = 11 * 60_000L
+    /** A success this old, with no short failure, means "long lived". */
+    const val LONG_OK_MS = 10 * 60_000L
     const val CHROME = "chrome"
     const val STANDARD = "standard"
     private const val PREFS = "streamlink"
     private const val KEY = "server_memory_1"
 
-    /** [refuseStdAt]: when this host last refused standard networking (403); 0 = never. */
-    data class Entry(val referer: String?, val refererAt: Long, val engine: String?, val engineAt: Long, val refuseStdAt: Long = 0L)
+    /** [refuseStdAt]: when this host last refused standard networking (403); 0 = never. [samples]: how old saved addresses were when re-checked (see [lifetimeEstimate]). */
+    data class Entry(
+        val referer: String?, val refererAt: Long, val engine: String?, val engineAt: Long, val refuseStdAt: Long = 0L,
+        val samples: List<Sample> = emptyList(),
+    )
+
+    /** One re-check of an address of this server: it was [ageMs] old (since it was found) and still worked ([ok]) or not; [at] = when the check was made. */
+    data class Sample(val ageMs: Long, val ok: Boolean, val at: Long)
+
+    enum class LifeKind { UNKNOWN, SHORT, LONG }
+
+    /** How long addresses of one server stay valid. [maxOkMs]: for SHORT, a typical age that still worked (0 otherwise). */
+    data class Lifetime(val kind: LifeKind, val maxOkMs: Long = 0L)
 
     /** What the player starts with for one source. [note] is the report line to log, or null. */
     data class EngineStart(val useChromeNet: Boolean, val chromeForced: Boolean, val note: String?)
@@ -228,7 +250,42 @@ object ServerMemory {
 
     internal fun refusal(e: Entry?, now: Long): Boolean = e != null && e.refuseStdAt > 0 && now - e.refuseStdAt in 0 until EXPIRE_MS
 
-    private fun alive(e: Entry, now: Long) = referer(e, now) != null || engine(e, now) != null || refusal(e, now)
+    private fun alive(e: Entry, now: Long) =
+        referer(e, now) != null || engine(e, now) != null || refusal(e, now) || e.samples.any { now - it.at in 0 until EXPIRE_MS }
+
+    /**
+     * What the re-check samples say about this server's address lifetime. Only the newest 8 samples of the last 7 days count.
+     * SHORT: at least 2 failed re-checks at an age of 20 s to [SHORT_FAIL_MS] and no success older than the youngest of those
+     * failures (a success older than a failure means the failures were not about age); [Lifetime.maxOkMs] is the oldest success
+     * younger than that failure (else half its age, at least 20 s). LONG: a success of [LONG_OK_MS] or more and no short failure.
+     * Otherwise UNKNOWN.
+     */
+    internal fun lifetimeEstimate(samples: List<Sample>, now: Long): Lifetime {
+        val live = samples.filter { now - it.at in 0 until EXPIRE_MS }.takeLast(8)
+        val oks = live.filter { it.ok }
+        val shortFails = live.filter { !it.ok && it.ageMs in MIN_SAMPLE_AGE_MS..SHORT_FAIL_MS }
+        if (shortFails.size >= 2) {
+            val youngest = shortFails.minOf { it.ageMs }
+            if (oks.none { it.ageMs > youngest }) {
+                val okBelow = oks.filter { it.ageMs < youngest }.maxOfOrNull { it.ageMs }
+                return Lifetime(LifeKind.SHORT, (okBelow ?: (youngest / 2)).coerceAtLeast(MIN_SAMPLE_AGE_MS))
+            }
+            return Lifetime(LifeKind.UNKNOWN)
+        }
+        if (shortFails.isEmpty()) {
+            val best = oks.maxOfOrNull { it.ageMs } ?: 0L
+            if (best >= LONG_OK_MS) return Lifetime(LifeKind.LONG, best)
+        }
+        return Lifetime(LifeKind.UNKNOWN)
+    }
+
+    /** [map] with one more re-check sample for [host] (old ones past 7 days dropped, newest [MAX_SAMPLES] kept); unchanged when [ageMs] is too small to say anything. */
+    internal fun withSample(map: Map<String, Entry>, host: String, ageMs: Long, ok: Boolean, now: Long): LinkedHashMap<String, Entry> {
+        if (ageMs < MIN_SAMPLE_AGE_MS) return LinkedHashMap(map)
+        return updated(map, host, now) { e ->
+            e.copy(samples = (e.samples.filter { now - it.at in 0 until EXPIRE_MS } + Sample(ageMs, ok, now)).takeLast(MAX_SAMPLES))
+        }
+    }
 
     /** [map] with [update] applied to [host]'s entry, which becomes the newest; dead entries removed, oldest dropped beyond [MAX_HOSTS]. */
     internal fun updated(map: Map<String, Entry>, host: String, now: Long, update: (Entry) -> Entry): LinkedHashMap<String, Entry> {
@@ -279,6 +336,11 @@ object ServerMemory {
             if (e.referer != null) j.put("ref", e.referer).put("refAt", e.refererAt)
             if (e.engine != null) j.put("eng", e.engine).put("engAt", e.engineAt)
             if (e.refuseStdAt > 0) j.put("rsAt", e.refuseStdAt)
+            if (e.samples.isNotEmpty()) {
+                val a = JSONArray()
+                for (x in e.samples) a.put(JSONArray().put(x.ageMs).put(if (x.ok) 1 else 0).put(x.at))
+                j.put("life", a)
+            }
             o.put(h, j)
         }
         return o.toString()
@@ -295,10 +357,22 @@ object ServerMemory {
                     if (j.has("ref")) j.optString("ref") else null, j.optLong("refAt"),
                     if (j.has("eng")) j.optString("eng") else null, j.optLong("engAt"),
                     j.optLong("rsAt"),
+                    parseSamples(j.optJSONArray("life")),
                 )
             }
         } catch (_: Exception) {
             out.clear()
+        }
+        return out
+    }
+
+    private fun parseSamples(a: JSONArray?): List<Sample> {
+        if (a == null) return emptyList()
+        val out = ArrayList<Sample>()
+        for (i in 0 until a.length()) {
+            val x = a.optJSONArray(i) ?: continue
+            if (x.length() < 3) continue
+            out.add(Sample(x.optLong(0), x.optInt(1) == 1, x.optLong(2)))
         }
         return out
     }
@@ -375,5 +449,20 @@ object ServerMemory {
         val now = System.currentTimeMillis()
         if (refusal(current()[k], now)) return
         store(withRefusesStandard(current(), k, now))
+    }
+
+    /** What is known about how long this server's addresses stay valid (UNKNOWN when nothing was learned). */
+    @Synchronized
+    fun lifetimeFor(host: String?): Lifetime {
+        val k = key(host) ?: return Lifetime(LifeKind.UNKNOWN)
+        return lifetimeEstimate(current()[k]?.samples ?: emptyList(), System.currentTimeMillis())
+    }
+
+    /** Records that an address of [host] that was [ageMs] old (since it was found) still worked ([ok]) or was refused. */
+    @Synchronized
+    fun recordAge(host: String?, ageMs: Long, ok: Boolean) {
+        val k = key(host) ?: return
+        if (ageMs < MIN_SAMPLE_AGE_MS) return
+        store(withSample(current(), k, ageMs, ok, System.currentTimeMillis()))
     }
 }

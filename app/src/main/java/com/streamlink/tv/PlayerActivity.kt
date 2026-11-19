@@ -162,6 +162,17 @@ class PlayerActivity : Activity() {
     private var lastRenewAt = 0L
     private var renewFailures = 0
     private var renewing = false
+    /** Backups while watching (see [BackupKeeper]) and the recovery bookkeeping around them. */
+    private var keeper: BackupKeeper? = null
+    private val episode = RecoveryEpisode()
+    private var fastChecking = false
+    private var lastStallAt = 0L
+    private var reloadPending: Runnable? = null
+    /** The playing source's address answered 404/410 (or its playlist went away): a reload that hands back the same address is not used. */
+    private var goneUrl: String? = null
+    /** When the playing address was found (for the lifetime samples); reset when the address changes. */
+    private var addressUrl: String? = null
+    private var addressSince = 0L
 
     private val handler: (String, String?) -> Unit = { c, v -> onCommand(c, v) }
 
@@ -175,6 +186,11 @@ class PlayerActivity : Activity() {
         buildOverlay()
         buildPicker()
         sniffer = StreamSniffer(this, findViewById<FrameLayout>(R.id.webHolder)).also { it.timed = false }
+        // The backup keeper's hidden browser sits UNDER the video (an opaque black parent hides it in letterbox bars), never over it.
+        val keeperHolder = FrameLayout(this)
+        root.addView(keeperHolder, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        playerView.setBackgroundColor(android.graphics.Color.BLACK)
+        keeper = BackupKeeper(this, keeperHolder, { set?.let { it to sourceIndex } }, { backupHealth(it) })
         Session.commandHandler = handler
         Session.extrasListener = extrasHandler
         loadSession()
@@ -212,6 +228,7 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        noteAddressAge(true)
         sniffer.cancel()
         release()
         // Away on a link's page: stay in the back stack so Back returns here.
@@ -221,6 +238,7 @@ class PlayerActivity : Activity() {
 
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
+        keeper?.stop()
         sniffer.cancel()
         release()
         if (Session.extrasListener === extrasHandler) Session.extrasListener = null
@@ -236,6 +254,10 @@ class PlayerActivity : Activity() {
     private fun loadSession() {
         val s = Session.current ?: return finish()
         linkGen++
+        keeper?.onNewSet()
+        episode.end()
+        fastChecking = false
+        goneUrl = null
         set = s
         lastRenewAt = 0L
         renewFailures = 0
@@ -341,6 +363,7 @@ class PlayerActivity : Activity() {
             return play()
         }
         Timing.mark(Timing.PLAYER)
+        if (addressUrl != src.url) { addressUrl = src.url; addressSince = System.currentTimeMillis() }
 
         val headers = HashMap<String, String>()
         var userAgent: String? = null
@@ -494,6 +517,8 @@ class PlayerActivity : Activity() {
                     stallExtensions = 0
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                     if (playingSince != 0L) {
+                        lastStallAt = System.currentTimeMillis()
+                        keeper?.noteStall()
                         logStall()
                         tunnelStallCheck()
                         lowDelayCheck()
@@ -515,6 +540,9 @@ class PlayerActivity : Activity() {
 
         override fun onRenderedFirstFrame() {
             firstFrame = true
+            episode.end()
+            goneUrl = null
+            keeper?.onPicture()
             Timing.mark(Timing.PICTURE)
             Timing.emit()
             main.removeCallbacks(firstFrameCheck)
@@ -632,6 +660,7 @@ class PlayerActivity : Activity() {
             val w = route?.watch
             if (!goneHandled && playingSince != 0L && data.dataType == C.DATA_TYPE_MANIFEST && w != null && w.playlistGone()) {
                 goneHandled = true
+                goneUrl = set?.sources?.getOrNull(sourceIndex)?.url
                 w.clearGone()
                 Report.log("The stream's playlist is gone (${(error as? HttpDataSource.InvalidResponseCodeException)?.let { "server said ${it.responseCode}" } ?: "no answer"}); getting a fresh one")
                 main.post { if (player != null) recover("playlist gone") }
@@ -866,11 +895,15 @@ class PlayerActivity : Activity() {
             }
             PieceStep.SWITCH_SOURCE -> {
                 if (AutoSwitch.canSwitch()) {
-                    Report.log("Video pieces still failing; switching to another source instead of reloading the page")
-                    if (!tryAutoSwitch("video pieces failing")) {
-                        Report.log("No other source to switch to; reconnecting as usual")
-                        recover("stalled")
+                    val slow = {
+                        Report.log("Video pieces still failing; switching to another source instead of reloading the page")
+                        if (!tryAutoSwitch("video pieces failing")) {
+                            Report.log("No other source to switch to; reconnecting as usual")
+                            recover("stalled")
+                        }
                     }
+                    if (playingSince != 0L && !episode.isOpen) episode.begin()
+                    if (!(playingSince != 0L && fastBackup("video pieces failing", slow))) slow()
                 } else {
                     recover("stalled")
                 }
@@ -1066,7 +1099,12 @@ class PlayerActivity : Activity() {
             play()
             return
         }
-        // A signed address that played fine and is now refused: its access code probably expired.
+        // "Not found" on the playlist host after it had played: remember the dead address (a reload handing it back is not used).
+        if ((http == 404 || http == 410) && playingSince != 0L && src != null && failHost != null && failHost == route?.playlistHost) goneUrl = src.url
+        // A signed address that played fine and is now refused: its access code probably expired. How old it was teaches the server's lifetime.
+        if (http == 403 && playingSince != 0L && src != null && src.url == addressUrl && StreamUrls.hasQuery(src.url)) {
+            ServerMemory.recordAge(Report.host(src.url), System.currentTimeMillis() - addressSince, false)
+        }
         if (http == 403 && playingSince != 0L && src != null && StreamUrls.hasQuery(src.url) && LinkOrder.canRenew(src) && renewAccess(src)) return
         // Only "not allowed" answers can be fixed by claiming a different page; "not found" can't.
         if ((http == 401 || http == 403) && playingSince == 0L &&
@@ -1127,6 +1165,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun recover(why: String) {
+        if (fastChecking) return // a ready backup is being checked; it decides
         val s = set ?: return finish()
         val now = System.currentTimeMillis()
         // It had been playing fine for a while: this is a fresh problem, not a repeat.
@@ -1141,6 +1180,12 @@ class PlayerActivity : Activity() {
             play()
             return
         }
+        if (playingSince != 0L && !episode.isOpen) episode.begin()
+        if (playingSince != 0L && fastBackup(why) { recoverSlow(why) }) return
+        recoverSlow(why)
+    }
+
+    private fun recoverSlow(why: String) {
         if (reconnects < MAX_RECONNECTS) {
             reconnects++
             reconnect(why)
@@ -1148,6 +1193,124 @@ class PlayerActivity : Activity() {
         }
         if (tryAutoSwitch(why)) return
         openCleanPlayer(why)
+    }
+
+    private fun backupHealth(now: Long): BackupTiming.Health {
+        val p = player
+        val playing = p != null && p.isPlaying && playingSince != 0L && firstFrame
+        val ahead = if (p != null) p.bufferedPosition - p.currentPosition else 0L
+        return BackupTiming.Health(playing, ahead, now - maxOf(playingSince, lastStallAt),
+            episode.isOpen || renewing || fastChecking || awayOnLinkPage)
+    }
+
+    /** What the playing address's age says about its server: it worked for this long (only when it is playing fine and nothing is being recovered). */
+    private fun noteAddressAge(ok: Boolean) {
+        val src = set?.sources?.getOrNull(sourceIndex) ?: return
+        if (src.openPage || src.url != addressUrl || episode.isOpen || !firstFrame || player?.isPlaying != true) return
+        ServerMemory.recordAge(Report.host(src.url), System.currentTimeMillis() - addressSince, ok)
+    }
+
+    private fun cand(s: Source) = StreamCandidate(s.url, s.headers, s.referers, s.label, s.isDefaultLink)
+
+    /**
+     * The stream just dropped. If a ready backup is fresh (see [BackupRecovery]), check its address quickly (2 s) and switch to it;
+     * [onMiss] runs when it no longer answers. Returns false (nothing started) when there is no fresh backup or no automatic
+     * switch is left, so the caller carries on as before.
+     */
+    private fun fastBackup(why: String, onMiss: () -> Unit): Boolean {
+        val k = keeper ?: return false
+        val now = System.currentTimeMillis()
+        val d = BackupRecovery.decide(k.known(now), 0, AutoSwitch.canSwitch())
+        if (d.plan != BackupRecovery.Plan.SWITCH_FAST) return false
+        val best = k.ready(now).firstOrNull { it.url == d.url } ?: return false
+        fastChecking = true
+        main.removeCallbacks(stallCheck)
+        k.pause()
+        val gen = linkGen
+        kotlin.concurrent.thread(isDaemon = true, name = "backup-switch") {
+            val win = QuickRace.first(best.set.sources.take(3), 2000L) { Verifier.quickCheck(cand(it), 2000L) { } }
+            main.post {
+                fastChecking = false
+                if (gen != linkGen || isDestroyed) return@post
+                if (win == null || !switchToBackup(best, win.second, true)) {
+                    Report.log("The saved backup no longer answers; reconnecting as usual")
+                    onMiss()
+                }
+            }
+        }
+        return true
+    }
+
+    /**
+     * Moves to a backup whose address just passed a quick check ([checked]). A playable source of this page: plays it in place.
+     * A page-type backup: the same path as an automatic switch to another page (loading screen with auto=true, referer as the
+     * Source list sends it, AutoSwitch bookkeeping, this player finishes) but the already found set is handed over through
+     * [PreFound] so the loading screen skips its search. Counts as one automatic switch. False when it cannot be done.
+     */
+    private fun switchToBackup(best: BackupResult, checked: Source, withAge: Boolean): Boolean {
+        val s = set ?: return false
+        val now = System.currentTimeMillis()
+        val idx = if (best.kind == BackupKind.STREAM) s.sources.indexOfFirst { it.url == best.url } else -1
+        if (best.kind == BackupKind.STREAM && idx < 0) return false
+        AutoSwitch.markDead(s.sources.getOrNull(sourceIndex)?.url, now)
+        val rest = AutoSwitch.order(s.sources, sourceIndex, now).map { s.sources[it] }.filter { it.openPage && it.url != best.url }
+        AutoSwitch.begin(rest)
+        episode.end()
+        reloadPending?.let { main.removeCallbacks(it) }
+        sniffer.cancel()
+        val host = Report.host(checked.url)
+        Report.log(
+            if (withAge) "Stream went down; switching to ${best.label} ($host), found ${((now - best.foundAt) / 1000).coerceAtLeast(0)} s ago"
+            else "A known address checked out first; using it (${best.label}, $host)"
+        )
+        if (best.kind == BackupKind.STREAM) {
+            val list = s.sources.toMutableList()
+            list[idx] = checked.copy(label = s.sources[idx].label, isDefaultLink = s.sources[idx].isDefaultLink)
+            val updated = s.copy(sources = list)
+            set = updated
+            if (Session.current === s) Session.current = updated
+            addressUrl = checked.url; addressSince = best.foundAt
+            sourceIndex = idx
+            refererIndex = 0
+            reconnects = 0
+            playingSince = 0
+            play()
+            return true
+        }
+        AutoSwitch.markDead(s.pageUrl, now)
+        val ready = listOf(checked) + best.set.sources.filter { it.url != checked.url }
+        PreFound.put(best.target, StreamSet(best.set.pageUrl, ready, requestedUrl = best.set.requestedUrl), now)
+        showCover("Stream went down, trying another source…")
+        release()
+        startActivity(WaitingActivity.linkPageIntent(this, best.target, best.label, best.referer, auto = true))
+        finish()
+        return true
+    }
+
+    /** At the start of a reconnect after a drop: check the addresses already known (other playable sources, ready backups) while the page reloads; the first verified answer wins ([RecoveryEpisode]). */
+    private fun startRace(ep: Int) {
+        val cur = set ?: return
+        if (ep == 0 || !AutoSwitch.canSwitch()) return
+        val now = System.currentTimeMillis()
+        val items = ArrayList<BackupResult>()
+        keeper?.ready(now)?.let { items.addAll(it) }
+        cur.sources.forEachIndexed { i, src ->
+            if (i != sourceIndex && !src.openPage && src.verified && !AutoSwitch.isDead(src.url, now) && items.none { it.url == src.url }) {
+                items.add(BackupResult(src.url, BackupKind.STREAM, src.label, src.url, null, StreamSet(cur.pageUrl, listOf(src)), now))
+            }
+        }
+        val pairs = items.take(5).flatMap { r -> r.set.sources.take(2).map { r to it } }
+        if (pairs.isEmpty()) return
+        Report.log("Reconnecting, and checking ${items.take(5).size} known address(es) at the same time")
+        val gen = linkGen
+        kotlin.concurrent.thread(isDaemon = true, name = "recovery-race") {
+            val win = QuickRace.first(pairs, 6000L) { Verifier.quickCheck(cand(it.second), 3000L) { } }
+            main.post {
+                if (win == null || gen != linkGen || isDestroyed) return@post
+                if (!episode.claim(ep)) return@post // the page reload got there first
+                if (!switchToBackup(win.first.first, win.second, false)) episode.end()
+            }
+        }
     }
 
     /**
@@ -1166,6 +1329,8 @@ class PlayerActivity : Activity() {
         val src = s.sources[first]
         val rest = order.drop(1).map { s.sources[it] }.filter { it.openPage }
         AutoSwitch.begin(rest)
+        episode.end()
+        reloadPending?.let { main.removeCallbacks(it) }
         if (!src.openPage) {
             Report.log("Stream went down; switching to ${src.label} (${Report.host(src.url)})")
             sourceIndex = first
@@ -1187,6 +1352,7 @@ class PlayerActivity : Activity() {
 
     /** Reload the page invisibly to get a fresh stream link (they often expire), then resume at live. */
     private fun reconnect(why: String) {
+        if (playingSince != 0L && !episode.isOpen) episode.begin()
         release()
         playingSince = 0
         val page = set?.pageUrl ?: return finish()
@@ -1194,10 +1360,22 @@ class PlayerActivity : Activity() {
         AppStatus.text = "Reconnecting to ${Session.title}…"
         Report.log("Reconnecting (try $reconnects of $MAX_RECONNECTS): reloading the page for a fresh stream link")
         val gen = linkGen
-        main.postDelayed({
-            if (gen != linkGen) return@postDelayed
+        val ep = episode.current()
+        if (episode.markRaced()) startRace(ep)
+        val go = Runnable {
+            reloadPending = null
+            if (gen != linkGen) return@Runnable
             sniffer.sniff(page, useRemembered = false) { fresh ->
-                if (fresh.sources.isEmpty()) {
+                val dead = goneUrl
+                val verified = fresh.sources.filter { it.verified && !it.openPage }
+                val sameDead = dead != null && verified.isNotEmpty() && verified.all { DeadStream.samePath(it.url, dead) }
+                if (fresh.offline || sameDead) {
+                    // The page still leads to the stream that is gone: do not spend the remaining tries on it.
+                    if (sameDead) Report.log("The page still points to the same dead stream; trying other sources")
+                    dead?.let { AutoSwitch.markDead(it, System.currentTimeMillis()) }
+                    reconnects = MAX_RECONNECTS
+                    if (!tryAutoSwitch(why)) openSitePlayer("the site's stream is offline")
+                } else if (fresh.sources.isEmpty()) {
                     Report.log("No stream found while reconnecting")
                     if (reconnects < MAX_RECONNECTS) {
                         reconnects++
@@ -1206,6 +1384,8 @@ class PlayerActivity : Activity() {
                         openCleanPlayer(why)
                     }
                 } else {
+                    if (!episode.claim(ep)) return@sniff // a known address checked out first
+                    episode.end()
                     // The numbered and other-site entries of the old list stay (the fresh read may not repeat them).
                     val old = set
                     val kept = if (old == null) fresh else fresh.copy(sources = Alternatives.append(fresh.sources, old.sources.filter { it.openPage }))
@@ -1220,7 +1400,9 @@ class PlayerActivity : Activity() {
                     play()
                 }
             }
-        }, 1500L * reconnects.coerceAtLeast(1))
+        }
+        reloadPending = go
+        main.postDelayed(go, 1500L * reconnects.coerceAtLeast(1))
     }
 
     /**
@@ -1242,7 +1424,7 @@ class PlayerActivity : Activity() {
             sniffer.timed = false
             if (found.sources.isEmpty()) {
                 Timing.emit(Timing.PATH_SITE_PLAYER)
-                openSitePlayer("no direct stream found", found.pageUrl)
+                openSitePlayer(if (found.offline) "the site's stream is offline" else "no direct stream found", found.pageUrl)
             } else {
                 Session.current = found
                 loadSession()
@@ -1255,6 +1437,7 @@ class PlayerActivity : Activity() {
         val s = set
         if (s == null || s.sources.isEmpty()) return openSitePlayer(why)
         Report.log("Switching to the clean browser player ($why)")
+        episode.end()
         release()
         startActivity(CleanPlayerActivity.intent(this, sourceIndex))
         finish()
@@ -1263,12 +1446,14 @@ class PlayerActivity : Activity() {
     private fun openSitePlayer(why: String, pageUrl: String? = null) {
         val page = pageUrl ?: set?.pageUrl ?: return finish()
         Report.log("Switching to the site's own player ($why)")
+        episode.end()
         release()
         startActivity(SitePlayerActivity.intent(this, page))
         finish()
     }
 
     private fun release() {
+        keeper?.pause()
         main.removeCallbacks(earlyDecoderCheck)
         main.removeCallbacks(disguiseCheck)
         main.removeCallbacks(audioStarveCheck)

@@ -140,6 +140,12 @@ class WaitingActivity : Activity() {
             found(head)
             return
         }
+        // A ready backup (the player found it while watching) skips the search.
+        if (linkPage) PreFound.take(item.url)?.let { ready ->
+            checkCount++
+            found(ready)
+            return
+        }
         checking = true
         checkStartedAt = System.currentTimeMillis()
         checkCount++
@@ -149,7 +155,8 @@ class WaitingActivity : Activity() {
             checking = false
             val now = System.currentTimeMillis()
             lastCheckAt = now
-            if (set.sources.isNotEmpty()) found(set) else onNoStream(now, "no stream yet", set.pageUrl)
+            if (set.sources.isNotEmpty()) found(set)
+            else onNoStream(now, if (set.offline) "the site's stream is offline" else "no stream yet", set.pageUrl, set.offline)
         }
     }
 
@@ -165,7 +172,7 @@ class WaitingActivity : Activity() {
         if (sniffer.lateReading) { keepForLate = true; sniffer.onLateDone = { finish() } } else finish()
     }
 
-    private fun onNoStream(now: Long, why: String, pageUrl: String = item.url) {
+    private fun onNoStream(now: Long, why: String, pageUrl: String = item.url, offline: Boolean = false) {
         checking = false
         lastCheckAt = now
         lastResult = why
@@ -180,19 +187,53 @@ class WaitingActivity : Activity() {
                 waitStartedAt = now
             } else {
                 if (auto && tryNextAuto()) return
+                if (offline && tryOfflineAlternatives(pageUrl)) return
                 // Started a while ago (or no time and still nothing): same as a link sent directly.
                 if (noTimeGiveUp && !linkPage) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
-                handedOff = true
-                main.removeCallbacksAndMessages(null)
-                Timing.emit(Timing.PATH_SITE_PLAYER)
-                AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
-                startActivity(SitePlayerActivity.intent(this, pageUrl, referer))
-                finish()
+                openSite(pageUrl)
                 return
             }
         }
         nextCheckAt = now + if (item.startMillis == null && checkCount < NO_TIME_TRIES) NO_TIME_RETRY_MS else CHECK_EVERY_MS
         update(now)
+    }
+
+    private fun openSite(pageUrl: String) {
+        handedOff = true
+        main.removeCallbacksAndMessages(null)
+        Timing.emit(Timing.PATH_SITE_PLAYER)
+        AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
+        startActivity(SitePlayerActivity.intent(this, pageUrl, referer))
+        finish()
+    }
+
+    /**
+     * The page's stream is offline (every check said 404/410): try the other streams of the same game (other sites, from the
+     * sports folders) through the automatic switch; false when no switch is left (the caller opens the site player). When it
+     * returns true this screen is handed off and ends in a new page or, with no alternative found, the site player.
+     */
+    private fun tryOfflineAlternatives(pageUrl: String): Boolean {
+        AutoSwitch.markDead(item.url, System.currentTimeMillis())
+        if (!AutoSwitch.canSwitch()) return false
+        handedOff = true
+        main.removeCallbacksAndMessages(null)
+        if (::usually.isInitialized) { usually.text = "The site's stream is offline. Trying other sources…"; usually.visibility = View.VISIBLE }
+        val app = applicationContext
+        kotlin.concurrent.thread(isDaemon = true, name = "offline-alternatives") {
+            val alts = try { Alternatives.forPage(app, pageUrl, item.url) } catch (_: Exception) { emptyList() }
+            main.post {
+                if (isFinishing || isDestroyed) return@post
+                val now = System.currentTimeMillis()
+                val live = alts.filter { !AutoSwitch.isDead(it.url, now) }
+                val first = live.firstOrNull()
+                if (first == null || !AutoSwitch.canSwitch()) { openSite(pageUrl); return@post }
+                AutoSwitch.begin(live.drop(1))
+                Report.log("Stream offline; switching to ${first.label} (${Report.host(first.url)})")
+                startActivity(linkPageIntent(this, first.playerUrl.ifEmpty { first.url }, first.label, null, auto = true))
+                finish()
+            }
+        }
+        return true
     }
 
     /** An automatic page had no stream: continue with the next remembered candidate (this screen is replaced). */
