@@ -34,6 +34,14 @@ const srv = http.createServer((q, r) => {
   eq('select with source=1 showing: never the page itself', r.urls.map(u => u.url.replace(/^.*\//, '')), ['ps-select.html?source=0', 'ps-select.html?source=2']);
   eq('select: address restored (2)', await p.evaluate(() => location.href), before);
 
+  // A pinned (fixed/sticky) player and a page that rewrites its address ~300 ms after the change: one option is
+  // pressed, the rest are worked out from the query parameter that carries the option's value.
+  await open('ps-select-late.html');
+  r = await read();
+  eq('late select in a pinned player: 4 other addresses', r.urls.map(u => u.url.replace(/^.*\//, '')),
+    ['ps-select-late.html?source=1', 'ps-select-late.html?source=2', 'ps-select-late.html?source=3', 'ps-select-late.html?source=4']);
+  eq('late select: only one option pressed (plus the restore)', await p.evaluate(() => window.changes), 2);
+
   await open('ps-select-quiet.html');
   r = await read();
   eq('select whose change does not touch the address: nothing', r.urls, []);

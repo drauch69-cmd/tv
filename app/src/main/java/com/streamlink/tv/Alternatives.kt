@@ -9,8 +9,7 @@ import android.content.Context
 object Alternatives {
     const val MAX = 6
 
-    // TODO lead: replace with SavedLists.preferredId(ctx) when the preferred-list branch is merged.
-    private fun preferredListId(ctx: Context): String? = null
+    private fun preferredListId(ctx: Context): String? = SavedLists.preferredId(ctx)
 
     /**
      * The other streams of the game whose folder holds the playing page, best first: the preferred list's streams,

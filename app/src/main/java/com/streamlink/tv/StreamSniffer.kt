@@ -445,7 +445,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     /**
      * Once per primary search, at its end: runs assets/page-sources.js on the (still loaded) page and adds the numbered
-     * addresses it finds to [set] as "open page" entries. One script run, 1.3 s at most; any failure just means none.
+     * addresses it finds to [set] as "open page" entries. Immediate when the page has no pick-list near the player; else up to 3 s (pages may rewrite the address a few hundred ms after a change). Any failure just means none.
      */
     private fun readPageSources(gen: Int, page: String, set: StreamSet) {
         val wv = webView
@@ -476,8 +476,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
         }
         try {
-            wv.evaluateJavascript("($script)('start')", null)
-            main.postDelayed({ read(1) }, PAGE_SOURCES_READ_MS)
+            // With no pick-list to try, "start" answers at once (links only) and the search is not held up.
+            wv.evaluateJavascript("($script)('start')") { raw ->
+                val now = PageSources.parse(raw)
+                if (now != null) end(now) else main.postDelayed({ read(PAGE_SOURCES_READS) }, PAGE_SOURCES_READ_MS)
+            }
         } catch (_: Exception) {
             end(emptyList())
         }
@@ -791,8 +794,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         private const val MAX_REPEAT_POSSIBLES = 6
 
         /** Page sources: first read of the script's answer, and the hard stop for the whole step. */
-        private const val PAGE_SOURCES_READ_MS = 450L
-        private const val PAGE_SOURCES_MAX_MS = 1_300L
+        private const val PAGE_SOURCES_READ_MS = 300L
+        private const val PAGE_SOURCES_READS = 8
+        private const val PAGE_SOURCES_MAX_MS = 3_000L
         /** Time for one light run ([sniff] with light = true). */
         const val LIGHT_TIMEOUT_MS = 25_000L
 

@@ -19,7 +19,7 @@
  */
 (function (mode) {
   'use strict';
-  var MAX = 8, MIN_AREA = 40000, NEAR = 600, TICK_MS = 30, MAX_LABEL = 40;
+  var MAX = 8, MIN_AREA = 40000, NEAR = 600, TICK_MS = 50, WAIT_MS = 800, MAX_LABEL = 40;
 
   function textOf(el) { return String(el.innerText != null ? el.innerText : el.textContent || '').replace(/\s+/g, ' ').trim(); }
   function label(t) {
@@ -62,7 +62,9 @@
       var r = visibleRect(els[i]);
       if (!r || r.width / r.height < 1.1) continue;
       var a = r.width * r.height;
-      if (a < MIN_AREA || a <= ba || pinned(els[i])) continue;
+      // Pinned players are fine here (some pages put the whole player area in a fixed/sticky wrapper):
+      // the anchor only decides which pick-list is "near the player".
+      if (a < MIN_AREA || a <= ba) continue;
       ba = a; best = r;
     }
     return best;
@@ -83,28 +85,73 @@
     try { el.dispatchEvent(new Event(type, { bubbles: true })); } catch (e) {}
   }
 
-  function fromSelects(base, out) {
+  function candidateSelects() {
     var ar = anchor();
-    if (!ar) return Promise.resolve();
-    var sels = Array.prototype.slice.call(document.querySelectorAll('select')).filter(function (s) {
+    if (!ar) return [];
+    return Array.prototype.slice.call(document.querySelectorAll('select')).filter(function (s) {
       var r = visibleRect(s);
       return r && s.options.length >= 2 && s.options.length <= 12 && !chromeOf(s) && vGap(r, ar) <= NEAR;
     });
+  }
+
+  /** Waits (up to WAIT_MS) for the page to rewrite its address away from [from]; resolves with the address. */
+  function waitHref(from) {
+    var t0 = Date.now();
+    return new Promise(function (res) {
+      (function poll() {
+        if (location.href !== from || Date.now() - t0 >= WAIT_MS) return res(location.href);
+        setTimeout(poll, TICK_MS);
+      })();
+    });
+  }
+
+  /**
+   * After one option rewrote the address, the other options' addresses can usually be worked out without pressing:
+   * the one query parameter that changed carries the option's value (or its position). Returns true when done.
+   */
+  function derive(sel, startIdx, i, u, base, out) {
+    try {
+      var nu = new URL(u), keys = {};
+      nu.searchParams.forEach(function (v, k) { keys[k] = 1; });
+      base.searchParams.forEach(function (v, k) { keys[k] = 1; });
+      var diff = Object.keys(keys).filter(function (k) { return nu.searchParams.get(k) !== base.searchParams.get(k); });
+      if (diff.length !== 1) return false;
+      var key = diff[0], got = nu.searchParams.get(key), byValue = got === sel.options[i].value, byIndex = got === String(i);
+      if (!byValue && !byIndex) return false;
+      for (var j = 0; j < sel.options.length && out.length < MAX; j++) {
+        if (j === startIdx || j === i) continue;
+        var v = byValue ? sel.options[j].value : String(j);
+        if (!v) continue;
+        var x = new URL(base.href);
+        x.searchParams.set(key, v);
+        var full = x.origin + x.pathname + x.search;
+        if (full === base.origin + base.pathname + base.search || out.some(function (o) { return o.url === full; })) continue;
+        out.push({ url: full, label: label(sel.options[j].text), index: j });
+      }
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function fromSelects(base, out, sels) {
     var chain = Promise.resolve();
     sels.forEach(function (sel) {
       chain = chain.then(function () {
-        var startIdx = sel.selectedIndex, startHref = location.href, seq = Promise.resolve();
+        var startIdx = sel.selectedIndex, startHref = location.href, seq = Promise.resolve(), derived = false, tried = 0;
         for (var i = 0; i < sel.options.length; i++) (function (i) {
           if (i === startIdx) return;
           seq = seq.then(function () {
-            if (out.length >= MAX) return;
+            // Some pages rewrite the address a few hundred ms after the change; try at most 3 options by pressing.
+            if (out.length >= MAX || derived || tried >= 3) return;
+            tried++;
             sel.selectedIndex = i;
             fire(sel, 'input'); fire(sel, 'change');
-            return Promise.resolve().then(tick).then(function () {
-              var now = location.href;
+            return waitHref(startHref).then(function (now) {
               if (now !== startHref) {
                 var u = sameBase(now, base);
-                if (u && !out.some(function (o) { return o.url === u; })) out.push({ url: u, label: label(sel.options[i].text), index: i });
+                if (u && !out.some(function (o) { return o.url === u; })) {
+                  out.push({ url: u, label: label(sel.options[i].text), index: i });
+                  derived = derive(sel, startIdx, i, u, base, out);
+                }
                 // Each option is judged against the untouched address.
                 try { history.replaceState(history.state, '', startHref); } catch (e) {}
               }
@@ -159,9 +206,9 @@
     });
   }
 
-  function run() {
+  function run(sels) {
     var base = new URL(location.href), out = [];
-    return fromSelects(base, out).then(function () {
+    return fromSelects(base, out, sels).then(function () {
       if (out.length < MAX) fromLinks(base, out);
       return out.slice(0, MAX);
     });
@@ -170,7 +217,15 @@
   try {
     if (mode === 'start') {
       window.__slPageSources = null;
-      run().then(function (urls) { window.__slPageSources = { done: true, urls: urls }; },
+      var sels = candidateSelects();
+      if (!sels.length) {
+        // Nothing to press: answer at once (links only), so the search is not held up.
+        var base0 = new URL(location.href), out0 = [];
+        fromLinks(base0, out0);
+        window.__slPageSources = { done: true, urls: out0.slice(0, MAX) };
+        return JSON.stringify(window.__slPageSources);
+      }
+      run(sels).then(function (urls) { window.__slPageSources = { done: true, urls: urls }; },
                  function () { window.__slPageSources = { done: true, urls: [] }; });
       return JSON.stringify({ started: true });
     }
