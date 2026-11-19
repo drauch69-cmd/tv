@@ -1,0 +1,26 @@
+<!doctype html><html><head><title>Expand fixture</title><style>body{font-family:sans-serif} .mx-row{display:block;padding:6px}</style></head><body>
+<button type="button" id="lone">Subscribe</button><div class="x"><button>Menu</button></div>
+<section class="mx-section"><h2>Alpha</h2><div class="list">
+<a class="mx-row" href="/watch/A/ppv-1"><div class="mx-when">9:00 PM</div><div class="mx-title">Team A1 vs Team A1x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-2"><div class="mx-when">10:00 PM</div><div class="mx-title">Team A2 vs Team A2x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-3"><div class="mx-when">8:00 PM</div><div class="mx-title">Team A3 vs Team A3x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-4"><div class="mx-when">9:00 PM</div><div class="mx-title">Team A4 vs Team A4x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-5"><div class="mx-when">10:00 PM</div><div class="mx-title">Team A5 vs Team A5x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-6"><div class="mx-when">8:00 PM</div><div class="mx-title">Team A6 vs Team A6x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-7"><div class="mx-when">9:00 PM</div><div class="mx-title">Team A7 vs Team A7x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-8"><div class="mx-when">10:00 PM</div><div class="mx-title">Team A8 vs Team A8x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-9"><div class="mx-when">8:00 PM</div><div class="mx-title">Team A9 vs Team A9x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-10"><div class="mx-when">9:00 PM</div><div class="mx-title">Team A10 vs Team A10x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-11"><div class="mx-when">10:00 PM</div><div class="mx-title">Team A11 vs Team A11x</div><div class="mx-sub">Hall</div></a>
+<a class="mx-row" href="/watch/A/ppv-12"><div class="mx-when">8:00 PM</div><div class="mx-title">Team A12 vs Team A12x</div><div class="mx-sub">Hall</div></a>
+</div></section>
+<script>
+window.tabClicked=false; window.navClicked=false;
+document.querySelectorAll('.mx-more').forEach(function(b){b.addEventListener('click',function(){
+  var list=b.previousElementSibling, sec=b.dataset.sec, total=+b.dataset.total;
+  if(b.dataset.open){ while(list.children.length>12) list.lastChild.remove(); b.dataset.open=''; return; }
+  for(var i=13;i<=total;i++){var a=document.createElement('a');a.className='mx-row';a.href='/watch/'+sec+'/ppv-'+i;
+   a.innerHTML='<div class="mx-when">9:00 PM</div><div class="mx-title">Team '+sec+i+' vs Team '+sec+i+'x</div><div class="mx-sub">Hall</div>';list.appendChild(a);}
+  b.dataset.open='1';});});
+document.querySelectorAll('.tabs button, .pager button, .pager a').forEach(function(t){t.addEventListener('click',function(e){e.preventDefault();window.tabClicked=true;});});
+</script></body></html>

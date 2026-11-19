@@ -37,6 +37,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private var extracting = false
     private var retried = false
     private var slowRetried = false
+    private var expandTried = false // the "show more" presses run once per page load, never on the retry paths
     private var followedFrom: String? = null // the list page's own URL once we moved on to an embedded frame
     private var deadlineAt = 0L
     private var recipes: List<ListRecipes.Recipe>? = null // null while still being fetched
@@ -83,6 +84,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         extracting = false
         retried = false
         slowRetried = false
+        expandTried = false
         followedFrom = null
         recipes = null
         snapshotting = false
@@ -255,9 +257,66 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
             if (sig == lastSignature) unchanged++ else { unchanged = 0; lastSignature = sig }
             val waited = System.currentTimeMillis() - firstLoadedAt
             if (unchanged >= 2 || waited >= SETTLE_MAX_MS) {
-                extract(allowRetry = true)
+                expandThenExtract()
             } else {
                 main.postDelayed(poll, POLL_MS)
+            }
+        }
+    }
+
+    /**
+     * Once per page load, right after it settles: presses "show more" buttons (assets/list-expand.js, top frame),
+     * waits for the page to settle again (cap [EXPAND_SETTLE_MS]) and then extracts. Nothing pressed = no delay.
+     * If a press changes the address, the normal settle polling takes over on the new page.
+     */
+    private fun expandThenExtract() {
+        val wv = webView ?: return
+        if (done || extracting) return
+        if (expandTried) { extract(allowRetry = true); return }
+        expandTried = true
+        val script = try { loadAsset(context, "list-expand.js") } catch (_: Exception) { extract(allowRetry = true); return }
+        val gen = generation
+        val urlBefore = try { wv.url } catch (_: Throwable) { null }
+        try {
+            wv.evaluateJavascript("($script)()") { raw ->
+                if (done || gen != generation || extracting) return@evaluateJavascript
+                val pressed = try {
+                    val inner = MiniJson.parse(raw ?: "null") as? String
+                    ((MiniJson.parse(inner ?: "") as? Map<*, *>)?.get("pressed") as? Double)?.toInt() ?: 0
+                } catch (_: Exception) { 0 }
+                if (pressed <= 0) { extract(allowRetry = true); return@evaluateJavascript }
+                Report.log("List: pressed $pressed 'show more' button(s)")
+                lastSignature = null
+                unchanged = 0
+                val until = System.currentTimeMillis() + EXPAND_SETTLE_MS
+                main.postDelayed({ settleAfterPress(gen, urlBefore, until) }, EXPAND_POLL_MS)
+            }
+        } catch (_: Throwable) {
+            extract(allowRetry = true)
+        }
+    }
+
+    private fun settleAfterPress(gen: Int, urlBefore: String?, until: Long) {
+        val wv = webView ?: return
+        if (done || gen != generation || extracting) return
+        val urlNow = try { wv.url } catch (_: Throwable) { urlBefore }
+        if (urlNow != urlBefore) {
+            // the press navigated the main frame: do not press again; settle and read the new page as usual
+            Report.log("List: a press changed the page address; reading the new page")
+            lastSignature = null
+            unchanged = 0
+            main.removeCallbacks(poll)
+            main.postDelayed(poll, POLL_MS)
+            return
+        }
+        wv.evaluateJavascript(SIGNATURE_JS) { raw ->
+            if (done || gen != generation || extracting) return@evaluateJavascript
+            val sig = (try { MiniJson.parse(raw ?: "null") as? String } catch (_: Exception) { null }) ?: ""
+            if (sig == lastSignature) unchanged++ else { unchanged = 0; lastSignature = sig }
+            if (unchanged >= 2 || System.currentTimeMillis() >= until) {
+                extract(allowRetry = true)
+            } else {
+                main.postDelayed({ settleAfterPress(gen, urlBefore, until) }, EXPAND_POLL_MS)
             }
         }
     }
@@ -361,6 +420,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         polling = false
         retried = false
         slowRetried = false
+        expandTried = false // the embedded frame is a new load
         firstLoadedAt = 0L
         lastSignature = null
         unchanged = 0
@@ -375,6 +435,8 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         private const val SLOW_OVERALL_MS = 35_000L
         private const val FOLLOW_MS = 18_000L
         private const val POLL_MS = 1000L
+        private const val EXPAND_POLL_MS = 500L
+        private const val EXPAND_SETTLE_MS = 4000L
         private const val SETTLE_MAX_MS = 15_000L
         private const val OVERALL_MS = 25_000L
         /** The page's structure without scripts/styles, plus open shadow roots, capped at 1.5 MB. */
@@ -394,6 +456,9 @@ return out.slice(0,1500000);
             "(function(){var b=document.body;if(!b)return '0:0';return b.innerText.length+':'+b.getElementsByTagName('*').length;})()"
 
         @Volatile private var scriptCache: String? = null
+
+        private fun loadAsset(context: Context, name: String): String =
+            context.applicationContext.assets.open(name).bufferedReader().use { it.readText() }
 
         private fun loadScript(context: Context): String {
             scriptCache?.let { return it }
