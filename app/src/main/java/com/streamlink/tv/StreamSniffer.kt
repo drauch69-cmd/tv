@@ -300,6 +300,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 }
                 if (gen != generation || done || verifying) return@post // the page search got there first (or the run ended)
                 log("The last address still works; playing it")
+                if (timed) Timing.path = Timing.PATH_REMEMBERED
                 finish(LastAddress.restore(entry, checked))
             }
         }

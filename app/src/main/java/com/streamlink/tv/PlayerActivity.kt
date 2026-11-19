@@ -757,6 +757,12 @@ class PlayerActivity : Activity() {
                 useChromeNet = false
                 Report.log("No progress with Chrome's network engine; retrying with standard networking")
                 play()
+            } else if (!wasChrome && ChromeNet.engine != null) {
+                // Remembered standard networking did not start it: try Chrome's engine once (and keep it).
+                useChromeNet = true
+                chromeForced = true
+                Report.log("No progress with standard networking; retrying with Chrome's network engine")
+                play()
             } else {
                 recover("stalled")
             }
