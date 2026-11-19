@@ -49,6 +49,8 @@ data class StreamSet(
     val sources: List<Source>,
     /** Why nothing was found, when the sniffer knows (display/log only). */
     val reason: String = "",
+    /** The address the search was asked to open (before redirects); "" when unknown. Used by [LastAddress]. */
+    val requestedUrl: String = "",
 )
 
 /** A stream the page requested, before it has been checked. */
@@ -109,6 +111,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var siteHost = ""
 
     private var referer: String? = null
+    /** The address [sniff] was asked to open, as given (may carry a click fragment). */
+    private var askedUrl = ""
     private var runStartedAt = 0L
     /** Page HTML for the stream-page snapshot; null until the snapshot script answers. */
     private var streamHtml: String? = null
@@ -207,10 +211,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
      * [referer]: sent with the first request (a page opened from another page's Source list; the page it came from), or null.
      * [light]: a quiet run (access-code renewal): the page's site memory is left alone, the time is
      * [LIGHT_TIMEOUT_MS], and once a playlist is seen everything else is blocked. Players may still start.
+     * [useRemembered]: a normal foreground run also re-checks the last address that worked for this page, in parallel
+     * with the page load (see [tryRemembered]); never for light runs or click-only links. Prefetcher and reconnects pass false.
      */
-    fun sniff(url: String, referer: String? = null, light: Boolean = false, callback: (StreamSet) -> Unit) {
+    fun sniff(url: String, referer: String? = null, light: Boolean = false, useRemembered: Boolean = true, callback: (StreamSet) -> Unit) {
         cancel()
         this.light = light
+        askedUrl = url
         this.referer = referer
         lastReason = ""
         runStartedAt = SystemClock.uptimeMillis()
@@ -263,6 +270,36 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (!referer.isNullOrBlank()) wv.loadUrl(target, mapOf("Referer" to referer)) else wv.loadUrl(target)
         main.postDelayed(timeout, timeoutMs)
         main.postDelayed(nudger, FIRST_NUDGE_MS)
+        if (useRemembered && !light && ref == null) tryRemembered(generation, target)
+    }
+
+    /**
+     * Feature "last address": while the page loads as usual, a background thread re-checks only the first stored
+     * source of this page ([Verifier.quickCheck]). If it passes before the page search reached its own check
+     * (not [verifying]) and this run is still the current one, the stored set is finished at once (finish cancels the
+     * page load, timers and nudges). If it fails the entry is dropped and the search carries on untouched.
+     */
+    private fun tryRemembered(gen: Int, target: String) {
+        val app = context.applicationContext
+        thread(isDaemon = true, name = "remembered-check") {
+            val entry = try { LastAddress.get(app, target) } catch (_: Exception) { null } ?: return@thread
+            val first = LastAddress.firstPlayable(entry) ?: return@thread
+            if (gen != generation) return@thread
+            val mins = ((System.currentTimeMillis() - entry.savedAt) / 60_000L).coerceAtLeast(0)
+            log("Trying the last address that worked (saved $mins min ago)…")
+            val cand = StreamCandidate(first.url, first.headers, first.referers, first.label, first.isDefaultLink)
+            val checked = try { Verifier.quickCheck(cand, 3000L) { m -> log(m) } } catch (_: Exception) { null }
+            main.post {
+                if (checked == null) {
+                    if (gen == generation) log("The last address no longer works; searching the page")
+                    LastAddress.forget(app, target, entry.pageUrl)
+                    return@post
+                }
+                if (gen != generation || done || verifying) return@post // the page search got there first (or the run ended)
+                log("The last address still works; playing it")
+                finish(LastAddress.restore(entry, checked))
+            }
+        }
     }
 
     fun cancel() {
@@ -291,7 +328,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (!light) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
         val cb = onResult
         cancel()
-        cb?.invoke(result)
+        cb?.invoke(result.copy(requestedUrl = askedUrl))
     }
 
     private fun destroyWebView() {

@@ -149,6 +149,24 @@ Remote tabs; prefetch toggle).
   `Prefetcher` gives
   Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block images,
   fonts and similar.
+- **Fast-start memories** (`FastStart.kt`; pure helpers unit tested in `FastStartTest`). `LastAddress`: when a stream first
+  renders (`onRenderedFirstFrame`, verified, not an openPage entry) the whole set is saved per page address (the address
+  the search was asked to open, `StreamSet.requestedUrl`, and the final page if different; normalized: no click fragment,
+  lower-case host, no trailing slash), played source first, openPage entries kept, max 8 sources, 50 pages (least
+  recently saved dropped), 24 h expiry; never for click-only list events or links that are a video file. In
+  `StreamSniffer.sniff` (foreground runs only: not light, not click-only; Prefetcher and PlayerActivity's reconnect pass
+  `useRemembered = false`) a background thread re-checks only the first stored source (`Verifier.quickCheck`, 3 s, must
+  be a live non-ad HLS/DASH playlist) while the page loads as usual. If it passes before the page search reached its own
+  check and the run is still current, `finish` plays the stored set (this cancels the page load); if it fails the entry is
+  dropped and the search goes on. Report lines: "Trying the last address that worked (saved N min ago)…", then "The last
+  address still works; playing it" or "The last address no longer works; searching the page". `ServerMemory`: per stream
+  server host (lower case, no www., max 100, LRU, 7 days) the referer it accepted (`Verifier.check` tries it first, then the
+  usual list, max 5 real ones; recorded on a pass; line "Trying the referer this server accepted last time") and the
+  network engine that gave a picture ("chrome"/"standard"; recorded at first frame and when a 403 on standard
+  networking sends the player back to Chrome). `PlayerActivity.applyRememberedEngine` (new link and reconnect): "standard"
+  starts with standard networking ("Using standard networking for this server (it worked last time)"); "chrome" sets
+  chromeForced ("Staying on Chrome's network engine for this server (it worked last time)"); if the remembered engine then
+  stalls or gets 403, it is forgotten and the normal fallbacks run. Not yet tested on the TV.
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
   by the keyword's trailing number, joined, base64-decoded). A counter of undecodable segments triggers the
   site-player fallback.

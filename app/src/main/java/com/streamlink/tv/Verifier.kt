@@ -142,9 +142,33 @@ object Verifier {
         }
     }
 
+    /**
+     * One quick check of a remembered source (see [LastAddress]): true live playlist (HLS/DASH, live, not ad-like) within
+     * [limitMs]. Returns the source with the referer that worked first and its content type, or null. Call off the main thread.
+     */
+    fun quickCheck(c: StreamCandidate, limitMs: Long = 3000L, log: (String) -> Unit = { Report.log(it) }): Source? {
+        val task = java.util.concurrent.FutureTask(Callable { check(c, log) })
+        val t = Thread(task, "quick-check")
+        t.isDaemon = true
+        t.start()
+        val r = try {
+            task.get(limitMs, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            task.cancel(true)
+            return null
+        }
+        if (!r.ok || !r.live || r.adLike) return null
+        val refs = if (r.workingReferer != null) listOf(r.workingReferer) + c.referers.filter { it != r.workingReferer } else c.referers
+        return Source(c.url, c.headers, refs, c.linkLabel, c.isDefault, verified = true, mime = r.mime)
+    }
+
     private fun check(c: StreamCandidate, log: (String) -> Unit): Checked {
         // Up to 5 real referers (the finder already caps each list), then the no-referer attempt last.
-        val refs = (c.referers.filter { it.isNotEmpty() }.take(5) + "").distinct()
+        // The referer this stream server accepted last time goes first (see [ServerMemory]).
+        val host = Report.host(c.url)
+        val remembered = ServerMemory.refererFor(host)
+        val refs = ServerMemory.refererOrder(c.referers, remembered)
+        if (remembered != null && refs.firstOrNull() == remembered) log("Trying the referer this server accepted last time")
         var note = "no response"
         val tried = ArrayList<String>()
         for (ref in refs) {
@@ -181,6 +205,7 @@ object Verifier {
                 master -> "adaptive"
                 else -> "single quality"
             }
+            if (ref.isNotEmpty()) ServerMemory.recordReferer(host, ref)
             val refText = if (ref.isEmpty()) "none" else Report.short(ref)
             log("✓ ${Report.short(c.url)}: $kind, ${if (live) "live" else "recorded"} (referer: $refText)" +
                 if (adLike) " — looks like an ad" else "")

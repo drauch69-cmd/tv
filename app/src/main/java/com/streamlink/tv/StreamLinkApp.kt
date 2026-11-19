@@ -6,6 +6,7 @@ import android.content.ComponentCallbacks2
 class StreamLinkApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        ServerMemory.init(this)
         CrashRecorder.install(this)
         CrashRecorder.reportLast(this)
     }

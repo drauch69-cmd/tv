@@ -139,6 +139,8 @@ class PlayerActivity : Activity() {
     private var useChromeNet = true
     /** A server refused standard networking (403): keep Chrome's engine for this page load, never drop it again. */
     private var chromeForced = false
+    /** The engine ("chrome"/"standard") this source's server was remembered to work with and the player started on; null when nothing was remembered or it was given up. */
+    private var engineRemembered: String? = null
     /** Use the TV's software video decoder (slower, more forgiving) for this link. */
     private var preferSoftware = false
     /** Experiment for stuck streams: play with the audio switched off to see if it's the blocker. */
@@ -240,6 +242,7 @@ class PlayerActivity : Activity() {
         stalls = 0
         useChromeNet = true
         chromeForced = false
+        applyRememberedEngine()
         preferSoftware = false
         audioOff = false
         audioOffTried = false
@@ -280,6 +283,28 @@ class PlayerActivity : Activity() {
     }
 
     // ---- Playback ----
+
+    /** Starts on the network engine this stream server worked with last time (see [ServerMemory]); call right after resetting useChromeNet/chromeForced. */
+    private fun applyRememberedEngine() {
+        engineRemembered = null
+        val s = set ?: return
+        val src = s.sources.getOrNull(sourceIndex)?.takeIf { !it.openPage }
+            ?: s.sources.getOrNull(LinkOrder.firstPlayable(s.sources) ?: return) ?: return
+        val mem = ServerMemory.engineFor(Report.host(src.url))
+        val start = ServerMemory.engineStart(mem, ChromeNet.engine != null)
+        useChromeNet = start.useChromeNet
+        chromeForced = start.chromeForced
+        if (start.note != null) {
+            engineRemembered = mem
+            Report.log(start.note)
+        }
+    }
+
+    /** A remembered engine did not work (stall or refusal): forget it and let the normal fallbacks run. */
+    private fun forgetEngine(host: String) {
+        ServerMemory.forgetEngine(host)
+        engineRemembered = null
+    }
 
     private fun play() {
         release()
@@ -471,6 +496,15 @@ class PlayerActivity : Activity() {
         override fun onRenderedFirstFrame() {
             firstFrame = true
             main.removeCallbacks(firstFrameCheck)
+            val cur = set
+            val shown = cur?.sources?.getOrNull(sourceIndex)
+            if (cur != null && shown != null && !shown.openPage) {
+                // A picture appeared: remember the engine for this server and the address for this page.
+                ServerMemory.recordEngine(Report.host(shown.url), if (useChromeNet && ChromeNet.engine != null) ServerMemory.CHROME else ServerMemory.STANDARD)
+                if (shown.verified) try {
+                    LastAddress.save(applicationContext, cur.requestedUrl, cur, shown)
+                } catch (_: Exception) {}
+            }
         }
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -709,6 +743,20 @@ class PlayerActivity : Activity() {
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
             decodeProblem()
+        } else if (playingSince == 0L && engineRemembered != null && set?.sources?.getOrNull(sourceIndex) != null &&
+            (engineRemembered == ServerMemory.STANDARD && !useChromeNet || engineRemembered == ServerMemory.CHROME && chromeForced)
+        ) {
+            // The engine remembered for this server did not start the stream: forget it; the normal fallbacks run from here.
+            val wasChrome = engineRemembered == ServerMemory.CHROME
+            forgetEngine(Report.host(set!!.sources[sourceIndex].url))
+            if (wasChrome && ChromeNet.engine != null) {
+                chromeForced = false
+                useChromeNet = false
+                Report.log("No progress with Chrome's network engine; retrying with standard networking")
+                play()
+            } else {
+                recover("stalled")
+            }
         } else if (playingSince == 0L && useChromeNet && !chromeForced && ChromeNet.engine != null) {
             // Never started with Chrome's engine: some servers work badly with it. Try once without.
             useChromeNet = false
@@ -889,6 +937,8 @@ class PlayerActivity : Activity() {
             useChromeNet = true
             chromeForced = true
             refererIndex = 0
+            engineRemembered = null
+            src?.let { ServerMemory.recordEngine(Report.host(it.url), ServerMemory.CHROME) }
             Report.log("Server refused standard networking; going back to Chrome's network engine")
             play()
             return
@@ -1022,7 +1072,7 @@ class PlayerActivity : Activity() {
         val gen = linkGen
         main.postDelayed({
             if (gen != linkGen) return@postDelayed
-            sniffer.sniff(page) { fresh ->
+            sniffer.sniff(page, useRemembered = false) { fresh ->
                 if (fresh.sources.isEmpty()) {
                     Report.log("No stream found while reconnecting")
                     if (reconnects < MAX_RECONNECTS) {
@@ -1042,6 +1092,7 @@ class PlayerActivity : Activity() {
                     // A fresh page load often gives a different server: start again on Chrome's engine.
                     useChromeNet = true
                     chromeForced = false
+                    applyRememberedEngine()
                     play()
                 }
             }
