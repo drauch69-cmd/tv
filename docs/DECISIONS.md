@@ -9,6 +9,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
   other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old
   tracker referer stays remembered until its 7-day expiry (harmless).
+- **Build 234 on the TV (13:45):** confirmed working: early finish + learned habit (picture at 10.8 s on ntv), backup
+  ready 62 s after start, and picking that Source used the ready backup with no search (picture ~2 s after the pick;
+  user: "source switching was crisp").
 - **Review round after build 229, released as Sports build 234** (user's go, 2026-11-19 13:18; on `sports`, compiled and unit-tested in CI, NOT tested
   on the TV). Trigger: a broken CrackStreams stream (pieces 403, site's own player fails too) took ~3 min to give up.
   Refused pieces now stop at once (no engine restart, no referer cycling, no reload of the same refused stream; other
