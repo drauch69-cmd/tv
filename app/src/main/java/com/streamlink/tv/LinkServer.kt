@@ -34,6 +34,10 @@ class LinkServer(
     private val onListSport: (String, Set<String>) -> Boolean = { _, _ -> false },
     /** POST /lists/preferred (id, on = "1" or "0"): makes that list the one preferred list (on) or clears the mark; false if there is no such list. */
     private val onListPreferred: (String, Boolean) -> Boolean = { _, _ -> false },
+    /** GET /livenow/words: the channel words that decide which channels show in "Live now". */
+    private val liveWords: () -> List<String> = { ChannelFilter.DEFAULT_WORDS },
+    /** POST /livenow/words (words = comma or new-line separated; reset=1 restores the defaults, passed as null). */
+    private val onLiveWords: (List<String>?) -> Unit = { },
     /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
     private val onListRefresh: (String) -> Boolean = { false },
     /** POST /list/play (id, url, start): plays an event of a list; start is its start time (epoch ms) if known. */
@@ -118,7 +122,7 @@ class LinkServer(
 
                 // Links and commands only from our own phone page or a Shortcut, never from another
                 // website (which a browser would label with its own Origin / Sec-Fetch-Site).
-                val changes = path in CHANGING_PATHS
+                val changes = path in CHANGING_PATHS || (path == "/livenow/words" && method == "POST") // GET on that path only reads
                 if (changes && method != "POST") {
                     respond(c, 405, "text/plain; charset=utf-8", "Use POST")
                     return
@@ -211,6 +215,15 @@ class LinkServer(
                 val sports = Sports.parse((formValue(body, "sport") ?: "").take(40))
                 if (!id.isNullOrEmpty() && onListSport(id, sports)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
             }
+            method == "GET" && path == "/livenow/words" -> respond(c, 200, json, liveWordsJson())
+            method == "POST" && path == "/livenow/words" -> {
+                if (formValue(body, "reset")?.trim() == "1") {
+                    onLiveWords(null)
+                } else {
+                    onLiveWords(ChannelFilter.parseWords((formValue(body, "words") ?: "").take(2000)))
+                }
+                respond(c, 200, json, liveWordsJson())
+            }
             method == "POST" && path == "/lists/preferred" -> {
                 val id = formValue(body, "id")
                 val on = formValue(body, "on")?.trim() == "1"
@@ -234,6 +247,12 @@ class LinkServer(
 
             else -> respond(c, 404, text, "Not found")
         }
+    }
+
+    private fun liveWordsJson(): String {
+        fun arr(l: List<String>) = l.joinToString(",", "[", "]") { "\"" + it.replace("\\", "\\\\").replace("\"", "\\\"") + "\"" }
+        val words = try { liveWords() } catch (_: Exception) { ChannelFilter.DEFAULT_WORDS }
+        return "{\"words\":" + arr(words) + ",\"defaults\":" + arr(ChannelFilter.DEFAULT_WORDS) + "}"
     }
 
     private fun page(message: String) =

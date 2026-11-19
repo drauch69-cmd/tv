@@ -42,6 +42,8 @@ object GameFolders {
      *   winner belongs to [league]: that game's streams; if it belongs to another league: skipped here (it is
      *   placed when that league is built); no match: [SportFolders.other] (so an unmatched item of a list tagged
      *   with two sports shows in both sports' Other).
+     * - Unmatched items whose title is not two-sided (channels, shows; see [ChannelFilter.isMatchup]) are dropped, so
+     *   Other holds only game-like titles (and they are not marked as seen, so another list's copy is still judged).
      * - Always-on channels are never placed anywhere; finished items are placed only when they match a game
      *   (never in other).
      * - The same address (see [urlKey]) is placed once: first list in saved order, first item in page order.
@@ -69,7 +71,7 @@ object GameFolders {
                 val game = ScoreMatch.find(item.title, start, pool)
                     ?: if (item.subtitle.isNotBlank()) ScoreMatch.find(item.title + " " + item.subtitle, start, pool) else null
                 if (game != null && game.league != league) continue // belongs to another of the list's sports
-                if (game == null && finished) continue
+                if (game == null && (finished || !ChannelFilter.isMatchup(item.title))) continue
                 if (!seen.add(urlKey(item.url))) continue
                 val stream = GameStream(list.id, list.name, item)
                 if (game != null) perGame.getValue(game.id).add(stream) else other.add(stream)

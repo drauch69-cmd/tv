@@ -17,6 +17,7 @@ class LinkServerTest {
     private val removed = CopyOnWriteArrayList<String>()
     private val refreshed = CopyOnWriteArrayList<String>()
     private val played = CopyOnWriteArrayList<Triple<String, String, Long?>>()
+    private val wordsSet = CopyOnWriteArrayList<List<String>?>()
     private lateinit var server: LinkServer
     private var port = 0
 
@@ -31,6 +32,8 @@ class LinkServerTest {
             report = { "report text" },
             lists = { "{\"lists\":[{\"id\":\"a1\"}]}" },
             list = { id -> if (id == "a1") "{\"id\":\"a1\",\"items\":[]}" else null },
+            liveWords = { wordsSet.lastOrNull() ?: ChannelFilter.DEFAULT_WORDS },
+            onLiveWords = { wordsSet.add(it) },
             onListAdd = { url, name, sport -> added.add(url to name); addedSport.add(sport); if (url.contains("full")) "Too many lists" else null },
             onListRemove = { id -> removed.add(id); id == "a1" },
             onListSport = { id, sport -> sported.add(id to sport); id == "a1" },
@@ -213,5 +216,29 @@ class LinkServerTest {
         val ok = request("POST /list/refresh HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: http://192.168.1.50:8080\r\n" +
             "Sec-Fetch-Site: same-origin\r\nContent-Type: $form\r\nContent-Length: 5\r\n\r\nid=a1")
         assertTrue(ok.startsWith("HTTP/1.1 200"))
+    }
+
+    @Test
+    fun liveWordsGetAndPost() {
+        val g = request("GET /livenow/words HTTP/1.1\r\nHost: x\r\n\r\n")
+        assertTrue(g.contains("{\"words\":[\"ESPN\",\"NFL\",\"NBA\",\"RedZone\"],\"defaults\":[\"ESPN\""))
+        val r = post("/livenow/words", "application/x-www-form-urlencoded", "words=ESPN%2C+Fox+Sports%0AESPN")
+        assertTrue(r.startsWith("HTTP/1.1 200"))
+        assertEquals(listOf("ESPN", "Fox Sports"), wordsSet.last())
+        assertTrue(r.contains("\"words\":[\"ESPN\",\"Fox Sports\"]"))
+        post("/livenow/words", "application/x-www-form-urlencoded", "words=")
+        assertEquals(emptyList<String>(), wordsSet.last())
+        post("/livenow/words", "application/x-www-form-urlencoded", "reset=1")
+        assertEquals(null, wordsSet.last())
+    }
+
+    @Test
+    fun liveWordsPostOnlyAndNotFromOtherSites() {
+        assertTrue(request("GET /livenow/words HTTP/1.1\r\nHost: x\r\n\r\n").startsWith("HTTP/1.1 200"))
+        val body = "words=evil"
+        val r = request("POST /livenow/words HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: https://evil.example\r\n" +
+            "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: ${body.length}\r\n\r\n$body")
+        assertTrue(r.startsWith("HTTP/1.1 403"))
+        assertTrue(wordsSet.isEmpty())
     }
 }

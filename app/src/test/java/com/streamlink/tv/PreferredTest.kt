@@ -23,8 +23,8 @@ class PreferredTest {
     private fun list(id: String, pref: Boolean = false) = SavedList(id, "List $id", "https://$id.example", setOf("nfl"), pref)
 
     private fun lists() = listOf(
-        list("a") to listOf(item("Commanders vs Giants", "https://a.example/1"), item("Mystery A", "https://a.example/m")),
-        list("b") to listOf(item("Giants at Commanders", "https://b.example/1"), item("Mystery B", "https://b.example/m")),
+        list("a") to listOf(item("Commanders vs Giants", "https://a.example/1"), item("Mystery vs A", "https://a.example/m")),
+        list("b") to listOf(item("Giants at Commanders", "https://b.example/1"), item("Mystery vs B", "https://b.example/m")),
         list("c") to listOf(item("Commanders vs Giants HD", "https://c.example/1")),
     )
 

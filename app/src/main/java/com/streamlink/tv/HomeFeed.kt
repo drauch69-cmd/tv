@@ -16,13 +16,25 @@ object HomeFeed {
      * Live events from every list first (earliest start first), then ones starting within 30 min,
      * then (to fill the row) ones starting within [UPCOMING_WINDOW_MS]. The same event URL in two
      * lists shows once.
+     *
+     * With [words] (the user's channel words) the row is narrow: only items matched to an NFL/college/NBA game that
+     * are not finished (live ones too; HomeModel drops those already shown as a Live games card), and channels (titles that are not
+     * two-sided) holding one of the words. Everything else is left out. [words] null = no narrowing.
      */
-    fun liveRow(lists: List<Pair<SavedList, List<ListItem>>>, now: Long, max: Int = MAX_CARDS, games: List<Game> = ScoreFeed.latest()): List<Entry> {
+    fun liveRow(
+        lists: List<Pair<SavedList, List<ListItem>>>, now: Long, max: Int = MAX_CARDS, games: List<Game> = ScoreFeed.latest(),
+        words: List<String>? = null,
+    ): List<Entry> {
         val all = ArrayList<Entry>()
         val seen = HashSet<String>()
         for ((l, items) in lists) for (i in items) {
             if (!seen.add(i.url)) continue
             val r = ScoreStatus.resolve(i, now, games) // the card's item carries ESPN's kickoff when matched
+            if (words != null) {
+                val matched = ScoreStatus.gameFor(i, games) != null
+                if (!ChannelFilter.inLiveNow(ListText.displayTitle(i), matched, words)) continue
+                if (matched && r.status == ListStatus.FINISHED) continue // live ones stay: HomeModel skips those already shown in Live games
+            }
             all.add(Entry(l, r.item, r.status))
         }
         fun startKey(e: Entry) = e.item.startMillis ?: Long.MAX_VALUE

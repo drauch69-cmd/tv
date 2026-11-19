@@ -57,15 +57,22 @@ object ListJson {
     }
 
     /** GET /list?id= (status and badge computed now, on the TV). */
-    fun listForPhone(l: SavedList, c: CachedList?, refreshing: Boolean, error: String?, now: Long): String {
+    fun listForPhone(
+        l: SavedList, c: CachedList?, refreshing: Boolean, error: String?, now: Long,
+        words: List<String> = ChannelFilter.DEFAULT_WORDS,
+    ): String {
         val items = JSONArray()
         c?.let { cl ->
             // one snapshot so order, status and badge agree; only the list's own sports (like the TV list screen)
             val games = ScoreFeed.forLeagues(l.sports)
             for (i in visible(cl.result.items, now, games)) {
                 val r = ScoreStatus.resolve(i, now, games)
+                val title = ListText.displayTitle(i)
+                // "liveNow": belongs on the phone's Live now tab: matched to a game, or a channel holding one of the user's words
+                val liveNow = ChannelFilter.inLiveNow(title, ScoreStatus.gameFor(i, games) != null, words)
                 items.put(JSONObject().apply {
-                    put("title", ListText.displayTitle(i)); put("subtitle", i.subtitle); put("url", i.url); put("section", i.section)
+                    put("liveNow", liveNow)
+                    put("title", title); put("subtitle", i.subtitle); put("url", i.url); put("section", i.section)
                     put("start", r.item.startMillis ?: JSONObject.NULL)
                     put("status", r.status); put("badge", ListText.badge(i, now, games = games))
                 })
