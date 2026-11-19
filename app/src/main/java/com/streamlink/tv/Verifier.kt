@@ -87,8 +87,8 @@ object Verifier {
 
     /**
      * Early check of the first stream the sniffer sees (started the moment it is found, before the wait for siblings
-     * is over). Call off the main thread. Says whether it is a working non-ad playlist, and whether that is adaptive (master/DASH). A pass is kept briefly for [rank];
-     * a failure is not kept (rank looks again).
+     * is over). Call off the main thread. Says whether it is a working non-ad playlist, and whether that is adaptive (master/DASH). A pass is kept briefly for [rank],
+     * and so is a failure (rank reuses it; no second fetch).
      */
     fun precheck(c: StreamCandidate, log: (String) -> Unit = { Report.log(it) }): EarlyFinish.State {
         val task = java.util.concurrent.FutureTask(Callable { check(c, log) })
@@ -96,10 +96,9 @@ object Verifier {
         try {
             task.run()
             val r = task.get()
-            if (r.ok) {
-                if (pre.size > 20) pre.clear()
-                pre[c.url] = Pre(r, System.currentTimeMillis())
-            }
+            // Failed results are kept too (same age rule), so [rank] does not fetch and log the same failure again.
+            if (pre.size > 20) pre.clear()
+            pre[c.url] = Pre(r, System.currentTimeMillis())
             return when {
                 !r.ok || r.adLike -> EarlyFinish.State.BAD
                 r.master || r.dash -> EarlyFinish.State.GOOD_ADAPTIVE
@@ -121,12 +120,40 @@ object Verifier {
 
     private val adWords = listOf("/ads/", "/ad/", "vast", "preroll", "pre-roll", "advert", "doubleclick", "imasdk")
 
-    fun rank(cands: List<StreamCandidate>, log: (String) -> Unit = { Report.log(it) }): List<Source> {
+    /**
+     * [rank], plus the stuck-engine rule: when every candidate (and at least one; possible playlists left out) got no HTTP
+     * answer at all on Chrome's engine, the engine is restarted (off the main thread: call this off it; rate limited by
+     * [ChromeNet.canReset]) and those candidates are checked once more. Still no answer: they come back marked
+     * [NoAnswer.FINAL], which the sniffer treats as no stream instead of playing them unchecked.
+     */
+    fun rankWithRestart(cands: List<StreamCandidate>, log: (String) -> Unit = { Report.log(it) }): List<Source> {
+        val first = rank(cands, log)
+        val possible = cands.filter { it.possible }.map { it.url }.toSet()
+        if (!NoAnswer.allSilent(first.filter { it.url !in possible })) return first
+        if (ChromeNet.engine == null || !ChromeNet.canReset()) return first
+        log("No answer from the stream server; restarting Chrome's network engine and checking again")
+        val how = ChromeNet.reset()
+        if (how == null) {
+            log("Chrome's network engine could not be restarted")
+            return first
+        }
+        log("Chrome's network engine restarted ($how)")
+        val again = rank(cands, log, fresh = true)
+        val rel = again.filter { it.url !in possible }
+        if (NoAnswer.allSilent(rel)) {
+            log("Still no answer from the stream server after the restart")
+            return again.map { if (it.url !in possible) NoAnswer.markFinal(listOf(it)).first() else it }
+        }
+        log("The stream server answers after the restart")
+        return again
+    }
+
+    fun rank(cands: List<StreamCandidate>, log: (String) -> Unit = { Report.log(it) }, fresh: Boolean = false): List<Source> {
         // Check all candidates at once, with a hard overall time limit, so a slow site can't keep
         // the TV on "Finding the video…" for minutes.
         val pool = Executors.newFixedThreadPool(cands.size.coerceIn(1, 12))
         val futures = try {
-            pool.invokeAll(cands.map { c -> Callable { takePre(c) ?: check(c, log) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
+            pool.invokeAll(cands.map { c -> Callable { (if (fresh) { pre.remove(c.url); null } else takePre(c)) ?: check(c, log) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
         } finally {
             pool.shutdownNow()
         }
@@ -134,8 +161,8 @@ object Verifier {
             val f = futures[i]
             try {
                 if (f.isCancelled) {
-                    log("✗ ${Report.short(c.url)}: too slow to answer")
-                    unchecked(c, "too slow to answer")
+                    log("✗ ${Report.short(c.url)}: ${NoAnswer.TOO_SLOW}")
+                    unchecked(c, NoAnswer.TOO_SLOW)
                 } else {
                     f.get()
                 }
@@ -203,18 +230,17 @@ object Verifier {
         var note = "no response"
         val tried = ArrayList<String>()
         // Every try answered 404/410: the address is gone (the stream is offline), not refused (see [DeadStream]).
-        var goneCode = 0
-        var otherAnswer = false
+        // The answer of each try: the HTTP status, or 0 when the fetch threw (no answer at all; see [DeadStream.goneVerdict]).
+        val answers = ArrayList<Int>()
         for (ref in refs) {
             tried.add(Headers.describeReferer(ref))
             val r = fetch(c.url, c.headers, ref, log)
-            if (r == null) { otherAnswer = true; continue }
+            if (r == null) { answers.add(0); continue }
+            answers.add(r.code)
             if (r.code !in 200..299) {
                 note = "server said ${r.code}"
-                if (DeadStream.isGoneCode(r.code)) goneCode = r.code else otherAnswer = true
                 continue
             }
-            otherAnswer = true
             val text = String(r.body, Charsets.UTF_8)
             val t = text.trimStart('\uFEFF', ' ', '\r', '\n', '\t')
             val isHls = t.startsWith("#EXTM3U")
@@ -252,7 +278,9 @@ object Verifier {
         }
         // A refusal: say which referers were tried (hosts only, never tokens).
         if (note.startsWith("server said 403")) note += "; tried: " + tried.joinToString(", ")
-        if (goneCode != 0 && !otherAnswer) note = DeadStream.goneNote(goneCode)
+        val goneCode = DeadStream.goneVerdict(answers)
+        if (goneCode != 0) note = DeadStream.goneNote(goneCode)
+        else if (NoAnswer.silent(answers)) note = NoAnswer.SILENT
         log("✗ ${Report.short(c.url)}: $note")
         return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), note)
     }

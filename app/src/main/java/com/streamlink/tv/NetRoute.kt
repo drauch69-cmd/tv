@@ -115,13 +115,25 @@ class PieceWatch {
 
     private var goneRun = 0
 
-    @Synchronized fun playlistOk(now: Long) { playlistOkAt = now; goneRun = 0 }
+    private var silentRun = 0
+    private var playlistRestarted = false
+
+    @Synchronized fun playlistOk(now: Long) { playlistOkAt = now; goneRun = 0; silentRun = 0 }
 
     /** A playlist request failed; [status] is the HTTP status when the server answered (404/410 = gone). */
     @Synchronized fun playlistFailed(now: Long, status: Int = 0) {
         playlistFailAt = now
         goneRun = if (status == 404 || status == 410) goneRun + 1 else 0
+        silentRun = if (status == 0) silentRun + 1 else 0
     }
+
+    /** The latest playlist request(s) got no HTTP answer at all (timeout / I/O error) and none succeeded since. */
+    @Synchronized fun playlistSilent(): Boolean = silentRun >= 1
+
+    @Synchronized fun playlistRestarted(): Boolean = playlistRestarted
+
+    /** Chrome's engine was rebuilt because the playlist got no answer: once per source; forget the silence so the next verdict is about the fresh engine. */
+    @Synchronized fun markPlaylistRestarted() { playlistRestarted = true; silentRun = 0 }
 
     /** The playlist answered "not found / gone" on [times] consecutive requests with no success between. */
     @Synchronized fun playlistGone(times: Int = 2): Boolean = goneRun >= times

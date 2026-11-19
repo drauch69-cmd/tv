@@ -256,4 +256,49 @@ class BackupLogicTest {
         assertTrue(DeadStream.samePath("https://h/a/index.m3u8?t=1", "https://h/a/index.m3u8?t=2"))
         assertFalse(DeadStream.samePath("https://h/a/index.m3u8", "https://h/b/index.m3u8"))
     }
+
+    // ---- gone verdict, no answer, user-picked backups ----
+
+    @Test fun goneVerdictIgnoresTriesThatNeverAnswered() {
+        assertEquals(404, DeadStream.goneVerdict(listOf(404, 404, 404)))
+        assertEquals(404, DeadStream.goneVerdict(listOf(404, 0, 404, 0)))
+        assertEquals(410, DeadStream.goneVerdict(listOf(0, 410)))
+        assertEquals(0, DeadStream.goneVerdict(listOf(404, 403)))
+        assertEquals(0, DeadStream.goneVerdict(listOf(404, 200)))
+        assertEquals(0, DeadStream.goneVerdict(listOf(0, 0, 0)))
+        assertEquals(0, DeadStream.goneVerdict(emptyList()))
+    }
+
+    @Test fun silentMeansNoHttpAnswerAtAll() {
+        assertTrue(NoAnswer.silent(listOf(0, 0)))
+        assertFalse(NoAnswer.silent(listOf(0, 404)))
+        assertFalse(NoAnswer.silent(emptyList()))
+    }
+
+    @Test fun allSilentNeedsEverySourceSilent() {
+        val a = Source("https://s/a.m3u8", emptyMap(), listOf(""), "a", verified = false, note = NoAnswer.TOO_SLOW)
+        val b = a.copy(note = NoAnswer.SILENT)
+        val c = a.copy(note = "server said 403")
+        assertTrue(NoAnswer.allSilent(listOf(a, b)))
+        assertFalse(NoAnswer.allSilent(listOf(a, c)))
+        assertFalse(NoAnswer.allSilent(emptyList()))
+        assertFalse(NoAnswer.allSilent(listOf(a.copy(verified = true))))
+        val f = NoAnswer.markFinal(listOf(a, c))
+        assertTrue(NoAnswer.isFinal(f[0]))
+        assertFalse(NoAnswer.isFinal(f[1]))
+        assertFalse(DeadStream.isGone(f[0]))
+    }
+
+    @Test fun userPickedBackupUsesTheFreshnessRule() {
+        val unknown = Lifetime(LifeKind.UNKNOWN)
+        val known = listOf(
+            BackupRecovery.Known("u1", 30 * S, unknown),
+            BackupRecovery.Known("u2", 3 * M, unknown),
+            BackupRecovery.Known("u3", 20 * M, Lifetime(LifeKind.LONG)),
+        )
+        assertNotNull(BackupRecovery.freshFor(known, "u1"))
+        assertNull(BackupRecovery.freshFor(known, "u2"))
+        assertNotNull(BackupRecovery.freshFor(known, "u3"))
+        assertNull(BackupRecovery.freshFor(known, "other"))
+    }
 }

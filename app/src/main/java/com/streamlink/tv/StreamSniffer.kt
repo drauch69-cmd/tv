@@ -665,7 +665,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         log("Checking ${list.size} stream(s)…")
         thread(isDaemon = true, name = "stream-check") {
             val raw = try {
-                Verifier.rank(list) { m -> log(m) }
+                Verifier.rankWithRestart(list) { m -> log(m) }
             } catch (e: Exception) {
                 log("Checking failed: ${e.javaClass.simpleName}")
                 list.map { Source(it.url, it.headers, it.referers, LinkOrder.sourceLabel(it.linkLabel, Report.host(it.url), "unchecked", true), it.isDefault, verified = false, note = "checking failed") }
@@ -678,9 +678,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 tm(Timing.CHECKED)
                 // A candidate whose every check answered 404/410 is offline, not unverified: never played, never a fallback.
                 val gone = sources.count { DeadStream.isGone(it) }
-                val kept = if (gone > 0) DeadStream.playable(sources) else sources
+                // No answer at all, even after Chrome's network engine was restarted: not played as an unchecked source either.
+                val silent = sources.count { NoAnswer.isFinal(it) }
+                val kept = if (gone > 0 || silent > 0) DeadStream.playable(sources).filter { !NoAnswer.isFinal(it) } else sources
                 val offline = gone > 0 && kept.isEmpty()
                 if (offline) { lastReason = "stream offline (server said 404)"; log(DeadStream.OFFLINE_LINE) }
+                else if (silent > 0 && kept.isEmpty()) { lastReason = "no answer from the stream server"; log("The stream server gives no answer; not playing an unchecked stream") }
                 val set = result(kept).copy(pageUrl = page, offline = offline)
                 // Primary search that found a playable stream: one quick look for the page's own numbered addresses.
                 // (verifying stays true meanwhile, so nothing else restarts the check.)

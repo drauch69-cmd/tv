@@ -193,6 +193,9 @@ object BackupRecovery {
     /** What is known about one ready backup. */
     data class Known(val url: String, val ageMs: Long, val life: ServerMemory.Lifetime)
 
+    /** The ready backup for [url] if its result is still fresh (the user picked that source by hand), else null. */
+    fun freshFor(known: List<Known>, url: String): Known? = known.firstOrNull { it.url == url && fresh(it.ageMs, it.life) }
+
     enum class Plan { SWITCH_FAST, PARALLEL, TODAY }
     data class Decision(val plan: Plan, val url: String? = null)
 
@@ -273,6 +276,16 @@ object QuickRace {
 object DeadStream {
     private const val MARK = " (not found)"
     fun isGoneCode(code: Int) = code == 404 || code == 410
+
+    /**
+     * The verdict of one stream check from the answer of each try: the HTTP status, or 0 when the fetch threw (timeout, I/O error:
+     * no answer at all). Gone (the 404/410 code) when at least one try answered 404/410 and no try got any other HTTP answer
+     * (another status, or a body); tries that never answered do not count against it. 0 = not gone.
+     */
+    fun goneVerdict(answers: List<Int>): Int {
+        val gone = answers.firstOrNull { isGoneCode(it) } ?: return 0
+        return if (answers.all { it == 0 || isGoneCode(it) }) gone else 0
+    }
     fun goneNote(code: Int) = "server said $code$MARK"
     fun isGone(s: Source): Boolean = !s.verified && s.note.contains(MARK)
     /** The sources minus the gone ones. */
@@ -280,4 +293,24 @@ object DeadStream {
     /** Whether [a] and [b] are the same address ignoring the query (the same dead stream handed back by a page reload). */
     fun samePath(a: String, b: String): Boolean = a.substringBefore('?').substringBefore('#') == b.substringBefore('?').substringBefore('#')
     const val OFFLINE_LINE = "The site's stream for this page is offline (server said 404)"
+}
+
+/** Checks that got no HTTP answer at all (every fetch timed out or threw): a stuck network engine looks like this, a dead server too. */
+object NoAnswer {
+    const val TOO_SLOW = "too slow to answer"
+    const val SILENT = "no answer from the server"
+    /** Still no answer after Chrome's network engine was restarted in this run: the stream is not played unchecked. */
+    const val FINAL = "no answer, even after restarting the network engine"
+
+    /** The verdict's input: every try ended without an HTTP answer (0 each) and there was at least one try. */
+    fun silent(answers: List<Int>): Boolean = answers.isNotEmpty() && answers.all { it == 0 }
+
+    fun isNoAnswer(s: Source): Boolean = !s.verified && !s.openPage && (s.note == TOO_SLOW || s.note == SILENT)
+    fun isFinal(s: Source): Boolean = !s.verified && s.note == FINAL
+
+    /** Every source (and at least one) ended without any answer: time to suspect the network engine. */
+    fun allSilent(sources: List<Source>): Boolean = sources.isNotEmpty() && sources.all { isNoAnswer(it) }
+
+    /** Marks the silent sources as final (see [FINAL]). */
+    fun markFinal(sources: List<Source>): List<Source> = sources.map { if (isNoAnswer(it)) it.copy(note = FINAL) else it }
 }

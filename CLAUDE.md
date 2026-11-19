@@ -158,7 +158,7 @@ Playback pipeline:
    reload cancelled); a race win logs "A known address checked out first; using it (<label>, <host>)". Piece-only steps (engine
    restart, other engine) and playlist-gone are unchanged; the piece-only "switch source" step and the first recover() also try
    a fresh backup first. Access-code renewal still runs first for a 403 (unchanged).
-   **Offline streams (404/410).** `Verifier.check` marks a candidate whose every try answered 404/410 as gone (`DeadStream`,
+   **Offline streams (404/410).** `Verifier.check` marks a candidate that got at least one 404/410 answer and no other HTTP answer (a fetch that threw or timed out counts for nothing either way: `DeadStream.goneVerdict`) as gone (`DeadStream`,
    note "server said 404 (not found)"); `StreamSniffer` drops gone sources, so they are never played or fallen back to
    (`LinkOrder.firstPlayable/nextPlayable`, `AutoSwitch.order` also skip them), and a search with only such candidates is "no
    stream" with `StreamSet.offline` and the line "The site's stream for this page is offline (server said 404)". The loading
@@ -166,6 +166,24 @@ Playback pipeline:
    cover text "The site's stream is offline. Trying other sources…"), else the site player. In `reconnect`, when the reload hands
    back the address that just answered 404/410 (or the same path after a playlist-gone recovery) or is offline, the remaining tries
    are not spent: "The page still points to the same dead stream; trying other sources", then automatic switch, else site player.
+
+**Checks that get no answer** (not yet tested on the TV; `NoAnswer` in BackupLogic.kt, `Verifier.rankWithRestart`). A check whose every try
+   threw or timed out has note "no answer from the server" (a candidate cut off by the 10 s limit: "too slow to answer"). When every candidate of a
+   run (at least one; possible playlists left out) ended that way on Chrome's engine, `rankWithRestart` runs `ChromeNet.reset()` (rate limited,
+   on the check thread) and checks them once more (`rank(fresh = true)` skips the saved early checks). Lines: "No answer from the stream
+   server; restarting Chrome's network engine and checking again", "Chrome's network engine restarted (...)", then "The stream server
+   answers after the restart" or "Still no answer from the stream server after the restart". Still silent = marked `NoAnswer.FINAL`; the sniffer
+   then treats the run as no stream ("The stream server gives no answer; not playing an unchecked stream", site player etc.) instead of playing
+   an unchecked source. Other unchecked sources keep the old behavior. `Verifier.precheck` now keeps failed results too (same 20 s age rule), so
+   `rank` neither fetches nor logs the same failure twice. In `PlayerActivity`, a playlist request that got no HTTP answer before the first picture
+   on Chrome's engine (`PieceWatch.playlistSilent`) restarts the engine once per source ("The playlist gets no answer; restarting Chrome's network
+   engine", shared `restartEngineThenPlay` with the piece-only step) and plays again, ahead of the stall fallbacks, "Trying the next source" and
+   reconnect (checked at the stall check and in `handleError`).
+   **Source panel uses a ready backup** (not yet tested on the TV; `PlayerActivity.useReadyBackup`, `BackupRecovery.freshFor`). When the user picks a Source
+   entry the keeper holds a fresh result for (same freshness rule as parallel recovery), it is quick-checked (<= 2 s): a page entry hands the found set
+   to the loading screen through `PreFound` (no search), a playable source plays in place on the re-checked address; line "Using the backup found N s
+   ago for <label>". A failed quick check falls back to the normal search. Not counted toward the 3 automatic switches. The "Opening <label> as its own
+   page" line is written once, by `WaitingActivity` (the player used to write it too, which looked like a double open; the page was only opened once).
 
 **Early finish and late page sources** (not yet tested on the TV). On a primary run each direct stream is checked the moment it is
    found (`Verifier.precheck`, in the background, while the 1.2 s sibling wait runs; `rank` reuses or waits for that check, so an

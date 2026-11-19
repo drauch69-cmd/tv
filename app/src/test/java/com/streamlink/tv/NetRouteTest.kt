@@ -122,4 +122,22 @@ class NetRouteTest {
         w.clearGone()
         assertFalse(w.playlistGone())
     }
+
+    @Test fun playlistSilenceIsTimeoutsWithNoStatus() {
+        val w = PieceWatch()
+        assertFalse(w.playlistSilent())
+        w.playlistFailed(1000L, 0)
+        assertTrue(w.playlistSilent())
+        w.playlistOk(2000L)
+        assertFalse(w.playlistSilent())
+        w.playlistFailed(3000L, 0)
+        w.playlistFailed(4000L, 503)
+        assertFalse(w.playlistSilent())
+        w.playlistFailed(5000L, 0)
+        assertTrue(w.playlistSilent())
+        assertFalse(w.playlistRestarted())
+        w.markPlaylistRestarted()
+        assertTrue(w.playlistRestarted())
+        assertFalse(w.playlistSilent())
+    }
 }

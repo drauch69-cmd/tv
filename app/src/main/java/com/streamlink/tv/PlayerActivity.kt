@@ -815,6 +815,8 @@ class PlayerActivity : Activity() {
             decodeProblem()
         } else if (pieceOnlyProblem(false)) {
             // Handled: the pieces got the other engine, or another source was started (or a plain reconnect began).
+        } else if (playlistSilentProblem()) {
+            // Handled: Chrome's network engine is being restarted; the source starts again when it is done.
         } else if (playingSince == 0L && engineRemembered != null && set?.sources?.getOrNull(sourceIndex) != null &&
             (engineRemembered == ServerMemory.STANDARD && !useChromeNet || engineRemembered == ServerMemory.CHROME && chromeForced && !playlistRefusesStandard())
         ) {
@@ -848,6 +850,34 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Logs [line], rebuilds Chrome's network engine off the main thread, then starts the source again. */
+    private fun restartEngineThenPlay(line: String) {
+        Report.log(line)
+        val gen = linkGen
+        Thread {
+            val how = ChromeNet.reset()
+            main.post {
+                if (gen != linkGen || isDestroyed) return@post
+                Report.log(if (how != null) "Chrome's network engine restarted ($how)" else "Chrome's network engine could not be restarted")
+                play()
+            }
+        }.start()
+    }
+
+    /**
+     * Before the first picture the playlist itself gets no answer at all (a timeout, no HTTP status) on Chrome's engine: a wedged
+     * engine looks like this. Restart it once per source and try again before anything else (another source on the same host
+     * would hit the same engine). True when it started the restart.
+     */
+    private fun playlistSilentProblem(): Boolean {
+        val r = route ?: return false
+        if (playingSince != 0L || firstFrame || !r.playlistChrome || ChromeNet.engine == null) return false
+        if (!r.watch.playlistSilent() || r.watch.playlistRestarted() || !ChromeNet.canReset()) return false
+        r.watch.markPlaylistRestarted()
+        restartEngineThenPlay("The playlist gets no answer; restarting Chrome's network engine")
+        return true
+    }
+
     private fun playlistRefusesStandard(): Boolean {
         val u = set?.sources?.getOrNull(sourceIndex)?.url ?: return false
         return ServerMemory.refusesStandard(Report.host(u))
@@ -871,16 +901,7 @@ class PlayerActivity : Activity() {
         // First a fresh Chrome engine (a wedged pooled connection to this host is the likeliest cause), once per host.
         if (nowChrome && !r.watch.restarted(host) && ChromeNet.canReset()) {
             r.watch.markRestarted(host)
-            Report.log("Video pieces keep timing out; restarting Chrome's network engine")
-            val gen = linkGen
-            Thread {
-                val how = ChromeNet.reset()
-                main.post {
-                    if (gen != linkGen || isDestroyed) return@post
-                    Report.log(if (how != null) "Chrome's network engine restarted ($how)" else "Chrome's network engine could not be restarted")
-                    play()
-                }
-            }.start()
+            restartEngineThenPlay("Video pieces keep timing out; restarting Chrome's network engine")
             return true
         }
         when (PieceRecovery.next(r.watch.retried(host), otherAllowed)) {
@@ -1114,6 +1135,7 @@ class PlayerActivity : Activity() {
             play()
             return
         }
+        if (playingSince == 0L && playlistSilentProblem()) return
         if (playingSince == 0L && pieceOnlyProblem(true)) return
         recover(why)
     }
@@ -1518,23 +1540,86 @@ class PlayerActivity : Activity() {
         if (i !in s.sources.indices) return
         val chosen = s.sources[i]
         if (chosen.openPage) return openLinkPage(chosen)
-        Report.log("Switching to source ${i + 1}")
-        sourceIndex = i
-        refererIndex = 0
-        reconnects = 0
-        playingSince = 0
-        play()
+        val go = {
+            Report.log("Switching to source ${i + 1}")
+            sourceIndex = i
+            refererIndex = 0
+            reconnects = 0
+            playingSince = 0
+            play()
+        }
+        if (!useReadyBackup(chosen, go) { best, win ->
+                // A playable source of this page: play it in place on the address the keeper just re-checked.
+                val cur = set ?: return@useReadyBackup go()
+                val idx = cur.sources.indexOfFirst { it.url == chosen.url }
+                if (idx < 0) return@useReadyBackup go()
+                val list = cur.sources.toMutableList()
+                list[idx] = win.copy(label = cur.sources[idx].label, isDefaultLink = cur.sources[idx].isDefaultLink)
+                val updated = cur.copy(sources = list)
+                set = updated
+                if (Session.current === cur) Session.current = updated
+                addressUrl = win.url; addressSince = best.foundAt
+                Report.log("Switching to source ${idx + 1}")
+                sourceIndex = idx
+                refererIndex = 0
+                reconnects = 0
+                playingSince = 0
+                play()
+            }) go()
+    }
+
+    private var pickingBackup = false
+
+    /**
+     * The user chose [chosen] in the Source panel. When the keeper holds a fresh result for exactly that source (same freshness rule as
+     * [BackupRecovery]: younger than the server's lifetime allows, 2 min if unknown, 30 min if long), quick-check it (2 s, off the main
+     * thread) and call [onWin] with the result and the verified source; [onMiss] runs when the quick check fails. Returns false (nothing
+     * started) when there is no fresh result, so the caller carries on as before. The user's own choice never counts toward the
+     * automatic-switch limit.
+     */
+    private fun useReadyBackup(chosen: Source, onMiss: () -> Unit, onWin: (BackupResult, Source) -> Unit): Boolean {
+        val k = keeper ?: return false
+        if (pickingBackup) return true
+        val now = System.currentTimeMillis()
+        if (BackupRecovery.freshFor(k.known(now), chosen.url) == null) return false
+        val best = k.ready(now).firstOrNull { it.url == chosen.url } ?: return false
+        pickingBackup = true
+        k.pause()
+        val gen = linkGen
+        kotlin.concurrent.thread(isDaemon = true, name = "backup-pick") {
+            val win = QuickRace.first(best.set.sources.take(3), 2000L) { Verifier.quickCheck(cand(it), 2000L) { } }
+            main.post {
+                pickingBackup = false
+                if (gen != linkGen || isDestroyed) return@post
+                if (win == null) {
+                    onMiss()
+                } else {
+                    Report.log("Using the backup found ${((System.currentTimeMillis() - best.foundAt) / 1000).coerceAtLeast(0)} s ago for ${chosen.label}")
+                    onWin(best, win.second)
+                }
+            }
+        }
+        return true
     }
 
     /**
      * An "open page" entry was chosen: run the normal page flow (loading screen, stream search, clean player,
      * else the site player) on the link's player page, claiming the original page as referer. This screen stays
-     * in the back stack (see [onStop]) so Back returns to the stream, which then resumes at live.
+     * in the back stack (see [onStop]) so Back returns to the stream, which then resumes at live. A fresh ready backup
+     * for that page is handed to the loading screen so it skips its search ([PreFound]); the loading screen logs the opening.
      */
     private fun openLinkPage(src: Source) {
         if (set == null) return
+        val go = { launchLinkPage(src) }
+        if (!useReadyBackup(src, go) { best, win ->
+                val ready = listOf(win) + best.set.sources.filter { it.url != win.url }
+                PreFound.put(best.target, StreamSet(best.set.pageUrl, ready, requestedUrl = best.set.requestedUrl), System.currentTimeMillis())
+                launchLinkPage(src)
+            }) go()
+    }
+
+    private fun launchLinkPage(src: Source) {
         val target = src.playerUrl.ifEmpty { src.url }
-        Report.log("Opening ${src.label} as its own page (${Report.host(target)})")
         awayTitle = Session.title
         awayListId = Session.listId; awayListName = Session.listName; awayListItemUrl = Session.listItemUrl
         awayOnLinkPage = true
