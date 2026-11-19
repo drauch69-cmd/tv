@@ -158,6 +158,16 @@ Playback pipeline:
    reload cancelled); a race win logs "A known address checked out first; using it (<label>, <host>)". Piece-only steps (engine
    restart, other engine) and playlist-gone are unchanged; the piece-only "switch source" step and the first recover() also try
    a fresh backup first. Access-code renewal still runs first for a 403 (unchanged).
+   **Recovery state rules** (not yet tested on the TV; `PlayerActivity.cancelRecovery`, `BackupReady`, `RenewGuard`, `EmptyReload` in BackupLogic.kt).
+   Leaving for a link page (`launchLinkPage`, `onStop`), picking a Source (`switchSource`) and a new session (`onNewIntent`) call `cancelRecovery`: bumps `linkGen`,
+   drops the pending reload, cancels the page search, ends the episode, clears `renewing`/`fastChecking`; the reconnect's page-search callback also checks `linkGen`
+   (so a source picked during "Reconnecting..." is not overwritten). `renewing` goes stale after 30 s (`RenewGuard`) and is cleared by reconnect/switchToBackup.
+   While `fastChecking` (a ready backup is being quick-checked) the stall check and `handleError` do nothing. `restartEngineThenPlay` releases the old player before the
+   engine reset. A reconnect whose reload finds NO stream no longer repeats the search: automatic switch, else the site player (never the clean player with the old set;
+   log "No stream found while reconnecting"). After an empty access-code renewal the order is ready backup, automatic switch, then the page reload.
+   `BackupKeeper.ready()` never offers the playing address; a reconnect that replaces the set drops the STREAM results (`dropStreamResults`). Report lines:
+   "The saved backup no longer answers" (quick check failed) vs "The saved backup is no longer in the source list". "Stalled for Ns" prints the real wait
+   (with the piece-still-arriving extensions); one stall is counted once ("Still buffering (stall #N)" when the check repeats the buffering line).
    **Offline streams (404/410).** `Verifier.check` marks a candidate that got at least one 404/410 answer and no other HTTP answer (a fetch that threw or timed out counts for nothing either way: `DeadStream.goneVerdict`) as gone (`DeadStream`,
    note "server said 404 (not found)"); `StreamSniffer` drops gone sources (and refused ones, see Check), so they are never played or fallen back to
    (`LinkOrder.firstPlayable/nextPlayable`, `AutoSwitch.order` also skip them), and a search with only such candidates is "no

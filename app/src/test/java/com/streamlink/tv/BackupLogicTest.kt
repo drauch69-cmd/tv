@@ -301,4 +301,22 @@ class BackupLogicTest {
         assertNotNull(BackupRecovery.freshFor(known, "u3"))
         assertNull(BackupRecovery.freshFor(known, "other"))
     }
+
+    @Test fun playingAddressIsNeverAReadyBackup() {
+        assertTrue(BackupReady.isPlaying("a", listOf("a"), "a"))
+        assertTrue(BackupReady.isPlaying("a", listOf("a2"), "a2")) // the re-checked address now plays
+        assertFalse(BackupReady.isPlaying("a", listOf("a"), "b"))
+        assertFalse(BackupReady.isPlaying("a", listOf("a"), null))
+    }
+
+    @Test fun renewalFlagGoesStale() {
+        assertTrue(RenewGuard.inFlight(true, 1000L, 1000L + 10 * S))
+        assertFalse(RenewGuard.inFlight(true, 1000L, 1000L + RenewGuard.STALE_MS))
+        assertFalse(RenewGuard.inFlight(false, 1000L, 1500L))
+    }
+
+    @Test fun emptyReloadSwitchesOrOpensSitePlayer() {
+        assertEquals(EmptyReload.Step.AUTO_SWITCH, EmptyReload.next(true))
+        assertEquals(EmptyReload.Step.SITE_PLAYER, EmptyReload.next(false))
+    }
 }

@@ -321,3 +321,23 @@ object NoAnswer {
     /** Marks the silent sources as final (see [FINAL]). */
     fun markFinal(sources: List<Source>): List<Source> = sources.map { if (isNoAnswer(it)) it.copy(note = FINAL) else it }
 }
+
+/** Which ready backups may be offered: never the address that is playing right now (a switch to it would be a switch to itself). */
+object BackupReady {
+    /** True when a result for [resultUrl] holding [resultSourceUrls] is the stream that plays now ([playingUrl]). */
+    fun isPlaying(resultUrl: String, resultSourceUrls: List<String>, playingUrl: String?): Boolean =
+        playingUrl != null && (resultUrl == playingUrl || resultSourceUrls.any { it == playingUrl })
+}
+
+/** A quiet address renewal is "still running" only for a limited time, so a lost callback can never block later 403 handling for good. */
+object RenewGuard {
+    const val STALE_MS = 30_000L
+    fun inFlight(renewing: Boolean, startedAt: Long, now: Long): Boolean = renewing && now - startedAt < STALE_MS
+}
+
+/** What follows a page reload (reconnect) that found no stream at all: no more full searches of the same page. */
+object EmptyReload {
+    enum class Step { AUTO_SWITCH, SITE_PLAYER }
+    /** Another source if an automatic switch is left, else the site's own player (the clean player would be given the same old, dead set). */
+    fun next(canSwitch: Boolean): Step = if (canSwitch) Step.AUTO_SWITCH else Step.SITE_PLAYER
+}
