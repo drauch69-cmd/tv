@@ -187,9 +187,124 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             if (pressed != null) {
                 sourceNext = pressed.index + 1
                 sourcePresses++
+                pressedIdx = pressed.index
+                pressedCount = pressed.count
                 log("No player on the page yet; pressing source button ${pressed.index + 1} of ${pressed.count}")
             }
             if (sourcePresses < MAX_SOURCE_PRESSES) main.postDelayed(sourceStep, SOURCE_RETRY_MS)
+        }
+    }
+
+
+    // ---- learned habits per site (SiteHabits): what worked last time is done at once after the page loads ----
+    private var habit: SiteHabits.Habit? = null
+    private var habitApplied = false
+    private var habitMissed = false
+    private var viaRemembered = false
+    private var loadedAt = 0L
+    private var tapsMade = 0
+    private var lastTapKind = ""
+    private var lastTapX = 0f
+    private var lastTapY = 0f
+    private var tapW = 0
+    private var tapH = 0
+    private var pressedIdx = -1
+    private var pressedCount = 0
+    private var seen: Seen? = null
+    /** What had been done when the first stream was seen. */
+    private class Seen(val taps: Int, val kind: String, val x: Float, val y: Float, val w: Int, val h: Int, val srcIdx: Int, val srcCount: Int, val secs: Float)
+
+    private val habitCheck = Runnable {
+        if (done || verifying || !habitApplied || habitMissed || seen != null) return@Runnable
+        habitMissed = true
+        countHabitMiss()
+    }
+    private val habitSecondTap = Runnable {
+        val wv = webView ?: return@Runnable
+        val h = habit ?: return@Runnable
+        if (done || verifying || candidates.isNotEmpty() || wv.width <= 0 || wv.height <= 0) return@Runnable
+        tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
+    }
+
+    /** Start of a run: forget the last run's bookkeeping and look up this site's habit (primary searches only; light and click-only runs never use or record). */
+    private fun startHabit() {
+        habit = if (!light && clickRef == null) SiteHabits.get(context, siteHost) else null
+        habitApplied = false
+        habitMissed = false
+        viaRemembered = false
+        loadedAt = 0L
+        tapsMade = 0
+        lastTapKind = ""
+        pressedIdx = -1
+        pressedCount = 0
+        seen = null
+    }
+
+    private fun noteTap(kind: String, x: Float, y: Float, wv: WebView) {
+        tapsMade++
+        lastTapKind = kind
+        lastTapX = x
+        lastTapY = y
+        tapW = wv.width
+        tapH = wv.height
+    }
+
+    private fun noteSeen() {
+        if (seen != null || light || clickRef != null) return
+        val secs = if (loadedAt > 0) (SystemClock.uptimeMillis() - loadedAt) / 1000f else 0f
+        seen = Seen(tapsMade, lastTapKind, lastTapX, lastTapY, tapW, tapH, pressedIdx, pressedCount, secs)
+    }
+
+    /** After the page loaded (primary search with a habit): tap the remembered spot and press the remembered source button at once. The normal search carries on beside it. */
+    private fun applyHabit() {
+        if (loadedAt == 0L) loadedAt = SystemClock.uptimeMillis()
+        val h = habit ?: return
+        val wv = webView ?: return
+        if (habitApplied || done || verifying || light || clickRef != null || candidates.isNotEmpty() || wv.width <= 0 || wv.height <= 0) return
+        habitApplied = true
+        main.postDelayed(habitCheck, SiteHabits.deadlineMs(h))
+        if (h.hasTap) {
+            log("Using what worked on this site last time: " + SiteHabits.describe(h, withTap = true, withSource = false))
+            tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
+            if (h.taps >= 2) main.postDelayed(habitSecondTap, SiteHabits.SECOND_TAP_MS)
+        }
+        if (h.hasSource) {
+            val gen = generation
+            val stillWanted = { !done && !verifying && gen == generation && candidates.isEmpty() && !playlistSeen }
+            SourcePress.press(context, wv, h.srcIndex, stillWanted, h.srcCount) { pressed ->
+                if (gen != generation || done || verifying) return@press
+                if (pressed != null) {
+                    sourceNext = pressed.index + 1 // the normal search does not press this one again
+                    pressedIdx = pressed.index
+                    pressedCount = pressed.count
+                    log("Using what worked on this site last time: " + SiteHabits.describe(h, withTap = false, withSource = true))
+                } else if (!h.hasTap && candidates.isEmpty()) {
+                    // Nothing could be done (the page has a different number of buttons): this run is not the habit's to judge.
+                    habitApplied = false
+                    main.removeCallbacks(habitCheck)
+                }
+            }
+        }
+    }
+
+    /** The habit gave no stream in its time: one miss (a habit that misses twice in a row is forgotten). Quiet runs (Prefetcher) never count misses, so they cannot make a habit flap. */
+    private fun countHabitMiss() {
+        if (!timed || light) return
+        if (SiteHabits.missed(context, siteHost)) log("The learned habit stopped working; forgetting it")
+    }
+
+    /** End of a primary run: remember what worked after a verified stream, count a miss when the habit never got a stream. */
+    private fun habitFinished(result: StreamSet) {
+        if (light || clickRef != null || viaRemembered) return
+        val s = seen
+        if (result.sources.any { it.verified } && s != null) {
+            val fresh = SiteHabits.fromRun(s.taps, s.kind, s.x, s.y, s.w, s.h, s.srcIdx, s.srcCount, s.secs, System.currentTimeMillis())
+            val onTime = habitApplied && !habitMissed
+            if (onTime) log("The learned habit worked (stream after ${String.format(java.util.Locale.US, "%.1f", s.secs)} s)")
+            if (fresh != null) SiteHabits.save(context, siteHost, fresh) else if (onTime) SiteHabits.worked(context, siteHost)
+        } else if (result.sources.isEmpty() && habitApplied && !habitMissed) {
+            habitMissed = true
+            countHabitMiss()
         }
     }
 
@@ -259,6 +374,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         pageTapLogged = false
         playerTaps = 0
         firstPlayerTapAt = 0L
+        startHabit()
         frameUrls.clear()
         candidates.clear()
         possibleCount = 0
@@ -301,6 +417,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 if (gen != generation || done || verifying) return@post // the page search got there first (or the run ended)
                 log("The last address still works; playing it")
                 if (timed) Timing.path = Timing.PATH_REMEMBERED
+                viaRemembered = true
                 finish(LastAddress.restore(entry, checked))
             }
         }
@@ -317,6 +434,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         main.removeCallbacks(sourceStep)
+        main.removeCallbacks(habitCheck)
+        main.removeCallbacks(habitSecondTap)
         destroyWebView()
     }
 
@@ -330,6 +449,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun finish(result: StreamSet) {
         if (done) return
         if (!light) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
+        habitFinished(result)
         val cb = onResult
         cancel()
         cb?.invoke(result.copy(requestedUrl = askedUrl))
@@ -402,6 +522,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             else -> ""
         }
         tm(Timing.SEEN)
+        noteSeen()
         log("Found stream: ${Report.short(url)}$note")
         scheduleCollect(embedded)
         if (candidates.values.count { !it.possible } >= MAX_CANDIDATES) verifyAndFinish()
@@ -443,6 +564,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 }
                 candidates[c.url] = cur.copy(possible = false)
                 tm(Timing.SEEN)
+                noteSeen()
                 log("The possible playlist is a playlist; using it as a stream")
                 playlistSeen = true
                 scheduleCollect(false)
@@ -622,6 +744,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     sourceScheduled = true
                     main.postDelayed(sourceStep, SOURCE_FIRST_MS)
                 }
+                applyHabit()
                 nudge()
             }
         }
@@ -739,10 +862,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 playerTaps++
                 if (firstPlayerTapAt == 0L) firstPlayerTapAt = SystemClock.uptimeMillis()
                 tm(Timing.TAPPED)
+                noteTap(KIND_PLAYER_TAP, playerX, playerY, wv)
                 tap(wv, playerX, playerY)
             } else if (!hasPlayer && nudgeCount % 2 == 0) {
                 if (!pageTapLogged) { pageTapLogged = true; log("No player box seen yet; tapping the middle of the page") }
                 tm(Timing.TAPPED)
+                noteTap(SiteHabits.KIND_PAGE, wv.width / 2f, wv.height / 2f, wv)
                 tap(wv, wv.width / 2f, wv.height / 2f)
             }
         }
@@ -807,6 +932,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     companion object {
         const val TIMEOUT_MS = 25_000L
+        private const val KIND_PLAYER_TAP = SiteHabits.KIND_PLAYER
         /** Extra time for click-only events: the list page has to settle (<= 12s) before the click. */
         const val CLICK_EXTRA_MS = 15_000L
         private const val CLICK_SETTLE_MAX_MS = 12_000L

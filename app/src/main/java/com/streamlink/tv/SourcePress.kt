@@ -31,9 +31,10 @@ internal object SourcePress {
      * Finds the page's source buttons and presses button [wanted] (0-based; the one the page marks as active is
      * skipped in favour of the next). [stillWanted] is asked again after the find step; false means do nothing.
      * [onDone] gets what was pressed, or null when nothing was (no script, no buttons, no such button, no longer wanted).
+     * [expectedCount]: when >= 0, nothing is pressed unless the page has exactly that many buttons, and the active one is not skipped.
      * If the click script fails, a tap on the button's position is tried instead.
      */
-    fun press(context: Context, wv: WebView, wanted: Int, stillWanted: () -> Boolean, onDone: (Pressed?) -> Unit) {
+    fun press(context: Context, wv: WebView, wanted: Int, stillWanted: () -> Boolean, expectedCount: Int = -1, onDone: (Pressed?) -> Unit) {
         val js = loadScript(context)
         if (js == null) {
             onDone(null)
@@ -45,8 +46,13 @@ internal object SourcePress {
                 onDone(null)
                 return@evaluateJavascript
             }
+            // [expectedCount] >= 0 (a learned habit): press exactly [wanted], and only if the page has that many buttons.
+            if (expectedCount >= 0 && sw.count != expectedCount) {
+                onDone(null)
+                return@evaluateJavascript
+            }
             var idx = wanted
-            if (idx == sw.active) idx++
+            if (expectedCount < 0 && idx == sw.active) idx++
             if (idx < 0 || idx >= sw.count) {
                 onDone(null)
                 return@evaluateJavascript
