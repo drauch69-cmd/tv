@@ -82,7 +82,34 @@ object Verifier {
         return r.ok
     }
 
+    /** Early checks still running, so [rank] waits for them instead of fetching the same address a second time. */
+    private val inflight = ConcurrentHashMap<String, java.util.concurrent.FutureTask<Checked>>()
+
+    /**
+     * Early check of the first stream the sniffer sees (started the moment it is found, before the wait for siblings
+     * is over). Call off the main thread. True when it is a working, non-ad playlist. A pass is kept briefly for [rank];
+     * a failure is not kept (rank looks again).
+     */
+    fun precheck(c: StreamCandidate, log: (String) -> Unit = { Report.log(it) }): Boolean {
+        val task = java.util.concurrent.FutureTask(Callable { check(c, log) })
+        if (inflight.putIfAbsent(c.url, task) != null) return false
+        try {
+            task.run()
+            val r = task.get()
+            if (r.ok) {
+                if (pre.size > 20) pre.clear()
+                pre[c.url] = Pre(r, System.currentTimeMillis())
+            }
+            return r.ok && !r.adLike
+        } catch (e: Exception) {
+            return false
+        } finally {
+            inflight.remove(c.url)
+        }
+    }
+
     private fun takePre(c: StreamCandidate): Checked? {
+        inflight[c.url]?.let { try { it.get(TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS) } catch (_: Exception) {} }
         val p = pre.remove(c.url) ?: return null
         if (System.currentTimeMillis() - p.at > PRE_MAX_AGE_MS) return null
         return p.checked.withCand(c)

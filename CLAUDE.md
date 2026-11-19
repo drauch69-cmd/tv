@@ -130,6 +130,19 @@ Playback pipeline:
    Max 3 switches per watch (reset when the user starts an item or link); pages/sources that went down are dead for
    5 min. Toast "Switched to <label>". Not yet tested on the TV.
 
+**Early finish and late page sources** (not yet tested on the TV). On a primary run each direct stream is checked the moment it is
+   found (`Verifier.precheck`, in the background, while the 1.2 s sibling wait runs; `rank` reuses or waits for that check, so an
+   address is never fetched twice). When one passes (working, not ad-like), `EarlyFinish.keep` ends the search at once, keeping
+   only streams whose check already passed (still-running ones are dropped); copies found only inside other requests and
+   unverified possible playlists never trigger it, so the 8 s embedded wait is intact. Report line "A stream checked out; not
+   waiting for more". Page sources are read AFTER the hand-over (`lateExtras = true` for the home screen, the waiting screen and a
+   link opened in front of the player): the sniffer gives its page to a late read (`finishThenRead`, destroyed when the read
+   ends or after `PAGE_SOURCES_MAX_MS`), and `Session.addExtras` adds the numbered entries to `Session.current` and to the player's
+   Source list (`SourceMerge.insertExtras`: before the first open-page entry). The waiting screen stays open until the late read
+   ends (`onLateDone`). Prefetcher, reconnects and renewals still read page sources before finishing. Prefetcher now also uses the
+   remembered address (`useRemembered`, quiet). **List reads pause** while `Session.mode` is waiting/finding/player/clean/site
+   (`ListReadGate`; a read already running may finish; queued reads, including phone requests, start again on the home
+   5 s tick / the sport screen's 1 s beat); log lines "List reads paused while a video plays" / "List reads resumed".
 Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (live NFL/college games with streams), "Live now" row from
 `HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`; the top bar has two focusable
 items side by side, "Your lists" and "Send a link", and Recent follows the rows; the lists are no longer a home row),

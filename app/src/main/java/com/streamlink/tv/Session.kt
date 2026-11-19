@@ -26,6 +26,22 @@ object Session {
     @Volatile var current: StreamSet? = null
     @Volatile var snapshot: PlayerSnapshot? = null
 
+    /** The playing screen registers here to take numbered addresses read after it started (see [addExtras]). Main thread. */
+    @Volatile var extrasListener: ((String, List<Source>) -> Unit)? = null
+
+    /**
+     * The page's numbered addresses, read after the hand-over: added to [current] when it is still the same page
+     * (else dropped), and passed to the player screen when one is listening. Main thread.
+     */
+    fun addExtras(pageUrl: String, extras: List<Source>) {
+        val cur = current ?: return
+        if (cur.pageUrl != pageUrl) return
+        val merged = SourceMerge.insertExtras(cur.sources, extras)
+        if (merged.size == cur.sources.size) return
+        current = cur.copy(sources = merged)
+        extrasListener?.invoke(pageUrl, extras)
+    }
+
     /** The saved list (and event URL in it) being played, if it came from a list; null for a direct link. Used for channel surfing. */
     @Volatile var listId: String? = null
     @Volatile var listName: String = ""

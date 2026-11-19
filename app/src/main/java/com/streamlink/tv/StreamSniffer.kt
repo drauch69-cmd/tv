@@ -100,6 +100,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private val repeatWatch = RepeatWatch()
     private val possibleRejected = HashSet<String>()
     private var onResult: ((StreamSet) -> Unit)? = null
+    /** Early check result per direct stream address (true = working, non-ad playlist); see [EarlyFinish]. Main thread. */
+    private val prechecked = HashMap<String, Boolean>()
+    private var lateExtras = false
+    /** The page kept alive after the hand-over while its numbered addresses are read (see [finishThenRead]). */
+    private var lateView: WebView? = null
+    private var lateToken = 0
+    /** Called once when the late read is over or dropped (the waiting screen finishes then). */
+    var onLateDone: (() -> Unit)? = null
+    val lateReading: Boolean get() = lateView != null
 
     // Click-only list rows ("<page>#sl-click=..."): the page is loaded without the fragment, settled, and the row clicked.
     private var clickRef: ClickRef? = null
@@ -215,10 +224,14 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
      * [light]: a quiet run (access-code renewal): the page's site memory is left alone, the time is
      * [LIGHT_TIMEOUT_MS], and once a playlist is seen everything else is blocked. Players may still start.
      * [useRemembered]: a normal foreground run also re-checks the last address that worked for this page, in parallel
-     * with the page load (see [tryRemembered]); never for light runs or click-only links. Prefetcher and reconnects pass false.
+     * with the page load (see [tryRemembered]); never for light runs or click-only links. Reconnects pass false.
+     * [lateExtras]: a successful primary search hands its set over at once and reads the page's numbered addresses
+     * afterwards (the page stays alive until that read ends); they reach the player through [Session.addExtras].
      */
-    fun sniff(url: String, referer: String? = null, light: Boolean = false, useRemembered: Boolean = true, callback: (StreamSet) -> Unit) {
+    fun sniff(url: String, referer: String? = null, light: Boolean = false, useRemembered: Boolean = true, lateExtras: Boolean = false, callback: (StreamSet) -> Unit) {
         cancel()
+        this.lateExtras = lateExtras
+        prechecked.clear()
         this.light = light
         askedUrl = url
         this.referer = referer
@@ -307,6 +320,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     }
 
     fun cancel() {
+        cancelRun()
+        dropLate()
+    }
+
+    /** Ends the run (timers, page) but leaves a late page-sources read alone. */
+    private fun cancelRun() {
         done = true
         verifying = false
         generation++
@@ -331,8 +350,20 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (done) return
         if (!light) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
         val cb = onResult
-        cancel()
+        cancelRun()
         cb?.invoke(result.copy(requestedUrl = askedUrl))
+    }
+
+    private fun dropLate() {
+        lateToken++
+        val v = lateView
+        val cb = onLateDone
+        onLateDone = null
+        if (v != null) {
+            lateView = null
+            try { v.stopLoading(); v.loadUrl("about:blank"); holder.removeView(v); v.destroy() } catch (_: Exception) {}
+            cb?.invoke()
+        }
     }
 
     private fun destroyWebView() {
@@ -404,7 +435,35 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         tm(Timing.SEEN)
         log("Found stream: ${Report.short(url)}$note")
         scheduleCollect(embedded)
+        if (!embedded && !light && clickRef == null) precheck(candidates.getValue(url))
         if (candidates.values.count { !it.possible } >= MAX_CANDIDATES) verifyAndFinish()
+    }
+
+    /**
+     * Primary search: each direct stream is checked at once, in the background, while the short wait for siblings runs.
+     * When one passes, [tryEarlyFinish] ends the search without waiting out the rest of that window.
+     */
+    private fun precheck(c: StreamCandidate) {
+        val gen = generation
+        thread(isDaemon = true, name = "early-check") {
+            val good = try { Verifier.precheck(c) { m -> log(m) } } catch (e: Exception) { false }
+            main.post {
+                if (gen != generation || done || verifying) return@post
+                prechecked[c.url] = good
+                if (good) tryEarlyFinish()
+            }
+        }
+    }
+
+    private fun tryEarlyFinish() {
+        val items = candidates.values.map {
+            val st = when (prechecked[it.url]) { true -> EarlyFinish.State.GOOD; false -> EarlyFinish.State.BAD; null -> EarlyFinish.State.PENDING }
+            EarlyFinish.Item(it.url, it.embedded, it.possible, st)
+        }
+        val keep = EarlyFinish.keep(items) ?: return
+        candidates.keys.retainAll(keep)
+        log("A stream checked out; not waiting for more")
+        verifyAndFinish()
     }
 
     /** After a stream (not a mere possible playlist) was added: start the short wait for siblings, or the wait for the player's own request. */
@@ -442,6 +501,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     return@post
                 }
                 candidates[c.url] = cur.copy(possible = false)
+                prechecked[c.url] = true // its content was just checked (kept for the ranking)
                 tm(Timing.SEEN)
                 log("The possible playlist is a playlist; using it as a stream")
                 playlistSeen = true
@@ -482,8 +542,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 val set = result(sources).copy(pageUrl = page)
                 // Primary search that found a playable stream: one quick look for the page's own numbered addresses.
                 // (verifying stays true meanwhile, so nothing else restarts the check.)
-                if (!light && clickRef == null && sources.any { it.verified }) readPageSources(gen, page, set)
-                else { verifying = false; finish(set) }
+                if (!light && clickRef == null && sources.any { it.verified }) {
+                    if (lateExtras) finishThenRead(page, set) else readPageSources(gen, page, set)
+                } else { verifying = false; finish(set) }
             }
         }
     }
@@ -492,22 +553,29 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
      * Once per primary search, at its end: runs assets/page-sources.js on the (still loaded) page and adds the numbered
      * addresses it finds to [set] as "open page" entries. Immediate when the page has no pick-list near the player; else up to 3 s (pages may rewrite the address a few hundred ms after a change). Any failure just means none.
      */
-    private fun readPageSources(gen: Int, page: String, set: StreamSet) {
-        val wv = webView
+    private fun readPageSources(gen: Int, page: String, set: StreamSet, late: WebView? = null, token: Int = 0) {
+        val wv = late ?: webView
         val script = try { loadAsset(context, "page-sources.js") } catch (e: Exception) { null }
         var ended = false
+        // A late read (after the hand-over) lives as long as its token; the normal one as long as its run.
+        fun alive() = if (late != null) token == lateToken else gen == generation && !done
         fun end(found: List<PageSources.Found>) {
-            if (ended || gen != generation || done) return
+            if (ended || !alive()) return
             ended = true
             val extra = PageSources.toSources(page, found, set.sources.map { it.url }.toSet())
             log("Page sources: ${extra.size} numbered address(es) on this page")
+            if (late != null) {
+                if (extra.isNotEmpty()) Session.addExtras(page, extra)
+                dropLate()
+                return
+            }
             verifying = false
             finish(if (extra.isEmpty()) set else set.copy(sources = set.sources + extra))
         }
         if (wv == null || script == null) { end(emptyList()); return }
         main.postDelayed({ end(emptyList()) }, PAGE_SOURCES_MAX_MS)
         fun read(triesLeft: Int) {
-            if (ended || gen != generation || done) return
+            if (ended || !alive()) return
             try {
                 wv.evaluateJavascript("($script)('read')") { raw ->
                     val found = PageSources.parse(raw)
@@ -529,6 +597,23 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         } catch (_: Exception) {
             end(emptyList())
         }
+    }
+
+    /**
+     * Hands the set over at once and keeps the hidden page alive until its numbered addresses are read (at most
+     * [PAGE_SOURCES_MAX_MS]); [readPageSources] then adds them through [Session.addExtras] and destroys the page.
+     */
+    private fun finishThenRead(page: String, set: StreamSet) {
+        val wv = webView
+        val script = try { loadAsset(context, "page-sources.js") } catch (e: Exception) { null }
+        verifying = false
+        if (wv == null || script == null) { log("Page sources: 0 numbered address(es) on this page"); finish(set); return }
+        webView = null // finish() would destroy it; it is destroyed when the read ends
+        client = null
+        lateView = wv
+        val token = ++lateToken
+        finish(set)
+        if (lateView === wv && token == lateToken) readPageSources(generation, page, set, wv, token)
     }
 
     private fun createWebView(url: String): WebView {

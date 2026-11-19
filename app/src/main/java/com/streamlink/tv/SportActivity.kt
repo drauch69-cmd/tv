@@ -65,6 +65,7 @@ class SportActivity : Activity() {
                 reader.cancel()
                 finishRead(cur, ListResult(cur.url, "", emptyList(), "automatic", "the page took too long to answer"))
             }
+            if (readingList == null && queue.isNotEmpty()) readNext() // resumes after a pause
             maybeReadAll(REREAD_MS)
             if (beats % SCORE_BEATS == 0) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed) render() }
             if (beats % RERENDER_BEATS == 0) render() // clock-based text and lists read elsewhere
@@ -158,6 +159,7 @@ class SportActivity : Activity() {
 
     private fun readNext() {
         if (readingList != null) return
+        if (queue.isNotEmpty() && ListReadGate.blocked()) return
         while (queue.isNotEmpty()) {
             val l = SavedLists.get(this, queue.removeAt(0)) ?: continue
             if (SavedLists.isBusy(l.id)) { readDone++; continue }

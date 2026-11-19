@@ -79,6 +79,7 @@ class MainActivity : Activity() {
      */
     private val scoreTick = object : Runnable {
         override fun run() {
+            if (resumed && readingId == null && readQueue.isNotEmpty()) readNext() // reads held back during a video
             if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
             main.postDelayed(this, SCORE_TICK_MS)
         }
@@ -342,7 +343,7 @@ class MainActivity : Activity() {
         }
         if (Session.mode == "idle") Session.mode = "finding"
         setStatus("Finding the video on $site…")
-        sniffer.sniff(url) { set ->
+        sniffer.sniff(url, lateExtras = true) { set ->
             if (set.sources.isEmpty()) {
                 setStatus("No direct stream on $site, showing the site's own player")
                 Timing.emit(Timing.PATH_SITE_PLAYER)
@@ -393,6 +394,7 @@ class MainActivity : Activity() {
 
     private fun readNext() {
         val id = readQueue.firstOrNull() ?: return
+        if (ListReadGate.blocked()) return // queued reads wait; the 5 s tick and onResume start them again
         readQueue.remove(id)
         val l = SavedLists.get(this, id)
         if (l == null) {

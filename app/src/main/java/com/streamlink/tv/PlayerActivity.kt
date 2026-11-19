@@ -170,6 +170,7 @@ class PlayerActivity : Activity() {
         buildPicker()
         sniffer = StreamSniffer(this, findViewById<FrameLayout>(R.id.webHolder)).also { it.timed = false }
         Session.commandHandler = handler
+        Session.extrasListener = extrasHandler
         loadSession()
         main.post(snapshotTick)
     }
@@ -216,6 +217,7 @@ class PlayerActivity : Activity() {
         main.removeCallbacksAndMessages(null)
         sniffer.cancel()
         release()
+        if (Session.extrasListener === extrasHandler) Session.extrasListener = null
         if (Session.commandHandler === handler) {
             Session.commandHandler = null
             Session.mode = "idle"
@@ -256,6 +258,20 @@ class PlayerActivity : Activity() {
         }
         loadAlternatives(s)
         play()
+    }
+
+    private val extrasHandler: (String, List<Source>) -> Unit = { page, fresh -> addExtraSources(page, fresh) }
+
+    /** Numbered addresses of the page read after the player started: appended to the Source list (dropped if this is another page now). */
+    private fun addExtraSources(page: String, fresh: List<Source>) {
+        if (isDestroyed) return
+        val cur = set ?: return
+        if (cur.pageUrl != page) return
+        val merged = SourceMerge.insertExtras(cur.sources, fresh)
+        if (merged.size == cur.sources.size) return
+        set = cur.copy(sources = merged)
+        publishSnapshot()
+        refreshOverlayIfShown()
     }
 
     /** Other sites' streams for the same game (sports folders), read from caches off the main thread and appended to the Source list. */
@@ -1123,7 +1139,7 @@ class PlayerActivity : Activity() {
         showCover("Finding the video on $site…", 1)
         AppStatus.text = "Finding the video on $site…"
         sniffer.timed = true // a new link in front of the player is a new attempt
-        sniffer.sniff(url) { found ->
+        sniffer.sniff(url, lateExtras = true) { found ->
             sniffer.timed = false
             if (found.sources.isEmpty()) {
                 Timing.emit(Timing.PATH_SITE_PLAYER)

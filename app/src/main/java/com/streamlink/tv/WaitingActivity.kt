@@ -58,6 +58,7 @@ class WaitingActivity : Activity() {
     private var waitStartedAt = 0L
     private var gaveUp = false
     private var handedOff = false
+    private var keepForLate = false
     private var loggedResult = ""
     private var lastLoggedAt = 0L
 
@@ -115,7 +116,7 @@ class WaitingActivity : Activity() {
 
     override fun onStop() {
         main.removeCallbacks(beat)
-        if (::sniffer.isInitialized) sniffer.cancel()
+        if (::sniffer.isInitialized && !keepForLate) sniffer.cancel()
         checking = false
         releaseSession()
         super.onStop()
@@ -143,7 +144,7 @@ class WaitingActivity : Activity() {
         checkStartedAt = System.currentTimeMillis()
         checkCount++
         update(checkStartedAt)
-        sniffer.sniff(item.url, referer = referer) { set ->
+        sniffer.sniff(item.url, referer = referer, lateExtras = true) { set ->
             if (!checking || handedOff) return@sniff
             checking = false
             val now = System.currentTimeMillis()
@@ -160,7 +161,8 @@ class WaitingActivity : Activity() {
         AppStatus.text = "Playing ${ListText.displayTitle(item)}"
         if (auto) android.widget.Toast.makeText(applicationContext, "Switched to ${item.title}", android.widget.Toast.LENGTH_LONG).show()
         startActivity(PlayerActivity.intent(this))
-        finish()
+        // The hidden page is still reading the page's numbered addresses: keep this screen (and the page) until that ends.
+        if (sniffer.lateReading) { keepForLate = true; sniffer.onLateDone = { finish() } } else finish()
     }
 
     private fun onNoStream(now: Long, why: String, pageUrl: String = item.url) {
