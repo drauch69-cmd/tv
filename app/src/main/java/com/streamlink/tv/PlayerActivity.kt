@@ -150,6 +150,8 @@ class PlayerActivity : Activity() {
     private var stalls = 0
     /** Chrome's network engine for this link; turned off if a stream never starts with it. */
     private var useChromeNet = true
+    /** A server refused standard networking (403): keep Chrome's engine for this page load, never drop it again. */
+    private var chromeForced = false
     /** Use the TV's software video decoder (slower, more forgiving) for this link. */
     private var preferSoftware = false
     /** Experiment for stuck streams: play with the audio switched off to see if it's the blocker. */
@@ -257,6 +259,7 @@ class PlayerActivity : Activity() {
         playingSince = 0
         stalls = 0
         useChromeNet = true
+        chromeForced = false
         preferSoftware = false
         audioOff = false
         audioOffTried = false
@@ -703,7 +706,7 @@ class PlayerActivity : Activity() {
             Report.log(String.format(java.util.Locale.US,
                 "%.0fs of video arrived but it wouldn't start: the stream's format looks like the problem, not the network", buffered))
             decodeProblem()
-        } else if (playingSince == 0L && useChromeNet && ChromeNet.engine != null) {
+        } else if (playingSince == 0L && useChromeNet && !chromeForced && ChromeNet.engine != null) {
             // Never started with Chrome's engine: some servers work badly with it. Try once without.
             useChromeNet = false
             Report.log("No progress with Chrome's network engine; retrying with standard networking")
@@ -877,6 +880,16 @@ class PlayerActivity : Activity() {
         Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
 
         val src = set?.sources?.getOrNull(sourceIndex)
+        // Refused while on standard networking: many stream servers only serve Chrome-like clients (the checker,
+        // which uses Chrome's engine, passed). Go back to Chrome's engine instead of trying other referers.
+        if (http == 403 && !useChromeNet && ChromeNet.engine != null) {
+            useChromeNet = true
+            chromeForced = true
+            refererIndex = 0
+            Report.log("Server refused standard networking; going back to Chrome's network engine")
+            play()
+            return
+        }
         // A signed address that played fine and is now refused: its access code probably expired.
         if (http == 403 && playingSince != 0L && src != null && StreamUrls.hasQuery(src.url) && LinkOrder.canRenew(src) && renewAccess(src)) return
         // Only "not allowed" answers can be fixed by claiming a different page; "not found" can't.
@@ -983,6 +996,9 @@ class PlayerActivity : Activity() {
                     Session.current = fresh
                     sourceIndex = 0
                     refererIndex = 0
+                    // A fresh page load often gives a different server: start again on Chrome's engine.
+                    useChromeNet = true
+                    chromeForced = false
                     play()
                 }
             }

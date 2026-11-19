@@ -171,6 +171,10 @@ Remote tabs; prefetch toggle).
   Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.
+- **Network engine.** The player fetches through Chrome's network engine (Cronet). If a stream never starts with it
+  (stall), it retries once with Android's standard networking. A 403 on standard networking switches back to Chrome's
+  engine for that page load (many stream servers refuse non-Chrome clients; the checker always uses Chrome's engine,
+  so a passing check then a 403 on refresh is the tell). A reconnect's fresh page load starts on Chrome's engine again.
 - **Expiring access codes.** If a playing source whose address has a query gets 403 after it had played fine,
   `PlayerActivity.renewAccess` quietly runs a light sniff of the same page (or the link player the source came
   from, `Source.playerUrl`), takes the verified source with the same address path (else any verified one) and
