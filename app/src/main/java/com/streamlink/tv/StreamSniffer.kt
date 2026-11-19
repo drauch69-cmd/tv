@@ -199,6 +199,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     // ---- learned habits per site (SiteHabits): what worked last time is done at once after the page loads ----
     private var habit: SiteHabits.Habit? = null
     private var habitApplied = false
+    /** Uptime of the habit's latest tap (0 = none): the normal search skips its own tap within [HABIT_TAP_GAP_MS] of it. */
+    private var habitTapAt = 0L
     private var habitMissed = false
     private var viaRemembered = false
     private var loadedAt = 0L
@@ -223,6 +225,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val wv = webView ?: return@Runnable
         val h = habit ?: return@Runnable
         if (done || verifying || candidates.isNotEmpty() || wv.width <= 0 || wv.height <= 0) return@Runnable
+        habitTapAt = SystemClock.uptimeMillis()
         tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
     }
 
@@ -230,6 +233,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun startHabit() {
         habit = if (!light && clickRef == null) SiteHabits.get(context, siteHost) else null
         habitApplied = false
+        habitTapAt = 0L
         habitMissed = false
         viaRemembered = false
         loadedAt = 0L
@@ -265,6 +269,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.postDelayed(habitCheck, SiteHabits.deadlineMs(h))
         if (h.hasTap) {
             log("Using what worked on this site last time: " + SiteHabits.describe(h, withTap = true, withSource = false))
+            habitTapAt = SystemClock.uptimeMillis()
             tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
             if (h.taps >= 2) main.postDelayed(habitSecondTap, SiteHabits.SECOND_TAP_MS)
         }
@@ -856,7 +861,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         // on an ad. With no player seen, tap the middle of the page on every other nudge.
         // (On a click-only list page that is still showing the list, a tap would open some other event.)
         val onList = clickRef != null && !pageChanged()
-        if (wv.width > 0 && !onList) {
+        // A learned-habit tap was just made: skip this nudge's tap (the nudge's other work already ran).
+        val habitBusy = habitTapAt != 0L && SystemClock.uptimeMillis() - habitTapAt < HABIT_TAP_GAP_MS
+        if (wv.width > 0 && !onList && !habitBusy) {
             val hasPlayer = playerX > 0
             if (hasPlayer && playerTaps < MAX_PLAYER_TAPS) {
                 playerTaps++
@@ -932,6 +939,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     companion object {
         const val TIMEOUT_MS = 25_000L
+        private const val HABIT_TAP_GAP_MS = 1_500L
         private const val KIND_PLAYER_TAP = SiteHabits.KIND_PLAYER
         /** Extra time for click-only events: the list page has to settle (<= 12s) before the click. */
         const val CLICK_EXTRA_MS = 15_000L
