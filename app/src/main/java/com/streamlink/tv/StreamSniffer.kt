@@ -324,7 +324,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val onTime = habitApplied && !habitMissed
             if (onTime) log("The learned habit worked (stream after ${String.format(java.util.Locale.US, "%.1f", s.secs)} s)")
             if (fresh != null) SiteHabits.save(context, siteHost, fresh) else if (onTime) SiteHabits.worked(context, siteHost)
-        } else if (result.sources.isEmpty() && habitApplied && !habitMissed) {
+        } else if (result.sources.isEmpty() && s == null && habitApplied && !habitMissed) {
+            // Only when the habit led to no stream at all: a stream that was seen but is offline/refused is not the habit's fault.
             habitMissed = true
             countHabitMiss()
         }

@@ -173,7 +173,7 @@ Playback pipeline:
    (`LinkOrder.firstPlayable/nextPlayable`, `AutoSwitch.order` also skip them), and a search with only such candidates is "no
    stream" with `StreamSet.offline` and the line "The site's stream for this page is offline (server said 404)". The loading
    screen then tries the game's other-site streams through the automatic switch ("Stream offline; switching to <label> (<host>)",
-   cover text "The site's stream is offline. Trying other sources…"), else the site player. In `reconnect`, when the reload hands
+   cover text "The site's stream is offline. Trying other sources…"), else the site player (an item with no start time, e.g. a channel, gives up on the first offline verdict: no second search). In `reconnect`, when the reload hands
    back the address that just answered 404/410 (or the same path after a playlist-gone recovery) or is offline, the remaining tries
    are not spent: "The page still points to the same dead stream; trying other sources", then automatic switch, else site player.
 
@@ -237,7 +237,7 @@ Remote tabs; prefetch toggle).
   wait): taps the remembered spot (2+ taps: the second ~1 s later) and presses the remembered source button through `SourcePress.press`
   (`expectedCount`: only if the page shows the same number of buttons, and it does not skip the active one); `sourceNext` is moved
   past the pressed button so the normal search does not press it again. The normal nudge/tap/source search keeps running untouched
-  beside it (worst case = today). No stream within the habit's usual seconds + 5 s, or a run that ends with nothing = one miss; 2 misses
+  beside it (worst case = today). No stream within the habit's usual seconds + 5 s, or a run that ends with no stream ever seen = one miss (a stream that was seen but is offline/refused is not a miss); 2 misses
   in a row drop the habit. Prefetcher runs (`timed == false`) may use and record habits but never count misses (background runs are
   often cut short or compete for the network, so a miss there would make habits flap). Light runs never use or record. Report lines:
   "Using what worked on this site last time: tap at player spot|middle of the page, 1 tap|2 taps" and/or "... source button N of M",

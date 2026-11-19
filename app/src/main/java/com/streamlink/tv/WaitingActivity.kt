@@ -180,7 +180,8 @@ class WaitingActivity : Activity() {
         // No start time (often an always-on channel, not a scheduled event): one quick retry, then the
         // site's own player instead of re-checking every 45 s for hours.
         // A link's own page never waits: no stream on the first try goes straight to the site player.
-        val noTimeGiveUp = linkPage || (item.startMillis == null && checkCount >= NO_TIME_TRIES)
+        // An offline verdict on an item with no start time (a channel) is final: no second search.
+        val noTimeGiveUp = linkPage || (item.startMillis == null && (checkCount >= NO_TIME_TRIES || offline))
         if (!waiting || noTimeGiveUp) {
             if (!noTimeGiveUp && ListText.shouldWait(item.startMillis, now)) {
                 waiting = true
@@ -189,7 +190,7 @@ class WaitingActivity : Activity() {
                 if (auto && tryNextAuto()) return
                 if (offline && tryOfflineAlternatives(pageUrl)) return
                 // Started a while ago (or no time and still nothing): same as a link sent directly.
-                if (noTimeGiveUp && !linkPage) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
+                if (noTimeGiveUp && !linkPage && !offline) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
                 openSite(pageUrl)
                 return
             }
