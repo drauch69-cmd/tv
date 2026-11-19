@@ -5,6 +5,18 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Sources rework, show-more, preferred list** (user, 2026-11-19; built on `sports`, compiled and unit-tested in CI,
+  page scripts checked in headless Chrome and against the live ntv.st page in the desktop browser; NOT tested on the TV).
+  What to check on the TV:
+  - ntv.st list: games past the first 12 per sport now appear (report line "List: pressed N 'show more' button(s)").
+  - ntv.st game: the Source panel shows "Source 2 … · this site" (line "Page sources: 1 numbered address(es)"), and
+    other sites' streams for the same game ("<list> · other site"), preferred list first.
+  - Automatic switch when a stream dies ("Stream went down; switching to …"); max 3 per watch.
+  - "★ Preferred" chip on the phone Lists tab and the TV list screen; preferred streams first on game screens.
+  Known gaps: after an automatic switch the overlay says "Back" instead of "Back to list"; items not in a sports
+  folder (no matched game) only get their page's own numbered sources; in-page sources reachable only by buttons
+  with no address (e.g. Reed's 9 buttons) are no longer gathered.
+
 - **403 mid-play after a "standard networking" fallback** (2026-11-19, investigated in the desktop browser, not on
   the TV). Report: NHL Network page; a `bharat` stream played ~20 s, then every playlist refresh got 403; the
   `netanyahu` server got 403 on every referer. In the desktop browser the same stream (address
@@ -123,6 +135,15 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
+
+- **Sources come from the app, not from pressing buttons** (2026-11-19): the background link run is retired. The Source
+  panel = this page's playable sources, its own numbered addresses (`?source=N`-style, read from the page), and other
+  sites' streams for the same game. A stream that goes down switches automatically (after reconnects fail, max 3 per
+  watch, dead sources skipped for 5 min). No blind `?source=N` guessing on pages that don't show it.
+- **One preferred list** (2026-11-19): a single "Preferred" mark on a saved list (the user's ntv.st list), never a site
+  name in code; its streams come first everywhere. Single, not a ranking.
+- **"Show more" pressing on index pages** (2026-11-19): only on pages that have such a button, max 4 presses; category
+  tabs are not pressed.
 
 - **Several sport tags per list** (2026-11-17, `sports` branch): some index pages mix sports, so a list carries
   any set of NFL / College football / NBA (toggle chips on the phone page; old single tags carried over). An item

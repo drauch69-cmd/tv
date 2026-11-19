@@ -99,7 +99,7 @@ Playback pipeline:
    reset per run; light runs get it too. Report line: "A repeating request may be a playlist: <host>/…; checking it".
    Not yet tested on the TV.
    **Empty player box.** Some pages show an empty 16:9 box that only loads video after one of the page's own source
-   buttons is pressed. If ~5 s after the page loads (primary search only, not the links run or light runs) there is
+   buttons is pressed. If ~5 s after the page loads (primary search only, not light runs) there is
    still no player (or only a player box with no frame) and no playlist, the sniffer presses source button 1
    (`SourcePress.kt`: `source-switch.js` `find`, then `click 0`; a coordinate tap if the click fails); ~10 s later,
    if still nothing, button 2 (max 2 presses). Report line: "No player on the page yet; pressing source button N of M".
@@ -110,14 +110,25 @@ Playback pipeline:
    (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play.
 4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
-5. **Extra sources.** After 10 s of stall-free play, a background run finds the page's other link buttons and sniffs
-   each player (light mode); verified ones appear in the Source panel. A link whose player gives no verified stream
-   (embed-protected, 403, timeout) still gets one entry, "<label> · site player" (`Source.openPage`, its `playerUrl`
-   is the link's player page). Choosing it never plays in ExoPlayer: `PlayerActivity.openLinkPage` starts the loading
-   screen (`WaitingActivity.linkPageIntent`) on that page with the original page as referer: full stream search, clean
-   player if verified, else `SitePlayerActivity` (sent the same referer). The first player is not finished (it stays
-   in the back stack, stops playback in `onStop`); Back returns to it and it resumes at live. The new player is
-   started with `isLinkPage` and runs no background link run of its own.
+5. **Extra sources.** Nothing runs in the background while playing (the old link run that pressed each source
+   button after 10 s of play was retired 2026-11-19). The Source panel lists, in order: the page's playable sources;
+   the page's own numbered addresses ("<label> · this site", read once at the end of a successful primary search by
+   `assets/page-sources.js` via `StreamSniffer.readPageSources` / `PageSources`: a <select> near the player whose change
+   makes the page rewrite its address to the same path with another query (one option is pressed and the address
+   watched up to 0.8 s; the rest are worked out from the query parameter that carries the option's value or position,
+   max 3 presses; pinned players count), or links differing by one small-integer query value; with no pick-list near
+   the player it answers at once, else within 3 s; report line "Page sources: N numbered address(es) on this page");
+   and other sites' streams for the same game ("<list name> · other site", `Alternatives.forPage`: the sports folder
+   holding this page, finished items skipped, preferred list first, max 6, loaded on a background thread). Numbered and
+   other-site entries are `Source.openPage` entries: choosing one runs `PlayerActivity.openLinkPage` ->
+   `WaitingActivity.linkPageIntent` (full search, clean player, else site player). Numbered entries send the page as
+   referer, other-site entries send none. The first player stays in the back stack; Back resumes at live.
+   **Automatic switch** (`AutoSwitch`): when reconnects are used up (or a reconnect finds nothing), before the clean
+   player, `tryAutoSwitch` moves to another verified playable source of the page, else the next openPage entry (cover
+   "Stream went down, trying another source…", log "Stream went down; switching to <label> (<host>)"; this player
+   finishes; `WaitingActivity` with `auto=true` tries the next candidate if no stream is found, else the site player).
+   Max 3 switches per watch (reset when the user starts an item or link); pages/sources that went down are dead for
+   5 min. Toast "Switched to <label>". Not yet tested on the TV.
 
 Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (live NFL/college games with streams), "Live now" row from
 `HomeFeed` (skips streams shown as a live game), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`; the top bar has two focusable
@@ -141,14 +152,13 @@ Remote tabs; prefetch toggle).
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
   by the keyword's trailing number, joined, base64-decoded). A counter of undecodable segments triggers the
   site-player fallback.
-- **Source links.** `assets/source-switch.js` finds the page's switcher by structure, never by words. Its anchor is the largest visible landscape
-  (width/height >= 1.1) video/iframe; with none, the largest visible EMPTY player-shaped box (div/section/figure, aspect
-  1.3-2.4, no video/iframe/canvas/object/embed inside, <= 200 chars of text, not pinned, not in nav/header/footer), and
-  `find` then answers `empty: true`. Buttons that carry sequential number badges (1, 2, 3) count as a numbered row. Links mode
-  clicks each link and records each new player frame; once a playlist is seen, everything else is blocked.
-  `SourceLinks.kt` (`LinkOrder`) decides order, labels and which players to open. It also builds the "open page"
-  entries (`openPageEntry`, label ending " · site player") and keeps them out of automatic source fallback
-  (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
+- **Source links.** `assets/source-switch.js` finds the page's own row of source buttons by structure, never by
+  words, for the empty-box presses only (`SourcePress`). Its anchor is the largest visible landscape
+  (width/height >= 1.1) video/iframe; with none, the largest visible EMPTY player-shaped box (div/section/figure,
+  aspect 1.3-2.4, no video/iframe/canvas/object/embed inside, <= 200 chars of text, not pinned, not in
+  nav/header/footer), and `find` then answers `empty: true`. Buttons with sequential number badges count as a
+  numbered row. `SourceLinks.kt` (`LinkOrder`) parses the answer and keeps openPage entries out of automatic
+  fallback (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers.
   Learned shapes (pref `list_shapes_v2`) are applied with the same quality rules as a fresh read (no chrome, no
@@ -164,6 +174,14 @@ Remote tabs; prefetch toggle).
   a live marker or `data-time` counts like a clock when scoring rows; links inside running text are not rows; a group
   with no time/live marker needs 4+ rows (or a date heading); same-shaped containers in sibling sections merge;
   header/form rows are penalized; "STARTS IN" + "1d 19h" is one time text (`DateGuess` reads compact countdowns).
+  **Show-more expansion** (`assets/list-expand.js`, run by `IndexReader.expandThenExtract` once per page load, after
+  the page settles and before extracting): presses up to 4 "expander" controls found by structure only: a `<button>`,
+  `[role=button]` or non-navigating `<a>` with short text, directly after/next to a group of 5+ same-shaped clickable
+  rows; never in nav/header/footer/tablist/menu/toolbar, never tabs, already-expanded controls, form submits, or a
+  button with 2+ same-kind siblings (tabs, filters, pagination); never a link with a real href. Report line
+  "List: pressed N 'show more' button(s)"; then waits for the page to settle again (500 ms polls, unchanged twice or
+  4 s). Nothing pressed = no delay; retry paths never press again; a press that changes the address is not repeated.
+  Category tabs are never pressed (an index's default view usually shows every category). Not yet tested on the TV.
 - **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL,
   college football (all FBS games: `groups=80`) and the NBA for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. The next two days are fetched too
@@ -189,6 +207,15 @@ Remote tabs; prefetch toggle).
   Tomorrow / weekday / Final sections (`withStreamsOnly` hides games without streams); `AlwaysOn.collect` gathers
   24/7 channels from all lists; `LiveGames.sample` / `matchedUrls` feed the home live row; `GameFolders.summary` is
   the quiet "Sports:" report line.
+  **Preferred list.** At most one saved list is preferred (`SavedList.preferred`, JSON "preferred", old JSON reads
+  false; `Preferred` in SavedLists.kt enforces "only one"). Set with the "★ Preferred" chip on each list on the phone
+  page's Lists tab (`POST /lists/preferred` id + on=1/0; `GET /lists` returns "preferred") or the "☆/★ Preferred" chip
+  at the top of the TV list screen; "Your lists" tiles show "★ Preferred". Code asks `SavedLists.preferredId(ctx)`; no
+  site is ever named in code. Wherever a game has several streams the preferred list's come first, the rest keep their
+  order: `GameFolders.build(..., preferredListId)` (handled first, so it also wins a duplicate address and leads
+  "Other"), `AlwaysOn.collect`, `HomeModel` (live row ties), the phone's "Live now", the Source panel's other-site
+  entries and automatic switching. On the game screen the first (focused) row is the preferred one, meta "★ Preferred".
+  `HomeModel.look` and the `StreamsActivity` look include the preferred id. Not yet tested on the TV.
   Screens: home "Live games" row (`LiveGames.sample`, cards open the game) and "Sports" row (tiles open `SportActivity` /
   the 24/7 `StreamsActivity`); both are rebuilt (focus kept) on every list render and by `ScoreFeed.refreshIfDue` on resume
   and the 60 s tick, and "Live now" skips `LiveGames.matchedUrls`. `SportActivity` works out folders/sections on one background thread (`sport-calc`, generation counter, stale results dropped), draws on the main thread only when the computed look (sections, games, scores, stream counts, statuses) changed or the "All games" chip toggled, and shows a quiet "Loading games…" row first; its 1 s beat only checks the read watchdog (score refresh check every 5 s, re-render every 30 s). `StreamsActivity` does the same (`streams-calc`). `SportActivity` shows cached lists at once, then re-reads
@@ -243,7 +270,8 @@ Remote tabs; prefetch toggle).
 
 - **JS harnesses** (headless Chrome; run with `NODE_PATH=/opt/npm-tools/node_modules`):
   `app/src/test/js/check-list-extract.js`, `app/src/test/js/start/check-player-start.js`,
-  `app/src/test/js/links/check-source-switch.js`. Run them whenever an asset script changes.
+  `app/src/test/js/links/check-source-switch.js`, `app/src/test/js/check-list-expand.js`,
+  `app/src/test/js/links/check-page-sources.js`. Run them whenever an asset script changes.
 - **Unit tests** run in CI on every branch (HeadersTest, CleanProxyTest, SourceLinksTest, HomeFeedTest,
   PngTextTest and others).
 - **Crash and freeze recorder** (`StreamLinkApp`, `CrashRecorder`, pure text in `CrashText`). An uncaught-exception handler
@@ -254,7 +282,7 @@ Remote tabs; prefetch toggle).
   stack lines `  at ...` and "Caused by: ...". Each exit is reported once (last timestamp kept); the crash file is deleted after
   reporting. Also "Memory: system is low (level N)" (once per level per minute, from level 10 up, not UI-hidden).
   Not yet tested on the TV.
-- **Report:** the in-app log the user copies from TV or phone. Look for "Links:" lines, per-link results, and
+- **Report:** the in-app log the user copies from TV or phone. Look for "Page sources:", "Stream went down", "List: pressed" lines, and
   Verifier failure details (size and first characters of the response).
 - **Save sample:** zip with list page and stream page snapshots plus the log. The stream page comes from the player
   search when it found nothing, or from the links search; its info.txt line says which and what was tapped. Playlists
