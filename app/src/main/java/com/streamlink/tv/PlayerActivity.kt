@@ -84,11 +84,7 @@ class PlayerActivity : Activity() {
             PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED,
         )
 
-        private const val EXTRA_LINK_PAGE = "isLinkPage"
-
-        /** [isLinkPage]: this stream is a link player opened from another player's Source list (no background link run). */
-        fun intent(ctx: Context, isLinkPage: Boolean = false): Intent =
-            Intent(ctx, PlayerActivity::class.java).putExtra(EXTRA_LINK_PAGE, isLinkPage)
+        fun intent(ctx: Context): Intent = Intent(ctx, PlayerActivity::class.java)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -117,18 +113,9 @@ class PlayerActivity : Activity() {
     private lateinit var btnOther: TextView
     private lateinit var btnPause: TextView
     private lateinit var sniffer: StreamSniffer
-    /** Second page loader, behind the picture: finds the page's alternate links while the stream plays. */
-    private var linkSniffer: StreamSniffer? = null
-    private var linkRunScheduled = false
-    private var linkRunStartedAt = 0L
-    private var lastStallAt = 0L
-    private var linkRunning = false
     private lateinit var btnSource: TextView
-    /** Opened for a link's own page: it does not run its own background link run (the first player already did). */
-    private var isLinkPage = false
     /** This screen's stream was left for a link's page (started from the Source list); Back there returns here. */
     private var awayOnLinkPage = false
-    private var linkRunDone = false
     private var awayTitle = ""
     private var awayListId: String? = null
     private var awayListName = ""
@@ -181,7 +168,6 @@ class PlayerActivity : Activity() {
         buildPicker()
         sniffer = StreamSniffer(this, findViewById<FrameLayout>(R.id.webHolder))
         Session.commandHandler = handler
-        isLinkPage = intent.getBooleanExtra(EXTRA_LINK_PAGE, false)
         loadSession()
         main.post(snapshotTick)
     }
@@ -190,7 +176,6 @@ class PlayerActivity : Activity() {
         super.onNewIntent(intent)
         setIntent(intent)
         Session.commandHandler = handler
-        isLinkPage = intent.getBooleanExtra(EXTRA_LINK_PAGE, false)
         awayOnLinkPage = false
         loadSession()
     }
@@ -219,7 +204,6 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         sniffer.cancel()
-        cancelLinkRun()
         release()
         // Away on a link's page: stay in the back stack so Back returns here.
         if (awayOnLinkPage) return
@@ -229,8 +213,6 @@ class PlayerActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         sniffer.cancel()
-        cancelLinkRun()
-        linkSniffer = null
         release()
         if (Session.commandHandler === handler) {
             Session.commandHandler = null
@@ -244,12 +226,10 @@ class PlayerActivity : Activity() {
     private fun loadSession() {
         val s = Session.current ?: return finish()
         linkGen++
-        cancelLinkRun()
         set = s
         lastRenewAt = 0L
         renewFailures = 0
         renewing = false
-        linkRunDone = false
         countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
         smoothThisRun = false
         emptyStallTimes.clear()
@@ -271,7 +251,32 @@ class PlayerActivity : Activity() {
         if (s.sources.size > 1) {
             Toast.makeText(this, "${s.sources.size} sources found · OK, then Source to switch", Toast.LENGTH_LONG).show()
         }
+        loadAlternatives(s)
         play()
+    }
+
+    /** Other sites' streams for the same game (sports folders), read from caches off the main thread and appended to the Source list. */
+    private fun loadAlternatives(s: StreamSet) {
+        val gen = linkGen
+        val page = s.pageUrl
+        val item = Session.listItemUrl
+        val app = applicationContext
+        kotlin.concurrent.thread(isDaemon = true, name = "alternatives") {
+            val alts = Alternatives.forPage(app, page, item)
+            if (alts.isEmpty()) return@thread
+            main.post {
+                if (gen != linkGen || isDestroyed) return@post
+                val cur = set ?: return@post
+                val merged = Alternatives.append(cur.sources, alts)
+                if (merged.size == cur.sources.size) return@post
+                val updated = cur.copy(sources = merged)
+                set = updated
+                if (Session.current === cur) Session.current = updated
+                Report.log("Other sites: ${merged.size - cur.sources.size} stream(s) of the same game in the Source list")
+                publishSnapshot()
+                refreshOverlayIfShown()
+            }
+        }
     }
 
     // ---- Playback ----
@@ -438,14 +443,12 @@ class PlayerActivity : Activity() {
                     if (playingSince == 0L) {
                         playingSince = System.currentTimeMillis()
                         Report.log("Playback started")
-                        scheduleLinkRun()
                     }
                     AppStatus.text = "Playing ${Session.title}"
                 }
                 Player.STATE_BUFFERING -> {
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                     if (playingSince != 0L) {
-                        lastStallAt = android.os.SystemClock.uptimeMillis()
                         logStall()
                         tunnelStallCheck()
                         lowDelayCheck()
@@ -921,7 +924,7 @@ class PlayerActivity : Activity() {
         val gen = linkGen
         val target = old.playerUrl.ifEmpty { page }
         val ref = if (old.playerUrl.isNotEmpty()) page else null
-        sniffer.sniff(target, collectLinks = false, referer = ref, light = true) { r ->
+        sniffer.sniff(target, referer = ref, light = true) { r ->
             if (gen != linkGen || isDestroyed) return@sniff
             renewing = false
             val ok = r.sources.filter { it.verified }
@@ -957,6 +960,7 @@ class PlayerActivity : Activity() {
 
         val nextPlayable = LinkOrder.nextPlayable(s.sources, sourceIndex)
         if (playingSince == 0L && nextPlayable != null) {
+            AutoSwitch.markDead(s.sources.getOrNull(sourceIndex)?.url, now)
             sourceIndex = nextPlayable
             refererIndex = 0
             Report.log("Trying the next source")
@@ -968,7 +972,43 @@ class PlayerActivity : Activity() {
             reconnect(why)
             return
         }
+        if (tryAutoSwitch(why)) return
         openCleanPlayer(why)
+    }
+
+    /**
+     * The stream went down and reconnecting did not help: move to another source by ourselves (see [AutoSwitch]):
+     * another playable source of this page, else another page (this site's numbered address, then other sites),
+     * which opens through the loading screen and replaces this player. At most 3 per watch. Returns true when
+     * something was started.
+     */
+    private fun tryAutoSwitch(why: String): Boolean {
+        val s = set ?: return false
+        if (!AutoSwitch.canSwitch()) return false
+        val now = System.currentTimeMillis()
+        AutoSwitch.markDead(s.sources.getOrNull(sourceIndex)?.url, now)
+        val order = AutoSwitch.order(s.sources, sourceIndex, now)
+        val first = order.firstOrNull() ?: return false
+        val src = s.sources[first]
+        val rest = order.drop(1).map { s.sources[it] }.filter { it.openPage }
+        AutoSwitch.begin(rest)
+        if (!src.openPage) {
+            Report.log("Stream went down; switching to ${src.label} (${Report.host(src.url)})")
+            sourceIndex = first
+            refererIndex = 0
+            reconnects = 0
+            playingSince = 0
+            play()
+            return true
+        }
+        AutoSwitch.markDead(s.pageUrl, now)
+        val target = src.playerUrl.ifEmpty { src.url }
+        Report.log("Stream went down; switching to ${src.label} (${Report.host(target)})")
+        showCover("Stream went down, trying another source…")
+        release()
+        startActivity(WaitingActivity.linkPageIntent(this, target, src.label, src.referers.firstOrNull { it.isNotBlank() }, auto = true))
+        finish()
+        return true
     }
 
     /** Reload the page invisibly to get a fresh stream link (they often expire), then resume at live. */
@@ -988,12 +1028,15 @@ class PlayerActivity : Activity() {
                     if (reconnects < MAX_RECONNECTS) {
                         reconnects++
                         reconnect(why)
-                    } else {
+                    } else if (!tryAutoSwitch(why)) {
                         openCleanPlayer(why)
                     }
                 } else {
-                    set = fresh
-                    Session.current = fresh
+                    // The numbered and other-site entries of the old list stay (the fresh read may not repeat them).
+                    val old = set
+                    val kept = if (old == null) fresh else fresh.copy(sources = Alternatives.append(fresh.sources, old.sources.filter { it.openPage }))
+                    set = kept
+                    Session.current = kept
                     sourceIndex = 0
                     refererIndex = 0
                     // A fresh page load often gives a different server: start again on Chrome's engine.
@@ -1011,7 +1054,7 @@ class PlayerActivity : Activity() {
      */
     private fun openLink(url: String) {
         linkGen++
-        cancelLinkRun()
+        AutoSwitch.reset() // the user started something new: a new watch
         release()
         val site = Report.host(url)
         // A direct link arriving now is not part of any saved list.
@@ -1060,153 +1103,6 @@ class PlayerActivity : Activity() {
         player?.removeAnalyticsListener(downloads)
         player?.release()
         player = null
-    }
-
-    // ---- Alternate links, gathered in the background while the stream plays ----
-
-    private val linkCheck = Runnable { checkLinkRun() }
-
-    /** Once per stream, 10 s into playback: only for streams that came from a page and have no alternatives yet. */
-    private fun scheduleLinkRun() {
-        val s = set ?: return
-        if (linkRunScheduled || linkRunDone) return
-        if (isLinkPage) {
-            Report.logOnce("links-skipped", "Links: skipped (this is a link's own page)")
-            return
-        }
-        if (!LinkOrder.wantsLinkRun(s.pageUrl, s.sources.size)) {
-            val isWeb = s.pageUrl.startsWith("http://") || s.pageUrl.startsWith("https://")
-            Report.logOnce("links-skipped", "Links: skipped (" + if (!isWeb) "the page address is not http or https)" else "already ${s.sources.size} sources)")
-            return
-        }
-        linkRunScheduled = true
-        linkRunStartedAt = android.os.SystemClock.uptimeMillis()
-        lastStallAt = 0L
-        main.removeCallbacks(linkCheck)
-        main.postDelayed(linkCheck, LinkOrder.LINKS_FIRST_CHECK_MS)
-    }
-
-    private fun checkLinkRun() {
-        val p = player ?: return
-        val s = set ?: return
-        val now = android.os.SystemClock.uptimeMillis()
-        val sinceStall = if (lastStallAt == 0L && p.playbackState != Player.STATE_BUFFERING) null
-            else if (p.playbackState == Player.STATE_BUFFERING) 0L else now - lastStallAt
-        when (LinkOrder.gate(now - linkRunStartedAt, sinceStall)) {
-            LinkOrder.Gate.START -> {
-                Report.log("Links: looking for other links on the page in the background…")
-                startLinkRun(s.pageUrl)
-            }
-            LinkOrder.Gate.WAIT -> main.postDelayed(linkCheck, LinkOrder.LINKS_RECHECK_MS)
-            LinkOrder.Gate.GIVE_UP -> Report.log("Links: didn't look for other links (playback never settled)")
-        }
-    }
-
-    private fun startLinkRun(page: String) {
-        val sn = linkSniffer ?: run {
-            // Behind the picture (index 0), full size so the page lays out like a real screen; the PlayerView covers it.
-            val holder = FrameLayout(this)
-            root.addView(holder, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-            StreamSniffer(this, holder).also { linkSniffer = it }
-        }
-        val gen = linkGen
-        linkRunning = true
-        linksAdded = 0
-        refreshOverlayIfShown()
-        sn.sniff(page, collectLinks = true) { found ->
-            if (gen != linkGen || isDestroyed) return@sniff
-            if (set == null) { linkRunning = false; return@sniff }
-            linksAdded = addLinkSources(found.sources, "")
-            val players = LinkOrder.playersToOpen(found.defaultPlayer, found.linkPlayers)
-            Report.log("Links: ${found.linkPlayers.size} link player(s) seen, ${players.size} to open on their own")
-            if (players.isEmpty()) {
-                finishLinkRun()
-            } else {
-                openLinkPlayer(sn, page, players, 0, gen)
-            }
-        }
-    }
-
-    private var linksAdded = 0
-
-    /** Merges sources found by a link run (dedup by [LinkOrder.mergeExtra]); each is shown under [label] when given. Returns how many were added. */
-    private fun addLinkSources(found: List<Source>, label: String, player: String = ""): Int {
-        val cur = set ?: return 0
-        // Only streams that passed the playlist check; the rest are not offered as sources.
-        val verified = found.filter { it.verified }.map { it.copy(playerUrl = player) }
-        val extra = if (label.isEmpty()) verified else verified.map { it.copy(label = LinkOrder.sourceLabel(label, Report.host(it.url), "single quality", true), isDefaultLink = false) }
-        val merged = LinkOrder.mergeExtra(cur.sources, extra)
-        val added = merged.size - cur.sources.size
-        if (added > 0) {
-            // Appended: the playing source keeps its index; "Trying the next source" can now reach these too.
-            val updated = cur.copy(sources = merged)
-            set = updated
-            if (Session.current === cur) Session.current = updated
-            publishSnapshot()
-            refreshOverlayIfShown()
-        }
-        return added
-    }
-
-    /** Adds the "open page" entry of a link whose player gave no verified stream. Returns false when it is already listed. */
-    private fun addOpenPageEntry(label: String, frame: String): Boolean {
-        val cur = set ?: return false
-        val entry = LinkOrder.openPageEntry(label, frame, 0, cur.sources.map { it.label }) ?: return false
-        val merged = LinkOrder.mergeExtra(cur.sources, listOf(entry))
-        if (merged.size == cur.sources.size) return false
-        val updated = cur.copy(sources = merged)
-        set = updated
-        if (Session.current === cur) Session.current = updated
-        publishSnapshot()
-        refreshOverlayIfShown()
-        return true
-    }
-
-    /** The players the link run saw are opened one at a time, each in a normal (light) sniff in the same hidden holder. */
-    private fun openLinkPlayer(sn: StreamSniffer, page: String, players: List<Pair<String, String>>, i: Int, gen: Int) {
-        if (gen != linkGen || isDestroyed) return
-        if (i >= players.size) { finishLinkRun(); return }
-        val (label, frame) = players[i]
-        Report.log("Links: opening $label's player (${Report.host(frame)})…")
-        sn.sniff(frame, collectLinks = false, referer = page, light = true) { r ->
-            if (gen != linkGen || isDestroyed) return@sniff
-            if (r.sources.none { it.verified }) {
-                // The verifier's own reason (e.g. "server said 403") when it gave one.
-                val why = r.sources.firstOrNull { it.note.isNotEmpty() }?.note
-                    ?: if (r.sources.isNotEmpty()) "only non-playlist media found" else r.reason
-                Report.log("Links: $label: no stream" + if (why.isNotEmpty()) " ($why)" else "")
-                // Still offered: it opens as its own page (clean player or the site's player).
-                if (addOpenPageEntry(label, frame)) {
-                    Report.log("Links: $label: added as an open-page entry")
-                    linksAdded++
-                }
-            } else {
-                val n = addLinkSources(r.sources, label, frame)
-                Report.log("Links: $label: stream found" + if (n == 0) " (already known)" else "")
-                linksAdded += n
-            }
-            // Next one only after this sniff has fully ended and its page is gone.
-            main.post { openLinkPlayer(sn, page, players, i + 1, gen) }
-        }
-    }
-
-    private fun finishLinkRun() {
-        linkRunning = false
-        linkRunDone = true
-        val n = linksAdded
-        if (n > 0) {
-            Report.log("Links: $n more sources available (→ Source)")
-            Toast.makeText(this, "$n more sources: Source", Toast.LENGTH_LONG).show()
-        }
-        refreshOverlayIfShown()
-    }
-
-    private fun cancelLinkRun() {
-        linkGen++ // also drops a queued "open the next link player"
-        main.removeCallbacks(linkCheck)
-        linkSniffer?.cancel()
-        linkRunScheduled = false
-        linkRunning = false
     }
 
     // ---- Phone remote ----
@@ -1273,15 +1169,15 @@ class PlayerActivity : Activity() {
      * in the back stack (see [onStop]) so Back returns to the stream, which then resumes at live.
      */
     private fun openLinkPage(src: Source) {
-        val s = set ?: return
+        if (set == null) return
         val target = src.playerUrl.ifEmpty { src.url }
         Report.log("Opening ${src.label} as its own page (${Report.host(target)})")
         awayTitle = Session.title
         awayListId = Session.listId; awayListName = Session.listName; awayListItemUrl = Session.listItemUrl
         awayOnLinkPage = true
-        cancelLinkRun()
         release()
-        startActivity(WaitingActivity.linkPageIntent(this, target, src.label, s.pageUrl))
+        // A page of another site never gets our page as referer; this site's own numbered addresses do.
+        startActivity(WaitingActivity.linkPageIntent(this, target, src.label, src.referers.firstOrNull { it.isNotBlank() }))
     }
 
     private val snapshotTick = object : Runnable {
@@ -1513,9 +1409,9 @@ class PlayerActivity : Activity() {
         scheduleHide()
     }
 
-    private fun sourceButtonVisible() = (set?.sources?.size ?: 0) > 1 || linkRunning
+    private fun sourceButtonVisible() = (set?.sources?.size ?: 0) > 1
 
-    /** Re-evaluate the overlay (e.g. the Source button) when the background link search changes things. */
+    /** Re-evaluate the overlay (e.g. the Source button) when the Source list changes. */
     private fun refreshOverlayIfShown() {
         if (::overlay.isInitialized && overlay.visibility == View.VISIBLE) showOverlay()
     }
@@ -1643,10 +1539,6 @@ class PlayerActivity : Activity() {
             }
             pickerList.addView(v, gap(5f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
             if (current && focusRow == null) focusRow = v
-        }
-        if (linkRunning) {
-            pickerList.addView(Ui.text(this, "Looking for other links…", 12f, Ui.TEXT_2),
-                gap(10f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
         }
         picker.visibility = View.VISIBLE
         (focusRow ?: pickerList.getChildAt(0))?.requestFocus()

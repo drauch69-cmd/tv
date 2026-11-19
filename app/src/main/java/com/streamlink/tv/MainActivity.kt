@@ -325,6 +325,7 @@ class MainActivity : Activity() {
         if (Session.mode == "site" || Session.mode == "waiting") Session.commandHandler?.invoke("stop", null)
         Recents.add(this, url)
         renderRecents()
+        AutoSwitch.reset() // the user started something: a new watch
         Session.listId = null // a direct link is not part of a list
         Session.listName = ""
         Session.listItemUrl = null

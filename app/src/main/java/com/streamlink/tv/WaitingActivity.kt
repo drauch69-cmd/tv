@@ -44,6 +44,8 @@ class WaitingActivity : Activity() {
     /** Opened from the Source list for a link player: no waiting, no new report, the original page is the referer. */
     private var linkPage = false
     private var referer: String? = null
+    /** Started by the player's automatic switch (see [AutoSwitch]): no stream here means try the next candidate. */
+    private var auto = false
     private val main = Handler(Looper.getMainLooper())
 
     private var checking = false
@@ -88,11 +90,13 @@ class WaitingActivity : Activity() {
         if (item.url.isEmpty()) { finish(); return }
         linkPage = i.getBooleanExtra(EXTRA_LINK_PAGE, false)
         referer = i.getStringExtra(EXTRA_REFERER)
+        auto = linkPage && i.getBooleanExtra(EXTRA_AUTO, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildUi()
         if (linkPage) {
             Report.log("Opening ${ListText.displayTitle(item)} as its own page (${Report.host(item.url)})")
         } else {
+            AutoSwitch.reset() // the user started something: a new watch
             Report.start(item.url)
             Report.log("Playing an event from a list: ${ListText.displayTitle(item)}")
             Report.log("Start: " + (start?.let { ListText.whenText(it, System.currentTimeMillis(), java.util.TimeZone.getDefault(), java.util.Locale.getDefault()) } ?: "unknown"))
@@ -153,7 +157,8 @@ class WaitingActivity : Activity() {
         Report.log("Check #$checkCount: stream found, starting the player")
         Session.current = set
         AppStatus.text = "Playing ${ListText.displayTitle(item)}"
-        startActivity(PlayerActivity.intent(this, isLinkPage = linkPage))
+        if (auto) android.widget.Toast.makeText(applicationContext, "Switched to ${item.title}", android.widget.Toast.LENGTH_LONG).show()
+        startActivity(PlayerActivity.intent(this))
         finish()
     }
 
@@ -171,6 +176,7 @@ class WaitingActivity : Activity() {
                 waiting = true
                 waitStartedAt = now
             } else {
+                if (auto && tryNextAuto()) return
                 // Started a while ago (or no time and still nothing): same as a link sent directly.
                 if (noTimeGiveUp && !linkPage) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
                 handedOff = true
@@ -183,6 +189,20 @@ class WaitingActivity : Activity() {
         }
         nextCheckAt = now + if (item.startMillis == null && checkCount < NO_TIME_TRIES) NO_TIME_RETRY_MS else CHECK_EVERY_MS
         update(now)
+    }
+
+    /** An automatic page had no stream: continue with the next remembered candidate (this screen is replaced). */
+    private fun tryNextAuto(): Boolean {
+        val now = System.currentTimeMillis()
+        AutoSwitch.markDead(item.url, now)
+        val next = AutoSwitch.takeNext(now) ?: return false
+        val target = next.playerUrl.ifEmpty { next.url }
+        Report.log("No stream there; switching to ${next.label} (${Report.host(target)})")
+        handedOff = true
+        main.removeCallbacksAndMessages(null)
+        startActivity(linkPageIntent(this, target, next.label, next.referers.firstOrNull { it.isNotBlank() }, auto = true))
+        finish()
+        return true
     }
 
     /** Rate limited: first check, a change of result, or at most one line every 5 minutes. */
@@ -408,6 +428,7 @@ class WaitingActivity : Activity() {
         private const val EXTRA_LIVE = "live"
         private const val EXTRA_LINK_PAGE = "linkPage"
         private const val EXTRA_REFERER = "referer"
+        private const val EXTRA_AUTO = "auto"
 
         fun intent(ctx: Context, item: ListItem, listId: String, listName: String) =
             Intent(ctx, WaitingActivity::class.java)
@@ -420,11 +441,11 @@ class WaitingActivity : Activity() {
          * A link's player page, opened from the Source list as a normal page: full stream search sending [referer]
          * (the original page), clean player if a stream verifies, else the site player. Back returns to the stream.
          */
-        fun linkPageIntent(ctx: Context, playerUrl: String, label: String, referer: String) =
+        fun linkPageIntent(ctx: Context, playerUrl: String, label: String, referer: String?, auto: Boolean = false) =
             Intent(ctx, WaitingActivity::class.java)
                 .putExtra(EXTRA_TITLE, label).putExtra(EXTRA_SUBTITLE, "")
                 .putExtra(EXTRA_URL, playerUrl).putExtra(EXTRA_START, NO_TIME)
                 .putExtra(EXTRA_LIVE, true)
-                .putExtra(EXTRA_LINK_PAGE, true).putExtra(EXTRA_REFERER, referer)
+                .putExtra(EXTRA_LINK_PAGE, true).putExtra(EXTRA_AUTO, auto).apply { if (!referer.isNullOrBlank()) putExtra(EXTRA_REFERER, referer) }
     }
 }
