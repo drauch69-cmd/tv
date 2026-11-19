@@ -323,6 +323,38 @@ Remote tabs; prefetch toggle).
   (stall), it retries once with Android's standard networking. A 403 on standard networking switches back to Chrome's
   engine for that page load (many stream servers refuse non-Chrome clients; the checker always uses Chrome's engine,
   so a passing check then a 403 on refresh is the tell). A reconnect's fresh page load starts on Chrome's engine again.
+  **Split by host** (`SplitDataSource.kt`, pure logic in `NetRoute.kt`, `NetRouteTest`): `PlayerActivity.play` gives the
+  player one `SplitDataSourceFactory` (under `UnwrapDataSource`). Requests to the playlist's own host keep the captured
+  headers and the engine `useChromeNet` says; requests to any other host (video pieces from a CDN) get only Referer,
+  Origin, Accept-Language, the three low-detail `sec-ch-ua*` hints and a cross-site Sec-Fetch set if the capture had
+  one (`NetHeaders.forOtherHost`); Cookie, Authorization and every other captured header stay with the playlist host.
+  The `NetRoute` (kept while the source address stays the same) holds the playlist engine and a per-host engine for piece
+  hosts. Pieces read with a 30 s read timeout (connect stays 15 s so a dead host fails before the 20 s stall check);
+  playlists 15/15. A stall check that finds piece bytes arrived in the last 8 s waits 10 s and looks again (max 3 times,
+  line "No picture after 20s, but a video piece is still arriving (N bytes so far); waiting a little longer"): recover
+  only when no bytes come.
+  **Piece-only failures** (`PieceWatch`): for one host, pieces failed, none from it completed, and a playlist refresh
+  completed after the first failed piece began with no playlist failure since. Checked at the stall check (1 failure)
+  and when the player gives up with an error before the first picture. Steps, each once per host: (1) restart Chrome's
+  engine (`ChromeNet.reset`, off the main thread: a fresh engine with QUIC off built from the provider's builder, falling
+  back to the default builder; every user reads `ChromeNet.engine` per request so all pick it up; old one shut down 60 s
+  later; at most once per minute; "Video pieces keep timing out; restarting Chrome's network engine", then "Chrome's network
+  engine restarted (...)"); (2) the other engine for that host's pieces only ("Video pieces from <host> time out but the
+  playlist is fine; retrying the pieces with standard networking" / "...with Chrome's network engine"); (3) automatic
+  switch without reloading the page ("Video pieces still failing; switching to another source instead of reloading the
+  page"), else the normal reconnect. A 403 on a piece host's standard networking sends only that host's pieces back to
+  Chrome ("Video pieces from <host> refused standard networking; ...").
+  **Playlist gone**: when the media playlist answers 404/410 on 2 consecutive requests (no success between) after the
+  stream had played, `PlayerActivity` recovers at once (the normal order: reconnect, then automatic switch) instead of
+  waiting for the stall check or the timeout error; line "The stream's playlist is gone (server said 404); getting a
+  fresh one"; once per play (`goneHandled`), and the recovery releases the player so the later error never fires.
+  **Failed piece line** (max 4 per source): "  Piece from <host> failed (<engine>): no bytes after 15.0s | N bytes, first
+  after X s, failed at Y s[, server said NNN], <exception>". The protocol (h2/h3) is not exposed by Media3's Cronet data
+  source, so it is not logged.
+  **Refuses standard** (`ServerMemory`, per host, same 7 day expiry, JSON "rsAt"): set when a 403 hits standard
+  networking. Such a host never gets standard networking for its playlist (stall branches skip it, line "This server
+  refuses standard networking; not trying it") nor for its pieces, and a remembered "standard" engine is ignored for it.
+  Not yet tested on the TV.
 - **Expiring access codes.** If a playing source whose address has a query gets 403 after it had played fine,
   `PlayerActivity.renewAccess` quietly runs a light sniff of the same page (or the link player the source came
   from, `Source.playerUrl`), takes the verified source with the same address path (else any verified one) and
