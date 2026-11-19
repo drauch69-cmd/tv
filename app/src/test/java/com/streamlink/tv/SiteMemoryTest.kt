@@ -33,3 +33,17 @@ class SiteMemoryTest {
         assertNull(SiteMemory.key(""))
     }
 }
+
+class SiteMemoryOutcomeTest {
+    @Test fun missOnlyWhenNothingWasSeen() {
+        assertEquals(false, SiteMemory.outcome(false, false, found = false, candidateSeen = false, offline = false))
+        assertNull(SiteMemory.outcome(false, false, found = false, candidateSeen = true, offline = false))
+        assertNull(SiteMemory.outcome(false, false, found = false, candidateSeen = false, offline = true))
+    }
+    @Test fun foundClearsButNotFromLightOrReconnect() {
+        assertEquals(true, SiteMemory.outcome(false, false, found = true, candidateSeen = true, offline = false))
+        assertNull(SiteMemory.outcome(true, false, found = false, candidateSeen = false, offline = false))
+        assertNull(SiteMemory.outcome(false, true, found = false, candidateSeen = false, offline = false))
+        assertNull(SiteMemory.outcome(false, true, found = true, candidateSeen = true, offline = false))
+    }
+}

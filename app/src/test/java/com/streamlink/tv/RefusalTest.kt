@@ -95,3 +95,37 @@ class RefusalTest {
         )
     }
 }
+
+class CheckVerdictTest {
+    @Test fun twoGoneAnswersAreEnough() {
+        assertFalse(DeadStream.enough(listOf(404)))
+        assertFalse(DeadStream.enough(listOf(404, 0)))
+        assertTrue(DeadStream.enough(listOf(404, 410)))
+    }
+    @Test fun cutOffAfterAGoneAnswerIsOffline() {
+        assertEquals("server said 404 (not found)", DeadStream.cutOffNote(listOf(404)))
+        assertEquals("server said 404 (not found)", DeadStream.cutOffNote(listOf(0, 404)))
+        assertEquals(NoAnswer.TOO_SLOW, DeadStream.cutOffNote(emptyList()))
+        assertEquals(NoAnswer.TOO_SLOW, DeadStream.cutOffNote(listOf(0)))
+        assertEquals(NoAnswer.TOO_SLOW, DeadStream.cutOffNote(listOf(404, 403)))
+    }
+    @Test fun refusedSourceIsRecognised() {
+        val s = Source("u", emptyMap(), emptyList(), "l", false, verified = false, note = "server said 403; tried: a" + Refusal.REFUSED_MARK)
+        assertTrue(Refusal.isRefusedSource(s))
+        assertFalse(Refusal.isRefusedSource(s.copy(note = "server said 403; tried: a")))
+        assertFalse(Refusal.isRefusedSource(s.copy(verified = true)))
+    }
+    @Test fun statusOfPrefersRefusal() {
+        assertEquals(403, Refusal.statusOf(listOf(404, 403, 0)))
+        assertEquals(404, Refusal.statusOf(listOf(0, 404)))
+        assertEquals(0, Refusal.statusOf(listOf(0)))
+    }
+    @Test fun lifetimeSampleOnlyForPassOrRefusal() {
+        assertEquals(true, ServerMemory.lifetimeSample(true, 200))
+        assertEquals(false, ServerMemory.lifetimeSample(false, 403))
+        assertEquals(false, ServerMemory.lifetimeSample(false, 401))
+        assertNull(ServerMemory.lifetimeSample(false, 0))
+        assertNull(ServerMemory.lifetimeSample(false, 404))
+        assertNull(ServerMemory.lifetimeSample(false, 200))
+    }
+}

@@ -83,6 +83,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     /** Quiet run beside a playing stream (see [sniff], used by the access-code renewal): same page loader, but light (blocks all but playlists once one is seen). */
     @Volatile private var light = false
+    /** The current run's [sniff] useRemembered argument (false only for a reconnect's search; see [finish]). */
+    @Volatile private var useRememberedRun = true
     /** False for quiet runs (Prefetcher, the player's renew/reconnect): they never set Timing marks. Light runs never do either. */
     @Volatile var timed = true
     private fun tm(name: String) { if (timed && !light) Timing.mark(name) }
@@ -359,6 +361,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         this.lateExtras = lateExtras
         prechecked.clear()
         this.light = light
+        this.useRememberedRun = useRemembered
         askedUrl = url
         this.referer = referer
         lastReason = ""
@@ -438,8 +441,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val mins = (ageMs / 60_000L).coerceAtLeast(0)
             log("Trying the last address that worked (saved $mins min ago)…")
             val cand = StreamCandidate(first.url, first.headers, first.referers, first.label, first.isDefaultLink)
-            val checked = try { Verifier.quickCheck(cand, 3000L) { m -> log(m) } } catch (_: Exception) { null }
-            ServerMemory.recordAge(Report.host(first.url), ageMs, checked != null)
+            val qr = try { Verifier.quickCheckStatus(cand, 3000L) { m -> log(m) } } catch (_: Exception) { null }
+            val checked = qr?.source
+            ServerMemory.recordCheck(Report.host(first.url), ageMs, checked != null, qr?.status ?: 0)
             main.post {
                 if (checked == null) {
                     if (gen == generation) log("The last address no longer works; searching the page")
@@ -486,7 +490,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private fun finish(result: StreamSet) {
         if (done) return
-        if (!light) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
+        // A reconnect's search passes useRemembered = false (Prefetcher and normal searches use it): never a finder failure.
+        SiteMemory.outcome(light, reconnect = !useRememberedRun, found = result.sources.isNotEmpty(), candidateSeen = candidates.isNotEmpty(), offline = result.offline)
+            ?.let { SiteMemory.record(context, siteHost, found = it) }
         habitFinished(result)
         val cb = onResult
         cancelRun()
@@ -684,9 +690,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 val gone = sources.count { DeadStream.isGone(it) }
                 // No answer at all, even after Chrome's network engine was restarted: not played as an unchecked source either.
                 val silent = sources.count { NoAnswer.isFinal(it) }
-                val kept = if (gone > 0 || silent > 0) DeadStream.playable(sources).filter { !NoAnswer.isFinal(it) } else sources
-                val offline = gone > 0 && kept.isEmpty()
-                if (offline) { lastReason = "stream offline (server said 404)"; log(DeadStream.OFFLINE_LINE) }
+                // Every referer got a 403: the player would only retry the same refused requests. Treated like offline (other sources, else site player).
+                val refused = sources.count { Refusal.isRefusedSource(it) }
+                val kept = if (gone > 0 || silent > 0 || refused > 0) DeadStream.playable(sources).filter { !NoAnswer.isFinal(it) && !Refusal.isRefusedSource(it) } else sources
+                val offline = (gone > 0 || refused > 0) && kept.isEmpty()
+                if (offline && gone == 0) { lastReason = "stream refused (server said 403)"; log(Refusal.REFUSED_LINE) }
+                else if (offline) { lastReason = "stream offline (server said 404)"; log(DeadStream.OFFLINE_LINE) }
                 else if (silent > 0 && kept.isEmpty()) { lastReason = "no answer from the stream server"; log("The stream server gives no answer; not playing an unchecked stream") }
                 val set = result(kept).copy(pageUrl = page, offline = offline)
                 // Primary search that found a playable stream: one quick look for the page's own numbered addresses.

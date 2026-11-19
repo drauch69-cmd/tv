@@ -160,8 +160,8 @@ class BackupKeeper(
                 val first = prev.set.sources.firstOrNull() ?: return@thread
                 val age = System.currentTimeMillis() - prev.foundAt
                 if (age < ServerMemory.MIN_SAMPLE_AGE_MS) return@thread
-                val ok = try { Verifier.quickCheck(candidate(first), 3000L) { } != null } catch (_: Exception) { return@thread }
-                ServerMemory.recordAge(Report.host(first.url), age, ok)
+                val qr = try { Verifier.quickCheckStatus(candidate(first), 3000L) { } } catch (_: Exception) { return@thread }
+                ServerMemory.recordCheck(Report.host(first.url), age, qr.source != null, qr.status)
             }
         }
         sniffer.sniff(target, referer = referer, light = true, useRemembered = false) { found ->

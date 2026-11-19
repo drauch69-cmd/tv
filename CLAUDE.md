@@ -107,7 +107,7 @@ Playback pipeline:
    site player). The normal nudge/tap search then carries on with whatever player appears.
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
    being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
-   (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play.
+   (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play. A check stops after 2 answers of 404/410 (the rest would say the same); a check cut off by the 10 s limit is judged on the answers it already got (a slow 404 = gone, not "too slow"), and checks that finish after the ranking returned write no report lines. A source whose every referer got an HTTP refusal (401/403/451) is marked "; refused on every referer" (`Refusal.isRefusedSource`) and is never played (dropped like a gone source): a search with only such candidates is treated like offline (`StreamSet.offline`; other sites' streams through the automatic switch, else the site player), line "The stream server refuses this stream (server said 403 to every referer); not playing it". Not yet tested on the TV.
 4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
 5. **Extra sources.** Nothing runs in the background while playing (the old link run that pressed each source
@@ -159,7 +159,7 @@ Playback pipeline:
    restart, other engine) and playlist-gone are unchanged; the piece-only "switch source" step and the first recover() also try
    a fresh backup first. Access-code renewal still runs first for a 403 (unchanged).
    **Offline streams (404/410).** `Verifier.check` marks a candidate that got at least one 404/410 answer and no other HTTP answer (a fetch that threw or timed out counts for nothing either way: `DeadStream.goneVerdict`) as gone (`DeadStream`,
-   note "server said 404 (not found)"); `StreamSniffer` drops gone sources, so they are never played or fallen back to
+   note "server said 404 (not found)"); `StreamSniffer` drops gone sources (and refused ones, see Check), so they are never played or fallen back to
    (`LinkOrder.firstPlayable/nextPlayable`, `AutoSwitch.order` also skip them), and a search with only such candidates is "no
    stream" with `StreamSet.offline` and the line "The site's stream for this page is offline (server said 404)". The loading
    screen then tries the game's other-site streams through the automatic switch ("Stream offline; switching to <label> (<host>)",
@@ -211,7 +211,7 @@ Remote tabs; prefetch toggle).
 
 ## Key mechanisms
 
-- **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site, its search shortens to 15 s; the count is cleared
+- **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s; the count is cleared
   when the site player shows the page loaded a playlist the app can see. The early give-up on a
   player frame from another site (8 s after the first tap) was removed (f396b92): those players often need 10-15 s.
   `Prefetcher` gives
@@ -257,7 +257,7 @@ Remote tabs; prefetch toggle).
   frame, host `fh`). The Referer a request carried on its own (its initiator, often a tracker/pixel frame) and other sub-frame
   addresses are tried as before but never remembered. Candidates built elsewhere (backups, quick checks) remember nothing.
   **Address lifetime per server** (`ServerMemory` samples, JSON "life", max 12 per host, 7 days): each re-check of an address records
-  (age since found, ok/refused): the remembered-address shortcut, the keeper's re-check of its previous backup result, a playing
+  (age since found, ok/refused; a quick re-check that fails counts as refused only when it got a 401/403 answer, a timeout / non-live / ad-like / 404 records nothing: `ServerMemory.recordCheck`, `Verifier.quickCheckStatus`): the remembered-address shortcut, the keeper's re-check of its previous backup result, a playing
   address refused with 403 (fail) and one that played fine until the screen was left (ok). `lifetimeEstimate`: SHORT = at least 2
   refusals at an age of 20 s to 11 min and no success older than the youngest of them (oldest success below it, else half its age,
   is the max-ok age); LONG = a success of 10 min or more and no short failure; else unknown. The remembered-address shortcut is skipped
