@@ -214,8 +214,8 @@ Remote tabs; prefetch toggle).
   Matching is cheap and thread-safe: `ScoreMatch` keeps a small LRU (6) of prepared entries per games-list instance (names per team, answers per title), and `GameViews` (Games.kt; `ScoreFeed.forLeagues`) hands out the same filtered/windowed list instance per (source instance, filter), so screens and the home calculation no longer evict each other's cache.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Live now rules** (`ChannelFilter.kt`, `HomeFeed.liveRow(words = ...)`, `HomeModel`, phone "Live now" tab). The row is narrow.
-  It holds only (a) items matched to an NFL/college/NBA game (ESPN, through `ScoreStatus.gameFor`) that have not started
-  yet (Soon / Later; live matched games stay in "Live games", finished ones never show), and (b) channels whose title holds
+  It holds only (a) items matched to an NFL/college/NBA game (ESPN, through `ScoreStatus.gameFor`) that have not finished
+  yet or are live (finished ones never show; a live one already shown as a "Live games" card is skipped by `HomeModel`, so live games of tagged lists appear only there and live ones of untagged lists appear here), and (b) channels whose title holds
   one of the user's channel words. A *channel* is an entry whose title is not a matchup; `ChannelFilter.isMatchup` decides by
   structure only: a whole separator token (`vs`, `vs.`, `v`, `v.`, `versus`, `@`, `at`, any case) with a letter somewhere on
   both sides, as the list reader builds titles ("A vs B", "A at B"); hyphens do not count ("NBA TV - HD" is a channel).

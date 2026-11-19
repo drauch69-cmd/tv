@@ -18,7 +18,7 @@ object HomeFeed {
      * lists shows once.
      *
      * With [words] (the user's channel words) the row is narrow: only items matched to an NFL/college/NBA game that
-     * have not started yet (live matched games are shown in "Live games"), and channels (titles that are not
+     * are not finished (live ones too; HomeModel drops those already shown as a Live games card), and channels (titles that are not
      * two-sided) holding one of the words. Everything else is left out. [words] null = no narrowing.
      */
     fun liveRow(
@@ -33,7 +33,7 @@ object HomeFeed {
             if (words != null) {
                 val matched = ScoreStatus.gameFor(i, games) != null
                 if (!ChannelFilter.inLiveNow(ListText.displayTitle(i), matched, words)) continue
-                if (matched && r.status != ListStatus.SOON && r.status != ListStatus.UPCOMING) continue
+                if (matched && r.status == ListStatus.FINISHED) continue // live ones stay: HomeModel skips those already shown in Live games
             }
             all.add(Entry(l, r.item, r.status))
         }

@@ -96,17 +96,29 @@ class HomeFeedTest {
         assertEquals(listOf("NFL Network", "nba tv hd", "Giants at Commanders"), rows.map { it.item.title })
     }
 
-    @Test fun narrowLeavesLiveMatchedGamesToTheLiveGamesRow() {
+    @Test fun narrowKeepsLiveMatchedGamesSoTheyNeverVanish() {
         val a = SavedList("a", "A", "https://a.example")
         val items = listOf(item("Giants at Commanders", now - 20 * min), item("ESPN 2", null, live = true))
         val rows = HomeFeed.liveRow(listOf(a to items), now, games = listOf(game("1", now - 20 * min, "in")), words = words)
-        assertEquals(listOf("ESPN 2"), rows.map { it.item.title })
+        assertEquals(listOf("Giants at Commanders", "ESPN 2"), rows.map { it.item.title })
     }
 
     @Test fun narrowSkipsFinishedMatchedGames() {
         val a = SavedList("a", "A", "https://a.example")
         val rows = HomeFeed.liveRow(listOf(a to listOf(item("Giants at Commanders", now - 5 * hour))), now, games = listOf(game("1", now - 5 * hour, "post")), words = words)
         assertTrue(rows.isEmpty())
+    }
+
+    @Test fun liveMatchedGameInLiveGamesIsNotRepeatedButUntaggedOneShows() {
+        val tagged = SavedList("t", "T", "https://t.example", setOf("nfl"))
+        val untagged = SavedList("u", "U", "https://u.example")
+        val g = listOf(game("1", now - 20 * min, "in"))
+        fun cache(title: String, url: String) = CachedList(ListResult(url, "T", listOf(ListItem(title, "", url + "/g", now - 20 * min, "", "", false, null)), "automatic", null), now)
+        val z = java.time.ZoneId.of("UTC")
+        val m1 = HomeModel.build(listOf(tagged), mapOf("t" to cache("Giants at Commanders", "https://t.example")), g, now, z)
+        assertTrue(m1.liveRows.isEmpty())
+        val m2 = HomeModel.build(listOf(untagged), mapOf("u" to cache("Giants at Commanders", "https://u.example")), g, now, z)
+        assertEquals(listOf("Giants at Commanders"), m2.liveRows.map { it.item.title })
     }
 
     @Test fun noWordsMeansNoChannels() {
