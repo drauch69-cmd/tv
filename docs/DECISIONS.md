@@ -5,6 +5,19 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Review round after build 229** (user's go, 2026-11-19 13:18; on `sports`, compiled and unit-tested in CI, NOT tested
+  on the TV). Trigger: a broken CrackStreams stream (pieces 403, site's own player fails too) took ~3 min to give up.
+  Refused pieces now stop at once (no engine restart, no referer cycling, no reload of the same refused stream; other
+  sources, else site player; ~15 s); only page/player-frame referers are remembered. A fresh reviewer (read-only) then
+  found 15 interaction bugs; fixed as small changes: engine restart no longer kills a playing stream (downloaders rebuild
+  on the new engine; light/quiet runs never restart), old engine shutdown retried, mid-watch piece wedge gets the restart,
+  silence right after a restart is final; stuck renewal flag, recovery cancelled when leaving/switching, no double
+  recovery during a backup check, one empty reload then switch/site player, empty renewal tries backups first, backup
+  list excludes the playing address, stall wording; checks stop after 2 not-found answers and judge cut-off checks on
+  answers so far (slow 404 = offline), streams refused on every referer are not played (shown as offline on screen),
+  site memory misses only when nothing was seen, lifetime samples only for real refusals.
+  Deferred (bigger design, after TV confirmation): one failure classifier + one recovery ladder in the player; checking
+  one video piece in the Verifier before playing; a lease-based owner for the shared Chrome engine.
 - **Fixes after build 227 TV reports** (user's go, 2026-11-19 12:33; on `sports`, compiled and unit-tested in CI, NOT
   tested on the TV): offline verdict ignores fetches that threw (an off-air channel was played and reloaded 3x instead of
   "offline"); failed early checks are reused (no double check); when every check gets no answer on Chrome's engine (the
