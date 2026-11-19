@@ -10,7 +10,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   then the Onn's slow processor running the page; network speed matters least. Built: (1) one "Timing:" report line
   per play (page loaded / tapped / stream seen / checked / picture, path, first-browser cost); (2) last working
   address per page, re-checked in parallel with the page load (3 s limit), plays at once if still live; (3) per
-  stream server, the referer and network engine that worked are tried first. Next: the user plays 3-4 games
+  stream server, the referer and network engine that worked are tried first. Released as Sports build 211. Next: the user plays 3-4 games
   (reopen one) and sends reports; read the Timing lines.
 - **Speed plan, step 2 (waiting on step 1's timing reports):** site recipes learned automatically from successful
   searches (frame depth, source button by position, taps needed, ad-popup first tap, usual seconds), replayed on the

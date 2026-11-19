@@ -166,7 +166,8 @@ Remote tabs; prefetch toggle).
   networking sends the player back to Chrome). `PlayerActivity.applyRememberedEngine` (new link and reconnect): "standard"
   starts with standard networking ("Using standard networking for this server (it worked last time)"); "chrome" sets
   chromeForced ("Staying on Chrome's network engine for this server (it worked last time)"); if the remembered engine then
-  stalls or gets 403, it is forgotten and the normal fallbacks run. Not yet tested on the TV.
+  stalls or gets 403, it is forgotten and the other engine is tried once (remembered chrome -> standard; remembered
+  standard -> Chrome's engine, kept), then the normal recovery. Not yet tested on the TV.
 - **Unwrapping.** `UnwrapDataSource`: PNG header strip, pixel decoding, and `PngText` (iTXt/zTXt/tEXt notes ordered
   by the keyword's trailing number, joined, base64-decoded). A counter of undecodable segments triggers the
   site-player fallback.
