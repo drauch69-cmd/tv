@@ -5,7 +5,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **Backups while watching + parallel recovery + offline streams** (user's go, 2026-11-19 08:27/08:34; on `sports`,
+- **Backups while watching + parallel recovery + offline streams, Sports build 227** (user's go, 2026-11-19 08:27/08:34; on `sports`,
   compiled and unit-tested in CI, NOT tested on the TV): per-server address lifetime learning (SHORT/LONG/unknown);
   BackupKeeper refreshes up to 2 backups of the watched game (other-site entries first) with light quiet runs only while
   playback is healthy (>= 10 s ahead, or 60 s calm with >= 3 s ahead), every 10 min (long/unknown) or 2/3 of the learned
