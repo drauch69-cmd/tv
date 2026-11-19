@@ -24,6 +24,7 @@ object Report {
         blockedHosts.clear()
         t0 = System.currentTimeMillis()
         link = url
+        Timing.start()
         SampleRecorder.reset()
     }
 

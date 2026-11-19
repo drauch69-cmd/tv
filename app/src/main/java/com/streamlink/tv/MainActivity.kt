@@ -345,6 +345,7 @@ class MainActivity : Activity() {
         sniffer.sniff(url) { set ->
             if (set.sources.isEmpty()) {
                 setStatus("No direct stream on $site, showing the site's own player")
+                Timing.emit(Timing.PATH_SITE_PLAYER)
                 startActivity(SitePlayerActivity.intent(this, set.pageUrl))
             } else {
                 Session.current = set
