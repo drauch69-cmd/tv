@@ -11,7 +11,7 @@ data class Switcher(
     val iw: Float,
 )
 
-/** Pure helpers for the alternate-links phase of [StreamSniffer] (kept apart so they run on the JVM). */
+/** Pure helpers for the page's source buttons (see [SourcePress]) and the Source list (kept apart so they run on the JVM). */
 object LinkOrder {
     const val MAX_LINKS = 8
     private const val MAX_LABEL = 24
@@ -38,25 +38,6 @@ object LinkOrder {
         return Switcher(n, active, labels, xs, ys, (o["iw"] as? Double)?.toFloat() ?: 0f)
     }
 
-    /** Log line for a "find" answer with no usable row of links: whether the player box was seen, and the page's reason. */
-    internal fun noLinksLine(raw: String?): String {
-        val o: Map<*, *>? = try {
-            val first = MiniJson.parse(raw ?: "null")
-            (if (first is String) MiniJson.parse(first) else first) as? Map<*, *>
-        } catch (_: Exception) {
-            null
-        }
-        if (o == null) return "no link buttons found next to the player (player box: unknown; no answer from the page)"
-        val why = o["why"] as? String ?: ""
-        val box = if (why == "no player box") "no" else "yes"
-        val reason = when {
-            o["found"] == true -> "${(o["labels"] as? List<*>)?.size ?: 0} items, need 2 to $MAX_LINKS"
-            why.isNotEmpty() -> why
-            else -> "no reason given"
-        }
-        return "no link buttons found next to the player (player box: $box; $reason)"
-    }
-
     /** Text from the page for display only: whitespace collapsed, shortened. */
     fun cleanLabel(raw: String): String {
         val t = raw.replace(Regex("\\s+"), " ").trim()
@@ -67,30 +48,6 @@ object LinkOrder {
     fun sourceLabel(linkLabel: String, host: String, kind: String, responded: Boolean): String =
         (if (linkLabel.isNotBlank()) linkLabel else host) + " · " + kind + (if (responded) "" else " · didn't respond")
 
-    /** "<link label> · site player": the Source entry of a link whose player gave no verified stream. */
-    fun openPageLabel(linkLabel: String, host: String): String =
-        (if (linkLabel.isNotBlank()) linkLabel else host) + " · site player"
-
-    /** [label] made distinct among the labels already in the Source list: "X", "X (2)", "X (3)". */
-    fun distinctLabel(label: String, existing: List<String>): String {
-        if (label !in existing) return label
-        var n = 2
-        while ("$label ($n)" in existing) n++
-        return "$label ($n)"
-    }
-
-    /**
-     * The "open page" entry for a link player whose light sniff gave [verifiedCount] verified streams, or null when
-     * it gave some (those are added as normal sources) or the player address is not a real http(s) page.
-     */
-    fun openPageEntry(linkLabel: String, playerUrl: String, verifiedCount: Int, existingLabels: List<String>): Source? {
-        if (verifiedCount > 0) return null
-        if (!(playerUrl.startsWith("http://") || playerUrl.startsWith("https://"))) return null
-        val label = distinctLabel(openPageLabel(linkLabel, hostOf(playerUrl) ?: ""), existingLabels)
-        return Source(playerUrl, emptyMap(), emptyList(), label, isDefaultLink = false, verified = false,
-            note = "opens as its own page", playerUrl = playerUrl, openPage = true)
-    }
-
     /** Index of the first source that can be played directly (not an "open page" entry), or null. */
     fun firstPlayable(sources: List<Source>): Int? = sources.indexOfFirst { !it.openPage }.takeIf { it >= 0 }
 
@@ -100,35 +57,6 @@ object LinkOrder {
 
     /** Whether the access-code renewal may run for this source: only real streams that came with a signed address. */
     fun canRenew(src: Source): Boolean = !src.openPage
-
-    private fun hostOf(url: String): String? = try { java.net.URI(url).host?.lowercase() } catch (_: Exception) { null }
-
-    private fun noFragment(url: String) = url.substringBefore('#')
-
-    /** A frame URL worth recording as a link's player: a real page of a non-ad host, other than [previous]. */
-    fun isNewPlayerFrame(url: String, previous: String): Boolean {
-        if (!(url.startsWith("http://") || url.startsWith("https://"))) return false
-        val host = hostOf(url) ?: return false
-        if (AdBlock.isBlockedHost(host)) return false
-        return previous.isEmpty() || noFragment(url) != noFragment(previous)
-    }
-
-    /** Players of the alternate links still worth opening on their own: no ad hosts, no repeats, not the default's own frame. */
-    fun playersToOpen(defaultPlayer: String, players: List<Pair<String, String>>, max: Int = MAX_LINKS): List<Pair<String, String>> {
-        val seen = HashSet<String>()
-        if (defaultPlayer.isNotEmpty()) seen.add(noFragment(defaultPlayer))
-        val out = ArrayList<Pair<String, String>>()
-        for (p in players) {
-            if (out.size >= max) break
-            if (!isNewPlayerFrame(p.second, "")) continue
-            if (!seen.add(noFragment(p.second))) continue
-            out.add(p)
-        }
-        return out
-    }
-
-    /** The next link still to try (lowest index not tried yet), or null when all were. */
-    fun nextToTry(count: Int, tried: Set<Int>): Int? = (0 until count).firstOrNull { it !in tried }
 
     /** Keeps the ranking, except that the first (default) link's stream goes first when it is good. */
     fun <T> defaultFirst(ranked: List<T>, isGoodDefault: (T) -> Boolean): List<T> {
@@ -149,48 +77,4 @@ object LinkOrder {
             }
         }
     }
-
-    /**
-     * Adds sources found by the background link run to the ones already there: the stream the player has
-     * (same URL, or same host and path; or the run's own copy of the default link) is dropped, the rest is
-     * appended after the existing ones, so the playing source's index never changes.
-     */
-    fun mergeExtra(existing: List<Source>, extra: List<Source>, max: Int = 8): List<Source> {
-        val seen = HashSet<String>()
-        existing.forEach { seen.add(it.url); seen.add(hostPath(it.url)) }
-        val out = ArrayList(existing)
-        for (e in extra) {
-            if (out.size >= max) break
-            if (e.isDefaultLink || e.url in seen || hostPath(e.url) in seen) continue
-            seen.add(e.url); seen.add(hostPath(e.url))
-            out.add(e.copy(isDefaultLink = false))
-        }
-        return out
-    }
-
-    private fun hostPath(url: String): String {
-        val u = url.substringBefore('#').substringBefore('?')
-        return u.substringAfter("://").lowercase()
-    }
-
-    enum class Gate { START, WAIT, GIVE_UP }
-
-    const val LINKS_FIRST_CHECK_MS = 10_000L
-    const val LINKS_RECHECK_MS = 3_000L
-    const val LINKS_GIVE_UP_MS = 90_000L
-    const val LINKS_QUIET_MS = 10_000L
-
-    /**
-     * Background run gate: [sinceStartMs] since "Playback started", [sinceStallMs] since the last stall
-     * (null = none). Starts once playback is 10 s old and has had no stall for 10 s; buffer level is irrelevant.
-     */
-    fun gate(sinceStartMs: Long, sinceStallMs: Long?): Gate = when {
-        sinceStartMs >= LINKS_FIRST_CHECK_MS && (sinceStallMs == null || sinceStallMs >= LINKS_QUIET_MS) -> Gate.START
-        sinceStartMs >= LINKS_GIVE_UP_MS -> Gate.GIVE_UP
-        else -> Gate.WAIT
-    }
-
-    /** Only a stream that came from a web page, and that has no alternatives yet, gets the background run. */
-    fun wantsLinkRun(pageUrl: String, sourceCount: Int): Boolean =
-        (pageUrl.startsWith("http://") || pageUrl.startsWith("https://")) && sourceCount < 2
 }

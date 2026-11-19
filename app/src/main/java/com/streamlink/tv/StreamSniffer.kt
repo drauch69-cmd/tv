@@ -47,10 +47,6 @@ data class Source(
 data class StreamSet(
     val pageUrl: String,
     val sources: List<Source>,
-    /** Links mode only: (link label, player frame URL) of each alternate link whose click swapped in a new player. */
-    val linkPlayers: List<Pair<String, String>> = emptyList(),
-    /** Links mode only: the player frame the page showed by default (so it can be skipped), or "". */
-    val defaultPlayer: String = "",
     /** Why nothing was found, when the sniffer knows (display/log only). */
     val reason: String = "",
 )
@@ -79,14 +75,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private val main = Handler(Looper.getMainLooper())
 
-    /** Background link finder (see [sniff]): a light hidden page, and only summary lines in the report, prefixed "Links: ". */
-    @Volatile private var linksMode = false
-    /** Per-player run for an alternate link (see PlayerActivity): same page loader, but light (blocks all but playlists once one is seen). */
+    /** Quiet run beside a playing stream (see [sniff], used by the access-code renewal): same page loader, but light (blocks all but playlists once one is seen). */
     @Volatile private var light = false
     @Volatile private var playlistSeen = false
     private var lastReason = ""
-    private fun log(m: String) { if (!linksMode) Report.log(if (light) "Links: · $m" else m) }
-    private fun linkLog(m: String) = Report.log(if (linksMode) "Links: $m" else m)
+    private fun log(m: String) = Report.log(if (light) "Links: · $m" else m)
     private var webView: WebView? = null
     private var client: SafeWebViewClient? = null
     private var done = true
@@ -115,37 +108,16 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var timeoutMs = TIMEOUT_MS
     private var siteHost = ""
 
-    // Alternate stream links ("Link 1 / Link 2 ..." buttons next to the player), see assets/source-switch.js.
-    private var linkState = 0 // 0 = not looked yet, 1 = looking for the row, 2 = trying the links, 3 = done
-    private var switcher: Switcher? = null
-    private val linkTried = HashSet<Int>()
-    private var linkCurrent = -1
-    private var linkClickedAt = 0L
-    private var linkFrameAt = 0L
-    private var linkDeadline = 0L
-    private var linkLoadedSinceClick = false
-    private var linkTapped = false
-    private var linkGot = 0
-    // The goal of a click is the new player frame (see nextLink). onFrame may run off the main thread.
-    @Volatile private var linkWatch = false
-    @Volatile private var linkNewFrame: String? = null
-    @Volatile private var linkPrevPlayer = ""
-    private var linkTapDone = false
-    private val linkPlayers = ArrayList<Pair<String, String>>()
-    private var defaultPlayer = ""
     private var referer: String? = null
-    private var curLabel = ""
-    private var curDefault = true
     private var runStartedAt = 0L
-    /** Page HTML for the stream-page snapshot (see [beginLinks]); null until the snapshot script answers. */
+    /** Page HTML for the stream-page snapshot; null until the snapshot script answers. */
     private var streamHtml: String? = null
 
     private val timeout = Runnable {
         if (done || verifying) return@Runnable
         if (candidates.isEmpty()) {
             lastReason = "no video stream found within ${timeoutMs / 1000}s"
-            if (linksMode) linkLog("the page showed no stream within ${timeoutMs / 1000}s")
-            else log("No video stream found within ${timeoutMs / 1000}s")
+            log("No video stream found within ${timeoutMs / 1000}s")
             val wv = webView
             if (!light && wv != null) {
                 // Snapshot what the page showed for "Save sample", then finish (2 s at most).
@@ -156,7 +128,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 try {
                     wv.evaluateJavascript(IndexReader.SNAP_JS) { raw ->
                         streamHtml = try { if (raw == null || raw == "null") "" else org.json.JSONTokener(raw).nextValue() as? String ?: "" } catch (_: Exception) { "" }
-                        if (gen == generation) streamSnapshot(wv, if (linksMode) "links search: no stream" else "player search: no stream within ${timeoutMs / 1000}s" + playerNote())
+                        if (gen == generation) streamSnapshot(wv, "player search: no stream within ${timeoutMs / 1000}s" + playerNote())
                         main.removeCallbacks(end)
                         end.run()
                     }
@@ -171,11 +143,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             verifyAndFinish()
         }
     }
-    /** The first stream was seen and had a moment to be joined by its siblings: look for alternate links, then check. */
-    private val collect = Runnable { if (linksMode) beginLinks() else verifyAndFinish() }
-    private val linkTick = object : Runnable {
-        override fun run() { linkStep() }
-    }
+    /** The first stream was seen and had a moment to be joined by its siblings: check them. */
+    private val collect = Runnable { verifyAndFinish() }
     private val settle = object : Runnable {
         override fun run() {
             if (done || verifying || clickPhase != 1) return
@@ -200,7 +169,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     private fun pressSource() {
         val wv = webView ?: return
-        if (done || verifying || linksMode || light || clickRef != null || sourcePresses >= MAX_SOURCE_PRESSES) return
+        if (done || verifying || light || clickRef != null || sourcePresses >= MAX_SOURCE_PRESSES) return
         if (candidates.isNotEmpty() || playlistSeen) return
         // A real player (video or frame) is on the page: the normal nudge and tap search carries on with it.
         if (playerX > 0 && playerKind != "box") return
@@ -235,15 +204,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         }
 
     /**
-     * [collectLinks]: also click the page's alternate-link buttons and return their streams. Only for the
-     * background run beside a playing stream: the page is kept light (no playback, no media segments).
-     * [referer]: sent with the first request (a player URL opened on its own; the stream page it came from).
-     * [light]: a per-player run for an alternate link: the page's site memory is left alone, the time is
+     * [referer]: sent with the first request (a page opened from another page's Source list; the page it came from), or null.
+     * [light]: a quiet run (access-code renewal): the page's site memory is left alone, the time is
      * [LIGHT_TIMEOUT_MS], and once a playlist is seen everything else is blocked. Players may still start.
      */
-    fun sniff(url: String, collectLinks: Boolean = false, referer: String? = null, light: Boolean = false, callback: (StreamSet) -> Unit) {
+    fun sniff(url: String, referer: String? = null, light: Boolean = false, callback: (StreamSet) -> Unit) {
         cancel()
-        linksMode = collectLinks
         this.light = light
         this.referer = referer
         lastReason = ""
@@ -253,7 +219,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val target = ref?.pageUrl ?: ClickRef.pagePart(url) // the page itself, without any "#sl-click=" fragment
         if (isStreamUrl(target) || target.lowercase().substringBefore('?').endsWith(".mp4")) {
             log("Link is a video file itself; playing it directly")
-            if (linksMode) linkLog("done in ${runSecs()}s")
             callback(StreamSet(target, listOf(Source(target, emptyMap(), listOf(""), Report.host(target)))))
             return
         }
@@ -267,7 +232,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         clickSig = null
         clickUnchanged = 0
         siteHost = Report.host(target)
-        resetLinks()
         val base = if (light) LIGHT_TIMEOUT_MS else if (SiteMemory.shouldShorten(context, siteHost)) {
             log("The stream wasn't found on this site the last ${SiteMemory.fails(context, siteHost)} times; looking for ${SiteMemory.SHORT_TIMEOUT_MS / 1000} s only")
             SiteMemory.SHORT_TIMEOUT_MS
@@ -309,7 +273,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
-        main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         main.removeCallbacks(sourceStep)
@@ -321,12 +284,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private fun runSecs(): String = String.format(java.util.Locale.US, "%.1f", (SystemClock.uptimeMillis() - runStartedAt) / 1000.0)
 
     private fun result(sources: List<Source>) =
-        StreamSet(currentPage(), sources, linkPlayers.toList(), defaultPlayer, if (sources.isEmpty()) lastReason else "")
+        StreamSet(currentPage(), sources, if (sources.isEmpty()) lastReason else "")
 
     private fun finish(result: StreamSet) {
         if (done) return
-        if (!linksMode && !light) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
-        if (linksMode) linkLog("done in ${runSecs()}s")
+        if (!light) SiteMemory.record(context, siteHost, found = result.sources.isNotEmpty())
         val cb = onResult
         cancel()
         cb?.invoke(result)
@@ -386,7 +348,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val dropped = candidates.entries.filter { it.value.embedded && StreamUrls.sameStream(it.value.url, url) }.map { it.key }
             for (k in dropped) candidates.remove(k)
         }
-        candidates[url] = StreamCandidate(url, headers, referers, curLabel, curDefault, embedded, possible)
+        candidates[url] = StreamCandidate(url, headers, referers, "", true, embedded, possible)
         if (possible) {
             // Not a stream yet: no wait is started and playlistSeen stays as it is. A quick content check decides.
             log("Found a possible playlist: ${Report.host(url)}/… (checking its content)")
@@ -405,7 +367,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     /** After a stream (not a mere possible playlist) was added: start the short wait for siblings, or the wait for the player's own request. */
     private fun scheduleCollect(embedded: Boolean) {
-        if (linkState != 0) return
         val direct = candidates.values.count { !it.embedded && !it.possible }
         if (!embedded && direct == 1) {
             // The first real request: the usual short wait for siblings (replaces any longer wait for one).
@@ -424,7 +385,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
      */
     private fun checkPossible(c: StreamCandidate) {
         val gen = generation
-        val link = linkCurrent
         thread(isDaemon = true, name = "possible-check") {
             val ok = try {
                 Verifier.confirmPossible(c) { m -> log(m) }
@@ -441,7 +401,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 }
                 candidates[c.url] = cur.copy(possible = false)
                 log("The possible playlist is a playlist; using it as a stream")
-                if (link == linkCurrent) playlistSeen = true
+                playlistSeen = true
                 scheduleCollect(false)
             }
         }
@@ -453,7 +413,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         main.removeCallbacks(timeout)
         main.removeCallbacks(nudger)
         main.removeCallbacks(collect)
-        main.removeCallbacks(linkTick)
         main.removeCallbacks(settle)
         main.removeCallbacks(tapRow)
         main.removeCallbacks(sourceStep)
@@ -475,9 +434,52 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val sources = if (maybe.isEmpty()) raw else raw.filter { it.verified || it.url !in maybe }
             main.post {
                 if (gen != generation || done) return@post // cancelled meanwhile
-                verifying = false
-                finish(result(sources).copy(pageUrl = page))
+                val set = result(sources).copy(pageUrl = page)
+                // Primary search that found a playable stream: one quick look for the page's own numbered addresses.
+                // (verifying stays true meanwhile, so nothing else restarts the check.)
+                if (!light && clickRef == null && sources.any { it.verified }) readPageSources(gen, page, set)
+                else { verifying = false; finish(set) }
             }
+        }
+    }
+
+    /**
+     * Once per primary search, at its end: runs assets/page-sources.js on the (still loaded) page and adds the numbered
+     * addresses it finds to [set] as "open page" entries. One script run, 1.3 s at most; any failure just means none.
+     */
+    private fun readPageSources(gen: Int, page: String, set: StreamSet) {
+        val wv = webView
+        val script = try { loadAsset(context, "page-sources.js") } catch (e: Exception) { null }
+        var ended = false
+        fun end(found: List<PageSources.Found>) {
+            if (ended || gen != generation || done) return
+            ended = true
+            val extra = PageSources.toSources(page, found, set.sources.map { it.url }.toSet())
+            log("Page sources: ${extra.size} numbered address(es) on this page")
+            verifying = false
+            finish(if (extra.isEmpty()) set else set.copy(sources = set.sources + extra))
+        }
+        if (wv == null || script == null) { end(emptyList()); return }
+        main.postDelayed({ end(emptyList()) }, PAGE_SOURCES_MAX_MS)
+        fun read(triesLeft: Int) {
+            if (ended || gen != generation || done) return
+            try {
+                wv.evaluateJavascript("($script)('read')") { raw ->
+                    val found = PageSources.parse(raw)
+                    when {
+                        found != null -> end(found)
+                        triesLeft > 0 -> main.postDelayed({ read(triesLeft - 1) }, PAGE_SOURCES_READ_MS)
+                    }
+                }
+            } catch (_: Exception) {
+                end(emptyList())
+            }
+        }
+        try {
+            wv.evaluateJavascript("($script)('start')", null)
+            main.postDelayed({ read(1) }, PAGE_SOURCES_READ_MS)
+        } catch (_: Exception) {
+            end(emptyList())
         }
     }
 
@@ -508,7 +510,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     client = null
                     SafeWeb.dispose(view)
                     if (done) return@post
-                    linkLog("The hidden browser was shut down by the system" + if (didCrash) " (it crashed)" else " (low memory)")
+                    log("The hidden browser was shut down by the system" + if (didCrash) " (it crashed)" else " (low memory)")
                     lastReason = "web view crashed"
                     finish(result(emptyList()))
                 }
@@ -516,7 +518,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
             override fun onFrame(url: String) {
                 if (!AdBlock.isBlockedHost(Report.host(url))) frameUrls.add(url)
-                if (linkWatch && linkNewFrame == null && LinkOrder.isNewPlayerFrame(url, linkPrevPlayer)) linkNewFrame = url
             }
 
             override fun onResource(request: WebResourceRequest) {
@@ -554,12 +555,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             }
 
             override fun blockResource(request: WebResourceRequest): Boolean =
-                // Once a playlist is known, nothing else is needed (until the next link click): block
-                // all but playlists (also video pieces disguised as pictures, which have no video extension).
-                (linksMode || light) && playlistSeen && !isStreamUrl(request.url.toString())
+                // Once a playlist is known, nothing else is needed: block all but playlists
+                // (also video pieces disguised as pictures, which have no video extension).
+                light && playlistSeen && !isStreamUrl(request.url.toString())
 
             override fun onLoaded() {
-                if (linkState == 2) linkLoadedSinceClick = true
                 if (clickRef != null && clickPhase == 0) {
                     // list page of a click-only event: let it settle, then click the row (nudging first could tap another row)
                     clickPhase = 1
@@ -567,7 +567,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     main.postDelayed(settle, 1000)
                     return
                 }
-                if (!sourceScheduled && !linksMode && !light && clickRef == null) {
+                if (!sourceScheduled && !light && clickRef == null) {
                     sourceScheduled = true
                     main.postDelayed(sourceStep, SOURCE_FIRST_MS)
                 }
@@ -712,62 +712,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var playerX = -1f
     private var playerY = -1f
 
-    /** Background run without a switcher: nothing to add, skip checking the stream the player already has. */
-    private fun finishEmpty() = finish(result(emptyList()))
-
-    private fun resetLinks() {
-        main.removeCallbacks(linkTick)
-        linkState = 0
-        linkWatch = false
-        linkNewFrame = null
-        linkPrevPlayer = ""
-        linkPlayers.clear()
-        defaultPlayer = ""
-        switcher = null
-        linkTried.clear()
-        linkCurrent = -1
-        linkGot = 0
-        curLabel = ""
-        curDefault = true
-    }
-
-    /** First stream seen: look for a row of alternate links next to the player; none (or not usable) means check what we have. */
-    private fun beginLinks() {
-        if (done || verifying) return
-        val wv = webView
-        if (linkState != 0 || wv == null) { finishEmpty(); return }
-        val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { finishEmpty(); return }
-        linkState = 1
-        val gen = generation
-        // The page snapshot for "Save sample" is queued before "find", so its answer is in by the time "find" answers.
-        streamHtml = null
-        try {
-            wv.evaluateJavascript(IndexReader.SNAP_JS) { raw ->
-                if (gen != generation) return@evaluateJavascript
-                streamHtml = try { if (raw == null || raw == "null") "" else org.json.JSONTokener(raw).nextValue() as? String ?: "" } catch (_: Exception) { "" }
-            }
-        } catch (_: Exception) {
-        }
-        wv.evaluateJavascript("($script)('find')") { raw ->
-            if (done || verifying || gen != generation) return@evaluateJavascript
-            val sw = LinkOrder.parseFind(raw)
-            streamSnapshot(wv, if (sw != null) "${sw.count} links" else "no link buttons")
-            if (sw == null) {
-                linkState = 3
-                linkLog(LinkOrder.noLinksLine(raw))
-                finishEmpty()
-                return@evaluateJavascript
-            }
-            startLinks(sw)
-        }
-    }
-
     private fun playerNote(): String = when {
         playerX <= 0 -> ", no player seen"
         else -> ", player: $playerKind${if (playerForeign) " from another site" else ""}, tapped $playerTaps time(s)"
     }
 
-    /** Keeps the stream page for "Save sample": picture now, HTML from [streamHtml]. Never blocks the link phase. */
+    /** Keeps the stream page for "Save sample": picture now, HTML from [streamHtml]. */
     private fun streamSnapshot(wv: WebView, note: String) {
         try {
             val image = try { picture(wv) } catch (_: Throwable) { null }
@@ -790,134 +740,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
         bmp.recycle()
         return out.toByteArray()
-    }
-
-    private fun startLinks(sw: Switcher) {
-        switcher = sw
-        linkState = 2
-        val active = if (sw.active >= 0) (sw.active + 1).toString() else "unknown"
-        linkLog("Found ${sw.count} stream links on the page (active: $active): " + sw.labels.joinToString(" | ") { it.take(30) })
-        if (sw.active >= 0) {
-            linkTried.add(sw.active)
-            val activeLabel = sw.labels[sw.active]
-            for ((u, c) in candidates.entries.toList()) if (c.isDefault && c.linkLabel.isEmpty()) candidates[u] = c.copy(linkLabel = activeLabel)
-        }
-        defaultPlayer = synchronized(frameUrls) { frameUrls.lastOrNull() } ?: ""
-        linkPrevPlayer = defaultPlayer
-        linkDeadline = SystemClock.uptimeMillis() + LINK_TOTAL_MS
-        // The link phase brings its own time; this only guards against it hanging.
-        main.removeCallbacks(timeout)
-        main.postDelayed(timeout, LINK_TOTAL_MS + 3_000)  // backstop: 3 s over the link-phase cap
-        nextLink()
-    }
-
-    private fun nextLink() {
-        if (done || verifying || linkState != 2) return
-        val sw = switcher
-        val wv = webView
-        val idx = if (sw == null) null else LinkOrder.nextToTry(sw.count, linkTried)
-        if (sw == null || wv == null || idx == null || SystemClock.uptimeMillis() > linkDeadline - LINK_MIN_LEFT_MS) {
-            endLinks()
-            return
-        }
-        val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { endLinks(); return }
-        linkTried.add(idx)
-        playlistSeen = false
-        linkCurrent = idx
-        curLabel = sw.labels[idx]
-        curDefault = false
-        linkFrameAt = 0L
-        linkLoadedSinceClick = false
-        linkTapped = false
-        linkTapDone = false
-        linkNewFrame = null
-        linkWatch = true
-        linkClickedAt = SystemClock.uptimeMillis()
-        val gen = generation
-        wv.evaluateJavascript("($script)('click $idx')") { raw ->
-            if (done || verifying || gen != generation || linkState != 2) return@evaluateJavascript
-            val ok = try {
-                val first = MiniJson.parse(raw ?: "null")
-                ((if (first is String) MiniJson.parse(first) else first) as? Map<*, *>)?.get("ok") == true
-            } catch (_: Exception) { false }
-            if (!ok) {
-                linkLog("Could not click link ${idx + 1}")
-                main.post { nextLink() }
-            } else {
-                main.postDelayed(linkTick, LINK_TICK_MS)
-            }
-        }
-    }
-
-    /** Every 300 ms while a clicked link is given its chance to swap in a new player frame. */
-    private fun linkStep() {
-        if (done || verifying || linkState != 2) return
-        val now = SystemClock.uptimeMillis()
-        val gotPlayer = linkNewFrame != null
-        if (gotPlayer && linkFrameAt == 0L) linkFrameAt = now
-        // A short grace after the frame, so a playlist the page asks for right away is kept too.
-        val finished = (gotPlayer && now - linkFrameAt >= LINK_GRACE_MS) || now - linkClickedAt >= LINK_WAIT_MS || now >= linkDeadline
-        if (!finished) {
-            if (!gotPlayer && !linkTapped && !linkLoadedSinceClick && now - linkClickedAt >= LINK_TAP_AFTER_MS) {
-                linkTapped = true
-                tapLink(linkCurrent)
-            }
-            main.postDelayed(linkTick, LINK_TICK_MS)
-            return
-        }
-        linkWatch = false
-        val frame = linkNewFrame
-        val label = curLabel.ifEmpty { "no label" }
-        if (frame != null) {
-            linkGot++
-            linkPlayers.add(curLabel.ifEmpty { "Link ${linkCurrent + 1}" } to frame)
-            linkPrevPlayer = frame
-            linkLog("Link ${linkCurrent + 1} ($label): player ${Report.host(frame)}")
-        } else {
-            linkLog("Link ${linkCurrent + 1} ($label): no new player")
-        }
-        if (linkLoadedSinceClick) refindAfterLoad() else nextLink()
-    }
-
-    /** The click opened another page of the site: find the row again on it (same number of links) and go on. */
-    private fun refindAfterLoad() {
-        val wv = webView
-        val script = try { loadAsset(context, "source-switch.js") } catch (e: Exception) { null }
-        if (wv == null || script == null) { endLinks(); return }
-        val gen = generation
-        wv.evaluateJavascript("($script)('find')") { raw ->
-            if (done || verifying || gen != generation || linkState != 2) return@evaluateJavascript
-            val sw = LinkOrder.parseFind(raw)
-            if (sw == null || sw.count != switcher?.count) {
-                log("The links changed after opening another page; stopping there")
-                endLinks()
-            } else {
-                switcher = sw
-                nextLink()
-            }
-        }
-    }
-
-    private fun tapLink(i: Int) {
-        val wv = webView ?: return
-        val sw = switcher ?: return
-        if (i !in 0 until sw.count || sw.iw <= 0f || wv.width <= 0) return
-        val scale = wv.width / sw.iw
-        val x = sw.xs[i] * scale
-        val y = sw.ys[i] * scale
-        if (x <= 0f || y <= 0f || y >= wv.height) return
-        linkLog("The click showed no new player; tapping link ${i + 1}")
-        linkTapDone = true
-        tap(wv, x, y)
-    }
-
-    private fun endLinks() {
-        linkState = 3
-        main.removeCallbacks(linkTick)
-        linkWatch = false
-        val n = (switcher?.count ?: 1) - 1
-        linkLog("Tried the other links: $linkGot of $n gave a new player")
-        verifyAndFinish()
     }
 
     private fun tap(view: WebView, x: Float, y: Float) {
@@ -967,25 +789,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         private const val MAX_POSSIBLES = 4
         /** Separate budget for possibles found by repeating (see [RepeatWatch]). */
         private const val MAX_REPEAT_POSSIBLES = 6
-        private val SEGMENT_EXTENSIONS = listOf(".ts", ".m4s", ".aac", ".mp4", ".m4a", ".m4v", ".mp3", ".webm", ".cmfv", ".cmfa", ".fmp4")
 
-        /** A media segment (not a playlist): the background link finder never downloads these. */
-        fun isSegmentUrl(url: String): Boolean {
-            if (isStreamUrl(url)) return false
-            val path = url.lowercase().substringBefore('?').substringBefore('#')
-            return SEGMENT_EXTENSIONS.any { path.endsWith(it) }
-        }
-
-        /** Alternate links: the most time they may add in total, how long to wait for each, and the pause after a new stream appears. */
-        const val LINK_TOTAL_MS = 35_000L
-        /** How long a clicked link is given to swap in a new player frame. */
-        private const val LINK_WAIT_MS = 6_000L
-        /** Time for one per-player run ([sniff] with light = true). */
+        /** Page sources: first read of the script's answer, and the hard stop for the whole step. */
+        private const val PAGE_SOURCES_READ_MS = 450L
+        private const val PAGE_SOURCES_MAX_MS = 1_300L
+        /** Time for one light run ([sniff] with light = true). */
         const val LIGHT_TIMEOUT_MS = 25_000L
-        private const val LINK_GRACE_MS = 900L
-        private const val LINK_TAP_AFTER_MS = 3_500L
-        private const val LINK_TICK_MS = 300L
-        private const val LINK_MIN_LEFT_MS = 2_500L
 
         fun isStreamUrl(url: String): Boolean = StreamUrls.classify(url).first
 
