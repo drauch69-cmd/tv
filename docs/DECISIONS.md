@@ -9,6 +9,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
   other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old
   tracker referer stays remembered until its 7-day expiry (harmless).
+- **Build 234 on the TV (19:48), ~6 h uptime:** NFL game on ntv played at 9.7 s, no engine wedge after ~6 h open (the
+  wedge earlier showed after ~3.5 h on build 227); "Other sites: 6 stream(s)" offered as backups. Seen: the ntv list's
+  start time read as "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff (the site's time is likely UTC with no label; ESPN
+  status still governs Live) -- open, not yet looked at.
 - **Build 234 on the TV (13:50), off-air channel:** offline verdict at 15.6 s (was a 90 s reload loop). Fixed in Sports build 235 (user's
   go 13:59, NOT tested on the TV): a channel (no start time) gives up on the first offline verdict instead of searching
   again (~30 s saved); an offline/refused stream no longer counts as a learned-habit miss (the habit was wrongly dropped).
