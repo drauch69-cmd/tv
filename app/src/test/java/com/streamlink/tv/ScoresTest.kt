@@ -244,6 +244,21 @@ class ScoresTest {
         assertEquals("Tip-off", ScoreText.cardLines(pre)[1].substringBefore(' '))
     }
 
+    @Test fun collegeBasketballHalvesAndOvertime() {
+        val json = feed(jEvent("601", "2026-11-20T03:00Z", "in", "8:42 - 2nd Half",
+            jTeam("away", "Manhattan Jaspers", "Jaspers", "MAN", "Manhattan", "Jaspers", "51", "2-1") + "," +
+                jTeam("home", "Miami Hurricanes", "Hurricanes", "MIA", "Miami", "Hurricanes", "60", "3-0")))
+        val g = ScoreParse.parse(json, "cbb").single().copy(period = 2, clock = "8:42")
+        assertEquals("cbb", g.league)
+        // "2nd Half" in ESPN's text is play, not the break
+        assertEquals("MAN 51 – MIA 60 · H2 8:42", ScoreText.rowLine(g))
+        assertEquals("MAN 51 – MIA 60 · H1 3:10", ScoreText.rowLine(g.copy(period = 1, clock = "3:10", shortDetail = "3:10 - 1st Half")))
+        assertEquals("MAN 51 – MIA 60 · Half", ScoreText.rowLine(g.copy(shortDetail = "Halftime", period = 1, clock = "0.0")))
+        assertEquals("MAN 51 – MIA 60 · OT 1:05", ScoreText.rowLine(g.copy(period = 3, clock = "1:05", shortDetail = "1:05 - OT")))
+        assertEquals("MAN 51 – MIA 60 · 2OT 0:30", ScoreText.rowLine(g.copy(period = 4, clock = "0:30", shortDetail = "0:30 - 2OT")))
+        assertEquals("Tip-off", ScoreText.cardLines(g.copy(state = "pre", period = 0))[1].substringBefore(' '))
+    }
+
     @Test fun nbaTeamNamesMatch() {
         val games = listOf(game("n1", "nba", bos, lalS), game("n2", "nba", den, lacS))
         assertEquals("n1", ScoreMatch.find("Lakers vs Celtics", base, games)?.id)

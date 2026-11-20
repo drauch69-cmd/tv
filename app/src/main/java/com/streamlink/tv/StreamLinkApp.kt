@@ -7,6 +7,7 @@ class StreamLinkApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ServerMemory.init(this)
+        OfflineMarks.init(this)
         CrashRecorder.install(this)
         CrashRecorder.reportLast(this)
     }

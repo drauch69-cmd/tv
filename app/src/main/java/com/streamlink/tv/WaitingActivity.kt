@@ -164,6 +164,7 @@ class WaitingActivity : Activity() {
         handedOff = true
         main.removeCallbacksAndMessages(null)
         Report.log("Check #$checkCount: stream found, starting the player")
+        OfflineMarks.clear(item.url)
         Session.current = set
         AppStatus.text = "Playing ${ListText.displayTitle(item)}"
         if (auto) android.widget.Toast.makeText(applicationContext, "Switched to ${item.title}", android.widget.Toast.LENGTH_LONG).show()
@@ -177,6 +178,12 @@ class WaitingActivity : Activity() {
         lastCheckAt = now
         lastResult = why
         logCheck(why)
+        if (offline && (item.startMillis ?: 0L) <= now) {
+            // dead at the source after its start time (before it, a dead stream just means "not up yet"):
+            // shown as "Offline" in lists and kept out of the Live rows for a while
+            OfflineMarks.mark(item.url, now)
+            Report.log("Marked \"${ListText.displayTitle(item)}\" Offline for ${OfflineMarks.MARK_MS / 60_000} min (lists and Live rows skip it)")
+        }
         // No start time (often an always-on channel, not a scheduled event): one quick retry, then the
         // site's own player instead of re-checking every 45 s for hours.
         // A link's own page never waits: no stream on the first try goes straight to the site player.
@@ -204,7 +211,7 @@ class WaitingActivity : Activity() {
         main.removeCallbacksAndMessages(null)
         Timing.emit(Timing.PATH_SITE_PLAYER)
         AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
-        startActivity(SitePlayerActivity.intent(this, pageUrl, referer))
+        startActivity(SitePlayerActivity.intent(this, pageUrl, referer, itemUrl = item.url))
         finish()
     }
 

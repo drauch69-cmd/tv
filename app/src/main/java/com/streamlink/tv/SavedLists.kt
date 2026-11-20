@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * [sports] holds any of "nfl", "cfb", "nba" (empty = no sport); see [Sports]. One index page can mix leagues.
+ * [sports] holds any of "nfl", "cfb", "nba", "cbb" (empty = no sport); see [Sports]. One index page can mix leagues.
  * [rank]: the user's ranking of lists, 1 = best; null = unranked (see [Ranking]). Ranked lists' streams come first.
  */
 data class SavedList(
@@ -72,9 +72,10 @@ object Sports {
     const val NFL = "nfl"
     const val CFB = "cfb"
     const val NBA = "nba"
+    const val CBB = "cbb"
     /** Allowed non-empty values, in display order. */
-    val ALL = listOf(NFL, CFB, NBA)
-    fun label(sport: String): String = when (sport) { NFL -> "NFL"; CFB -> "College football"; NBA -> "NBA"; else -> "" }
+    val ALL = listOf(NFL, CFB, NBA, CBB)
+    fun label(sport: String): String = when (sport) { NFL -> "NFL"; CFB -> "College football"; NBA -> "NBA"; CBB -> "College basketball"; else -> "" }
     /** Unknown values read as "" (no sport). */
     fun clean(raw: String?): String = raw?.trim()?.lowercase()?.takeIf { it in ALL } ?: ""
     /** Cleans every value, drops unknown ones and returns the rest in [ALL] order. */

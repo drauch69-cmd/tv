@@ -140,14 +140,17 @@ object AlwaysOn {
 /** Live games for the home screen. */
 object LiveGames {
     /**
-     * Live games that have at least one stream: NFL games first (user, 2026-11-19), then the other sports; within
-     * each, earliest start first, college before NBA as a tiebreak.
+     * Live games that have at least one stream, by sport (user, 2026-11-19): NFL, college football, NBA, then college
+     * basketball; within a sport, earliest start first.
      */
     fun sample(folders: List<SportFolders>, max: Int = 8): List<GameFolder> =
         folders.flatMap { it.games }
             .filter { it.game.state == "in" && it.streams.isNotEmpty() }
-            .sortedWith(compareBy<GameFolder>({ if (it.game.league == "nfl") 0 else 1 }, { it.game.startMillis }, { when (it.game.league) { "nfl" -> 0; "cfb" -> 1; else -> 2 } }))
+            .sortedWith(compareBy<GameFolder>({ leaguePriority(it.game.league) }, { it.game.startMillis }))
             .take(max)
+
+    /** Sport order for live games: NFL, college football, NBA, college basketball, anything else. */
+    fun leaguePriority(league: String): Int = when (league) { "nfl" -> 0; "cfb" -> 1; "nba" -> 2; "cbb" -> 3; else -> 4 }
 
     /** NFL games live right now (any streams or not). RedZone only airs when several are on at once. */
     fun nflLiveCount(games: List<Game>): Int = games.count { it.league == "nfl" && it.state == "in" }

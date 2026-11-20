@@ -60,7 +60,7 @@ object ChannelFilter {
     fun isRedZone(title: String): Boolean = isChannel(title) && matchesWords(title, REDZONE)
 
     /**
-     * Whether an item belongs on the phone's Live now tab: it matched an NFL/CFB/NBA game (ESPN decides), or it is
+     * Whether an item belongs on the phone's Live now tab: it matched an NFL/CFB/NBA/college basketball game (ESPN decides), or it is
      * RedZone.
      */
     fun inLiveNow(title: String, matchedGame: Boolean): Boolean = matchedGame || isRedZone(title)

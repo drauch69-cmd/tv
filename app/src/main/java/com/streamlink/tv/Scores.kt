@@ -24,10 +24,10 @@ data class TeamSide(
     val record: String,
 )
 
-/** One NFL, college football or NBA game from ESPN's scoreboard. */
+/** One NFL, college football, NBA or college basketball game from ESPN's scoreboard. */
 data class Game(
     val id: String,
-    val league: String,       // "nfl" | "cfb" | "nba"
+    val league: String,       // "nfl" | "cfb" | "nba" | "cbb"
     val startMillis: Long,
     val state: String,        // "pre" | "in" | "post"
     val shortDetail: String,  // "Final", "Q3 - 8:42", "Halftime", "11/22 - 7:15 PM EST"
@@ -305,7 +305,8 @@ object ScoreText {
     private fun name(s: TeamSide) = s.shortName.ifBlank { s.displayName }
     private fun pts(s: TeamSide) = s.score.ifBlank { "0" }
 
-    private fun isHalf(g: Game) = g.shortDetail.contains("half", ignoreCase = true)
+    // College basketball plays in halves, so ESPN's live text reads "12:34 - 2nd Half": only "Halftime" is the break there.
+    private fun isHalf(g: Game) = g.shortDetail.contains(if (g.league == "cbb") "halftime" else "half", ignoreCase = true)
 
     /** "Q3 8:42" built from period and clock (ESPN's own text reads "8:42 - 3rd"); its text for breaks and delays. */
     private fun liveStatus(g: Game, sep: String): String {
@@ -313,6 +314,12 @@ object ScoreText {
         return when {
             isHalf(g) -> if (sep == " ") "Half" else "Halftime"
             d.contains("end", ignoreCase = true) || d.contains("delay", ignoreCase = true) -> d
+            // College basketball: two halves (H1, H2), then OT, 2OT...
+            g.league == "cbb" && g.period in 1..2 -> "H${g.period}$sep${g.clock}".trimEnd(' ', '·')
+            g.league == "cbb" && g.period > 2 -> {
+                val ot = g.period - 2
+                "${if (ot == 1) "OT" else "${ot}OT"}$sep${g.clock}".trimEnd(' ', '·')
+            }
             g.period in 1..4 -> "Q${g.period}$sep${g.clock}".trimEnd(' ', '·')
             g.league == "nba" && g.period > 4 -> {
                 // NBA: 4 quarters, then OT, 2OT, 3OT...
@@ -357,7 +364,7 @@ object ScoreText {
         } else {
             fun side(s: TeamSide) = if (s.record.isBlank()) name(s) else "${name(s)} (${s.record})"
             out.add("${side(g.away)} at ${side(g.home)}")
-            out.add((if (g.league == "nba") "Tip-off " else "Kickoff ") + KICKOFF.format(java.time.Instant.ofEpochMilli(g.startMillis).atZone(zone)))
+            out.add((if (g.league == "nba" || g.league == "cbb") "Tip-off " else "Kickoff ") + KICKOFF.format(java.time.Instant.ofEpochMilli(g.startMillis).atZone(zone)))
             if (g.broadcast.isNotBlank()) out.add(g.broadcast)
         }
         return out
@@ -374,7 +381,7 @@ object ScoreFeed {
     private const val IDLE_MS = 5 * 60_000L
     private const val BACKOFF_MS = 2 * 60_000L
     private const val FUTURE_MS = 30 * 60_000L
-    private val LEAGUES = listOf("nfl", "cfb", "nba")
+    private val LEAGUES = listOf("nfl", "cfb", "nba", "cbb")
     private val NY = ZoneId.of("America/New_York")
     private val DAY = DateTimeFormatter.ofPattern("yyyyMMdd")
 
@@ -483,7 +490,8 @@ object ScoreFeed {
                 val n = after.count { it.league == "nfl" }
                 val c = after.count { it.league == "cfb" }
                 val b = after.count { it.league == "nba" }
-                Report.logOnce("scores-count-$n-$c-$b", "Scores: $n NFL, $c college and $b NBA games over 3 days")
+                val cb = after.count { it.league == "cbb" }
+                Report.logOnce("scores-count-$n-$c-$b-$cb", "Scores: $n NFL, $c college football, $b NBA and $cb college basketball games over 3 days")
             }
         }
         t.isDaemon = true
@@ -507,7 +515,7 @@ object ScoreFeed {
         return out
     }
 
-    private val LABEL = mapOf("nfl" to "NFL", "cfb" to "college", "nba" to "NBA")
+    private val LABEL = mapOf("nfl" to "NFL", "cfb" to "college", "nba" to "NBA", "cbb" to "college bb")
     private val CLOCK = DateTimeFormatter.ofPattern("h:mm:ss a")
     private val timings = ArrayDeque<String>()
 
@@ -588,6 +596,8 @@ object ScoreFeed {
     private fun url(league: String, date: String) =
         if (league == "nfl") "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?dates=$date"
         else if (league == "nba") "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=$date"
+        // all Division I games (groups=50); a busy day has 150+
+        else if (league == "cbb") "https://site.api.espn.com/apis/site/v2/sports/basketball/mens-college-basketball/scoreboard?dates=$date&groups=50&limit=500"
         else "https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates=$date&groups=80&limit=300"
 
     private fun download(address: String): String {

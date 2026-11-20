@@ -239,7 +239,8 @@ Remote tabs; prefetch toggle).
   4 s). Nothing pressed = no delay; retry paths never press again; a press that changes the address is not repeated.
   Category tabs are never pressed (an index's default view usually shows every category). Not yet tested on the TV.
 - **Live scores** (`Scores.kt`). On the list screen, `ScoreFeed` fetches ESPN's unofficial scoreboard for NFL,
-  college football (all FBS games: `groups=80`) and the NBA for today in New York time (also yesterday before 5 am), every 30 s
+  college football (all FBS games: `groups=80`), the NBA and men's college basketball (league "cbb", all Division I:
+  `groups=50&limit=500`; halves read H1/H2, then OT, 2OT; only "Halftime" is the break) for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. The next two days are fetched too
   (schedule for the sports folders), cached separately and refreshed at most every 30 min; a failure there never
   discards today's data. `ScoreFeed.latest()` returns all of it (3 days), merged by game id. `ScoreMatch` matches a list title to
@@ -250,6 +251,13 @@ Remote tabs; prefetch toggle).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
   Matching is cheap and thread-safe: `ScoreMatch` keeps a small LRU (6) of prepared entries per games-list instance (names per team, answers per title), and `GameViews` (Games.kt; `ScoreFeed.forLeagues`) hands out the same filtered/windowed list instance per (source instance, filter), so screens and the home calculation no longer evict each other's cache.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
+- **Live games order** (user, 2026-11-19): by sport, NFL, college football, NBA, college basketball
+  (`LiveGames.leaguePriority`), then earliest start. College basketball has its own Sports tile and phone chip.
+- **Offline marks** (`Offline.kt`, user 2026-11-19). When the loading screen's check finds an event's stream dead at the
+  source (`StreamSet.offline`: gone or refused on every referer) after its start time, `OfflineMarks` marks it for 15 min
+  (kept in prefs): `ScoreStatus.resolve` then gives Finished with badge "Offline" everywhere (lists, Live rows, phone, game
+  folders, automatic switching). A found stream (`WaitingActivity.found`) or video playing in the site player clears it.
+  Report line: `Marked "<title>" Offline for 15 min …`. Not yet tested on the TV.
 - **Live games rules** (user, 2026-11-19; `LiveGames.sample`, `HomeFeed.redZone`, `ChannelFilter`, `HomeModel`). The home
   "Live now" row and the user's channel-word list (`LiveWords`, `/livenow/words`, the phone editor) were removed. Home shows
   one "Live games" row: (1) an NFL RedZone card first, while it airs: the first list item (best-ranked list first)

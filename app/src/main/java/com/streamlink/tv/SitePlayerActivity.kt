@@ -37,6 +37,7 @@ class SitePlayerActivity : Activity() {
 
     companion object {
         private const val EXTRA_URL = "url"
+        private const val EXTRA_ITEM_URL = "itemUrl"
         private const val EXTRA_REFERER = "referer"
 
         /**
@@ -66,9 +67,15 @@ class SitePlayerActivity : Activity() {
             })();
         """
 
-        /** [referer]: the page the link came from (a link's player page is opened claiming it, as when it is embedded). */
-        fun intent(ctx: Context, url: String, referer: String? = null): Intent =
-            Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url).apply { if (referer != null) putExtra(EXTRA_REFERER, referer) }
+        /**
+         * [referer]: the page the link came from (a link's player page is opened claiming it, as when it is embedded).
+         * [itemUrl]: the list event's own address, whose "Offline" mark ([OfflineMarks]) is cleared once video plays.
+         */
+        fun intent(ctx: Context, url: String, referer: String? = null, itemUrl: String? = null): Intent =
+            Intent(ctx, SitePlayerActivity::class.java).putExtra(EXTRA_URL, url).apply {
+                if (referer != null) putExtra(EXTRA_REFERER, referer)
+                if (itemUrl != null) putExtra(EXTRA_ITEM_URL, itemUrl)
+            }
 
         /**
          * Pick the part of the page most likely to be the video player and make it fill the screen.
@@ -432,6 +439,8 @@ class SitePlayerActivity : Activity() {
                     val g = VIDEO_LINE.find(t)
                     if (g != null && !videoPlaying) {
                         videoPlaying = true
+                        // it plays after all: the event is not offline
+                        OfflineMarks.clear(intent.getStringExtra(EXTRA_URL)); OfflineMarks.clear(intent.getStringExtra(EXTRA_ITEM_URL))
                         val (w, h) = g.destructured
                         Report.log("Site player: video is playing" + if (w != "0") " (${w}×$h)" else "")
                         main.postDelayed(playlistVerdict, 10_000L)

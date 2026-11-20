@@ -235,7 +235,9 @@ class GamesTest {
     @Test fun nbaSportAndFolders() {
         assertEquals("nba", Sports.clean(" NBA "))
         assertEquals("NBA", Sports.label("nba"))
-        assertEquals(listOf("nfl", "cfb", "nba"), Sports.ALL)
+        assertEquals(listOf("nfl", "cfb", "nba", "cbb"), Sports.ALL)
+        assertEquals("College basketball", Sports.label("cbb"))
+        assertEquals("cbb", Sports.clean("CBB"))
         val lal = ts("Los Angeles Lakers", "Lakers", "LAL", "Los Angeles", "Lakers")
         val bos = ts("Boston Celtics", "Celtics", "BOS", "Boston", "Celtics")
         val g = game("b1", bos, lal, at("2026-11-19T20:00:00Z"), league = "nba")
@@ -249,6 +251,19 @@ class GamesTest {
             SportFolders("cfb", listOf(folder(l3, "https://x/c")), emptyList()),
             SportFolders("nfl", listOf(folder(l2, "https://x/n")), emptyList())))
         assertEquals(listOf("nfl-same", "cfb-same", "b2"), order.map { it.game.id })
+    }
+
+    @Test fun liveGamesSportOrderNflCollegeFootballNbaCollegeBasketball() {
+        val nba = game("nba-early", bos, lal, at("2026-11-19T10:00:00Z"), "in", "nba")
+        val cbb = game("cbb-earliest", osu, mich, at("2026-11-19T09:00:00Z"), "in", "cbb")
+        val cfb = game("cfb-late", chi, det, at("2026-11-19T14:00:00Z"), "in", "cfb")
+        val nfl = game("nfl-late", wsh, nyg, at("2026-11-19T15:00:00Z"), "in")
+        val order = LiveGames.sample(listOf(
+            SportFolders("cbb", listOf(folder(cbb, "https://x/cb")), emptyList()),
+            SportFolders("nba", listOf(folder(nba, "https://x/b")), emptyList()),
+            SportFolders("cfb", listOf(folder(cfb, "https://x/c")), emptyList()),
+            SportFolders("nfl", listOf(folder(nfl, "https://x/n")), emptyList())))
+        assertEquals(listOf("nfl-late", "cfb-late", "nba-early", "cbb-earliest"), order.map { it.game.id })
     }
 
     @Test fun otherKeepsOnlyTwoSidedTitles() {

@@ -196,7 +196,7 @@
     return e;
   }
   // Sport toggle chips: any combination, none = no sport. The group's value is "nfl,cfb".
-  var SPORTS = [['nfl', 'NFL'], ['cfb', 'College football'], ['nba', 'NBA']];
+  var SPORTS = [['nfl', 'NFL'], ['cfb', 'College football'], ['nba', 'NBA'], ['cbb', 'College basketball']];
   function chipValue(g){
     var v = [];
     Array.prototype.forEach.call(g.children, function(b){ if (b.getAttribute('data-sport') && b.getAttribute('aria-pressed') === 'true') v.push(b.getAttribute('data-sport')); });

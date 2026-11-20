@@ -100,6 +100,12 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   ~1 s); pre-finding only the single most likely game (big gain, memory cost); a PC-side finder (addresses may be
   tied to the browser/session that found them).
 
+- **College basketball + Offline marks** (2026-11-19, Sports): built, unit-tested in CI; NOT tested on the TV. Check:
+  tag a list "College basketball" on the phone; a live college game shows H1/H2 scores and ESPN decides its Live/Final;
+  the Live games row orders NFL, college football, NBA, college basketball; an event whose stream is dead shows
+  "Offline" for 15 min (report line "Marked … Offline"). Not done: "Started" instead of "Live" for unchecked sports
+  (option C, not chosen).
+
 - **Ranked lists** (2026-11-19, Sports): built, unit-tested in CI, phone picker checked in headless Chrome; NOT tested
   on the TV. Check: the phone Lists tab "Rank" picker; tiles and game rows show "#N"; streams in rank order.
 
@@ -248,6 +254,10 @@ Reminder: lay out options and get a "go" before starting any of these.
   panel = this page's playable sources, its own numbered addresses (`?source=N`-style, read from the page), and other
   sites' streams for the same game. A stream that goes down switches automatically (after reconnects fail, max 3 per
   watch, dead sources skipped for 5 min). No blind `?source=N` guessing on pages that don't show it.
+- **College basketball** (user, 2026-11-19): ESPN scores, its own Sports tile; lowest in the Live games row
+  (NFL, college football, NBA, college basketball).
+- **Offline marks** (user, 2026-11-19): an event whose stream is dead at the source after its start shows "Offline" and
+  leaves the Live rows for 15 min, so it isn't picked again; opening it still searches.
 - **Ranked lists** (user, 2026-11-19, replaces "one preferred list"): each saved list can have a rank (#1 best);
   streams follow it everywhere (game screens, home rows, 24/7, phone Live now, the player's other-site sources and
   automatic backup switching). Unranked lists come after all ranked ones, in saved order; new lists start unranked; a

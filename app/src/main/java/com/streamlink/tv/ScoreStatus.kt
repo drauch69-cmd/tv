@@ -27,7 +27,19 @@ object ScoreStatus {
         if (games.isEmpty()) null
         else try { ScoreMatch.find(ListText.displayTitle(item), item.startMillis, games) } catch (_: Exception) { null }
 
-    fun resolve(item: ListItem, now: Long, games: List<Game> = ScoreFeed.latest()): Resolved {
+    /**
+     * [offline]: whether the item's stream was found dead at the source a short while ago ([OfflineMarks]); such an item
+     * is Finished with badge "Offline", whatever the clock or ESPN says, so it drops out of the Live rows until the mark ends.
+     */
+    fun resolve(
+        item: ListItem, now: Long, games: List<Game> = ScoreFeed.latest(),
+        offline: (String) -> Boolean = { OfflineMarks.isOffline(it, now) },
+    ): Resolved {
+        val r = resolveScores(item, now, games)
+        return if (offline(item.url)) Resolved(r.item, ListStatus.FINISHED, OfflineMarks.BADGE) else r
+    }
+
+    private fun resolveScores(item: ListItem, now: Long, games: List<Game>): Resolved {
         val g = gameFor(item, games) ?: return Resolved(item, ListStatus.byTime(item, now), null)
         val moved = if (item.startMillis == g.startMillis) item else item.copy(startMillis = g.startMillis)
         cancelLabel(g)?.let { return Resolved(moved, ListStatus.FINISHED, it) }
