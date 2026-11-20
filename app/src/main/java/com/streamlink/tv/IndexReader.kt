@@ -807,6 +807,8 @@ object ListRecipes {
         val live: String? = null,
         /** Time zone for times the page writes with no zone label ("zone": "UTC"); labelled times still win. */
         val zone: ZoneId? = null,
+        /** What to do on this site's stream pages right after they load (a learned habit copied from a report, "habit"). */
+        val habit: SiteHabits.Habit? = null,
     ) {
         /** The JSON handed to list-extract.js. */
         fun toJson(): String {
@@ -820,7 +822,7 @@ object ListRecipes {
 
     private fun normHost(h: String?): String = (h ?: "").trim().lowercase().removePrefix("www.").trimEnd('.')
 
-    /** Reads recipes.json text; bad JSON gives an empty list; entries need "host" plus "item" or a valid "zone", others are skipped. Never throws. */
+    /** Reads recipes.json text; bad JSON gives an empty list; entries need "host" plus "item", a valid "zone" or a valid "habit"; others are skipped. Never throws. */
     fun parse(json: String): List<Recipe> {
         val sites = try { (MiniJson.parse(json) as? Map<*, *>)?.get("sites") as? List<*> } catch (_: Exception) { null } ?: return emptyList()
         val out = ArrayList<Recipe>()
@@ -829,9 +831,10 @@ object ListRecipes {
             val host = normHost(m["host"] as? String)
             val item = (m["item"] as? String)?.trim()?.ifEmpty { null }
             val zone = zoneOf(m["zone"] as? String)
-            if (host.isEmpty() || (item == null && zone == null)) continue
+            val habit = SiteHabits.fromRecipe(m["habit"] as? Map<*, *>)
+            if (host.isEmpty() || (item == null && zone == null && habit == null)) continue
             fun opt(k: String) = (m[k] as? String)?.trim()?.ifEmpty { null }
-            out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live"), zone))
+            out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live"), zone, habit))
         }
         return out
     }
@@ -860,19 +863,7 @@ object ListRecipes {
         val at = prefs.getLong(KEY_AT, 0L)
         val now = System.currentTimeMillis()
         if (cached != null) {
-            if (!(now - at in 0 until REFRESH_MS) && refreshing.compareAndSet(false, true)) {
-                thread(name = "recipes-refresh") {
-                    try {
-                        val fresh = try { download() } catch (e: Exception) {
-                            Report.logOnce("recipes-fail", "List: could not refresh recipes (${describeFailure(e)}); using the saved copy")
-                            null
-                        }
-                        if (fresh != null) prefs.edit().putString(KEY, fresh).putLong(KEY_AT, System.currentTimeMillis()).apply()
-                    } finally {
-                        refreshing.set(false)
-                    }
-                }
-            }
+            if (!(now - at in 0 until REFRESH_MS)) refreshInBackground(prefs)
             return parse(cached)
         }
         var why = ""
@@ -883,6 +874,41 @@ object ListRecipes {
         }
         Report.logOnce("recipes-fail", "List: could not refresh recipes ($why); using ${if (cached != null) "the saved copy" else "none"}")
         return if (cached != null) parse(cached) else emptyList()
+    }
+
+    @Volatile private var savedText: String? = null
+    @Volatile private var savedParsed: List<Recipe> = emptyList()
+
+    /**
+     * The saved copy, parsed (kept until the text changes), without ever waiting for the network: for the stream finder.
+     * Starts a background refresh when the copy is missing or over [REFRESH_MS] old. Safe on the main thread.
+     */
+    fun saved(context: Context): List<Recipe> {
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val text = prefs.getString(KEY, null)
+        val at = prefs.getLong(KEY_AT, 0L)
+        if (text == null || !(System.currentTimeMillis() - at in 0 until REFRESH_MS)) refreshInBackground(prefs)
+        if (text == null) return emptyList()
+        if (text != savedText) {
+            savedParsed = parse(text)
+            savedText = text
+        }
+        return savedParsed
+    }
+
+    private fun refreshInBackground(prefs: android.content.SharedPreferences) {
+        if (!refreshing.compareAndSet(false, true)) return
+        thread(name = "recipes-refresh") {
+            try {
+                val fresh = try { download() } catch (e: Exception) {
+                    Report.logOnce("recipes-fail", "Recipes: could not refresh (${describeFailure(e)}); using the saved copy")
+                    null
+                }
+                if (fresh != null) prefs.edit().putString(KEY, fresh).putLong(KEY_AT, System.currentTimeMillis()).apply()
+            } finally {
+                refreshing.set(false)
+            }
+        }
     }
 
     /** Short reason for the log: "HTTP 404", or the exception's class and message. */

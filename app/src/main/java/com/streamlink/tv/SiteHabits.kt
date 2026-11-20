@@ -36,6 +36,8 @@ object SiteHabits {
         val secs: Float,
         val misses: Int,
         val at: Long,
+        /** From the shipped recipes.json (hand-copied), not learned on this TV. */
+        val shipped: Boolean = false,
     ) {
         val hasTap get() = tapKind.isNotEmpty() && taps > 0
         val hasSource get() = srcIndex >= 0 && srcCount > 0
@@ -83,6 +85,60 @@ object SiteHabits {
         )
     }
 
+    /**
+     * The habit to use: the learned one when usable, else the shipped recipe's (unless it missed [DROP_AFTER_MISSES]
+     * times since the app started, [shippedMisses]). A shipped habit never expires.
+     */
+    internal fun pick(learned: Habit?, shipped: Habit?, shippedMisses: Int, now: Long): Habit? {
+        if (usable(learned, now)) return learned
+        if (shipped == null || shippedMisses >= DROP_AFTER_MISSES || !(shipped.hasTap || shipped.hasSource)) return null
+        return shipped.copy(misses = 0, at = now, shipped = true)
+    }
+
+    /**
+     * One recipes.json "sites" entry holding [h] for [host], ready to copy into the shipped file:
+     * {"host":"…","habit":{"tap":"player","x":0.52,"y":0.41,"taps":1,"button":2,"buttons":4,"secs":6.5}}.
+     * "button" counts from 1. Positions are fractions of the hidden browser's size.
+     */
+    internal fun recipeLine(host: String, h: Habit): String {
+        val parts = ArrayList<String>()
+        if (h.hasTap) {
+            parts += "\"tap\":\"${h.tapKind}\""
+            parts += "\"x\":" + String.format(java.util.Locale.US, "%.3f", h.fx)
+            parts += "\"y\":" + String.format(java.util.Locale.US, "%.3f", h.fy)
+            parts += "\"taps\":${h.taps}"
+        }
+        if (h.hasSource) {
+            parts += "\"button\":${h.srcIndex + 1}"
+            parts += "\"buttons\":${h.srcCount}"
+        }
+        parts += "\"secs\":" + String.format(java.util.Locale.US, "%.1f", h.secs)
+        val k = key(host) ?: host
+        return "{\"host\":\"$k\",\"habit\":{" + parts.joinToString(",") + "}}"
+    }
+
+    /**
+     * A recipes.json "habit" block as a habit, or null when it holds neither a valid tap (tap "player"/"page", x and y
+     * strictly between 0 and 1) nor a valid source button (1 <= button <= buttons). Never throws.
+     */
+    internal fun fromRecipe(m: Map<*, *>?): Habit? {
+        m ?: return null
+        val kind = (m["tap"] as? String)?.trim()?.lowercase().orEmpty()
+        val x = (m["x"] as? Number)?.toFloat()
+        val y = (m["y"] as? Number)?.toFloat()
+        val taps = (m["taps"] as? Number)?.toInt() ?: 1
+        val tapOk = (kind == KIND_PLAYER || kind == KIND_PAGE) && x != null && y != null && x > 0f && x < 1f && y > 0f && y < 1f && taps >= 1
+        val button = (m["button"] as? Number)?.toInt() ?: 0
+        val buttons = (m["buttons"] as? Number)?.toInt() ?: 0
+        val srcOk = button >= 1 && buttons >= button
+        if (!tapOk && !srcOk) return null
+        val secs = ((m["secs"] as? Number)?.toFloat() ?: 10f).coerceIn(0f, 120f)
+        return Habit(
+            if (tapOk) kind else "", if (tapOk) x!! else 0f, if (tapOk) y!! else 0f, if (tapOk) (if (taps >= 2) 2 else 1) else 0,
+            if (srcOk) button - 1 else -1, if (srcOk) buttons else 0, secs, 0, 0L, shipped = true,
+        )
+    }
+
     internal fun usable(h: Habit?, now: Long): Boolean = h != null && now - h.at < EXPIRE_MS && (h.hasTap || h.hasSource)
 
     /** The remembered source button may be pressed only when the page shows the same number of buttons as when it was learned. */
@@ -120,10 +176,15 @@ object SiteHabits {
 
     // ---- storage ----
 
+    /** Misses of shipped habits since the app started, per host (the shipped file itself cannot be changed here). */
+    private val shippedMisses = HashMap<String, Int>()
+
+    /** The learned habit for [host], else the shipped recipe's (saved recipes copy only, never waits for the network). */
     fun get(ctx: Context, host: String?): Habit? {
         val k = key(host) ?: return null
-        val h = load(ctx)[k]
-        return if (usable(h, System.currentTimeMillis())) h else null
+        val shipped = try { ListRecipes.match(ListRecipes.saved(ctx), k)?.habit } catch (_: Exception) { null }
+        val misses = synchronized(shippedMisses) { shippedMisses[k] ?: 0 }
+        return pick(load(ctx)[k], shipped, misses, System.currentTimeMillis())
     }
 
     /** Remember [h] for [host] (replaces what was there, misses start again). */
@@ -148,7 +209,11 @@ object SiteHabits {
         val k = key(host) ?: return false
         val now = System.currentTimeMillis()
         val all = load(ctx)
-        val cur = all[k] ?: return false
+        val cur = all[k] ?: run {
+            // no learned habit: it was the shipped one that missed
+            val n = synchronized(shippedMisses) { ((shippedMisses[k] ?: 0) + 1).also { shippedMisses[k] = it } }
+            return n >= DROP_AFTER_MISSES
+        }
         val next = afterMiss(cur, now)
         if (next == null) {
             store(ctx, LinkedHashMap(all).also { it.remove(k) })

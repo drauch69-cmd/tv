@@ -16,9 +16,13 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   Not built from the site-recipes handoff (2026-11-19): sports already has `SiteHabits` (source button per site) and
   `ServerMemory` (referer per server), so the playbook's button/referer parts would duplicate them; "remember which
   player played" deferred (user may approve later). Buffstreams' UTC times need a recipe entry with its host + `"zone": "UTC"`.
-- **Next (user, 2026-11-19 23:40): finding speed 1, 2 and 4.** (1) check the first stream at once (no ~1.2 s sibling
-  wait), (2) read page sources after the picture starts (~1.5 s now before the player), (4) learned habits copyable into
-  `recipes.json` so they survive reinstalls. Not started.
+- **Finding speed 1, 2 and 4** (user's go, 2026-11-19 23:52; on `sports`, unit-tested, NOT tested on the TV). (1) and
+  (2) were already built in Sports build 224 (early finish when an adaptive stream passes its check; page sources read
+  after the hand-over); the offer was made from the older build-211 timing. Left as is: single-quality streams still
+  wait the 1.2 s for siblings (could pick a lower quality if shortened; small gain). (4) built: shipped habits in
+  `recipes.json` (see ARCHITECTURE "Shipped habits"); copy the report's "Habit for recipes.json" line into "sites".
+  Check: play a site twice, confirm the line appears; after a recipe ships, a reinstall still shows "Using this
+  site's recipe".
 
 - **Other games tiles in the player menu + new button order** (user's go, 2026-11-19 22:25; on `sports`, CI only, NOT
   tested on the TV). Top-right tiles of other live games of the same sport with scores; pick one with a stream to

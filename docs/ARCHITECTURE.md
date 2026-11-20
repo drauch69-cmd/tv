@@ -160,6 +160,12 @@ Remote tabs; prefetch toggle).
   Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block every
   request except playlists once a playlist was seen (no separate image/font rule; the list reader has one, see "Lists").
 - **Learned habits per site** (`SiteHabits.kt`, pure helpers unit tested in `SiteHabitsTest`; not the hand-written list recipes).
+  **Shipped habits** (2026-11-19, `RecipeHabitTest`, not yet tested on the TV): a `recipes.json` site entry may carry
+  `"habit": {"tap","x","y","taps","button" (from 1),"buttons","secs"}` (`SiteHabits.fromRecipe`; an entry may hold only
+  host + habit). `SiteHabits.get` uses the learned habit when usable, else the shipped one (`pick`; from the saved
+  recipes copy only, `ListRecipes.saved`, which never waits for the network and refreshes in the background after 10 min);
+  2 shipped misses = not used until the app restarts. Log: "Using this site's recipe: …"; every newly learned habit
+  logs a copy-ready "Habit for recipes.json: {…}" line.
   Pref `site_habits_1`, per host (lower case, no www.), max 80 (LRU), 14-day expiry. Recorded in `StreamSniffer.finish` (via
   `habitFinished`) after a primary search (not light, not click-only, not the remembered-address path) ends with a verified stream:
   the last tap made before the first stream was seen (position as a FRACTION of the hidden browser's size, kind player-spot or

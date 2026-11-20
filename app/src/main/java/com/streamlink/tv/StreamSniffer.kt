@@ -285,7 +285,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         habitApplied = true
         main.postDelayed(habitCheck, SiteHabits.deadlineMs(h))
         if (h.hasTap) {
-            log("Using what worked on this site last time: " + SiteHabits.describe(h, withTap = true, withSource = false))
+            log(habitIntro(h) + SiteHabits.describe(h, withTap = true, withSource = false))
             habitTapAt = SystemClock.uptimeMillis()
             tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
             if (h.taps >= 2) main.postDelayed(habitSecondTap, SiteHabits.SECOND_TAP_MS)
@@ -299,7 +299,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                     sourceNext = pressed.index + 1 // the normal search does not press this one again
                     pressedIdx = pressed.index
                     pressedCount = pressed.count
-                    log("Using what worked on this site last time: " + SiteHabits.describe(h, withTap = false, withSource = true))
+                    log(habitIntro(h) + SiteHabits.describe(h, withTap = false, withSource = true))
                 } else if (!h.hasTap && candidates.isEmpty()) {
                     // Nothing could be done (the page has a different number of buttons): this run is not the habit's to judge.
                     habitApplied = false
@@ -312,8 +312,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     /** The habit gave no stream in its time: one miss (a habit that misses twice in a row is forgotten). Quiet runs (Prefetcher) never count misses, so they cannot make a habit flap. */
     private fun countHabitMiss() {
         if (!timed || light) return
-        if (SiteHabits.missed(context, siteHost)) log("The learned habit stopped working; forgetting it")
+        if (SiteHabits.missed(context, siteHost)) {
+            log(if (habit?.shipped == true) "This site's recipe habit stopped working; not using it until the app restarts" else "The learned habit stopped working; forgetting it")
+        }
     }
+
+    private fun habitIntro(h: SiteHabits.Habit) = if (h.shipped) "Using this site's recipe: " else "Using what worked on this site last time: "
 
     /** End of a primary run: remember what worked after a verified stream, count a miss when the habit never got a stream. */
     private fun habitFinished(result: StreamSet) {
@@ -323,7 +327,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val fresh = SiteHabits.fromRun(s.taps, s.kind, s.x, s.y, s.w, s.h, s.srcIdx, s.srcCount, s.secs, System.currentTimeMillis())
             val onTime = habitApplied && !habitMissed
             if (onTime) log("The learned habit worked (stream after ${String.format(java.util.Locale.US, "%.1f", s.secs)} s)")
-            if (fresh != null) SiteHabits.save(context, siteHost, fresh) else if (onTime) SiteHabits.worked(context, siteHost)
+            if (fresh != null) {
+                SiteHabits.save(context, siteHost, fresh)
+                // copy-ready line: an agent can put it into recipes.json so the habit survives reinstalls
+                log("Habit for recipes.json: " + SiteHabits.recipeLine(siteHost, fresh))
+            } else if (onTime) SiteHabits.worked(context, siteHost)
         } else if (result.sources.isEmpty() && s == null && habitApplied && !habitMissed) {
             // Only when the habit led to no stream at all: a stream that was seen but is offline/refused is not the habit's fault.
             habitMissed = true
