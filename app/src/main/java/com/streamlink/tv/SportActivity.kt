@@ -200,18 +200,20 @@ class SportActivity : Activity() {
         refreshBtn.addView(subtitle)
         top.addView(refreshBtn)
         content.addView(top)
-        // Lists with no events: an outlined notice with a warning mark (user's mockup, 2026-11-20).
-        errorView = Ui.text(this, "", 12f, Ui.TEXT).apply {
-            background = Ui.rounded(this@SportActivity, 0, 8f, 0xFF6E6A2C.toInt(), 1f)
-            setPadding(dp(12), dp(7), dp(14), dp(7))
+        // Lists with no events: a rounded yellow warning triangle and the page's address in yellow (user, 2026-11-20).
+        errorView = Ui.text(this, "", 12f, Ui.WARN).apply {
             val warn = android.graphics.drawable.ShapeDrawable(android.graphics.drawable.shapes.PathShape(android.graphics.Path().apply {
-                moveTo(6f, 1f); lineTo(11f, 10.5f); lineTo(1f, 10.5f); close()
+                moveTo(6f, 1.5f); lineTo(11f, 10.5f); lineTo(1f, 10.5f); close()
             }, 12f, 12f)).apply {
-                paint.color = Ui.TEXT_2; paint.style = android.graphics.Paint.Style.STROKE; paint.strokeWidth = 1.2f
+                paint.color = Ui.WARN
+                paint.style = android.graphics.Paint.Style.FILL_AND_STROKE
+                paint.strokeWidth = 1.6f
+                paint.strokeJoin = android.graphics.Paint.Join.ROUND
+                paint.pathEffect = android.graphics.CornerPathEffect(1.6f)
                 setIntrinsicWidth(dp(13)); setIntrinsicHeight(dp(13))
             }
             setCompoundDrawablesRelativeWithIntrinsicBounds(warn, null, null, null)
-            compoundDrawablePadding = dp(9)
+            compoundDrawablePadding = dp(8)
             gravity = Gravity.CENTER_VERTICAL
             visibility = View.GONE
         }
@@ -357,10 +359,12 @@ class SportActivity : Activity() {
                 gravity = Gravity.CENTER_VERTICAL or if (mirrored) Gravity.END else Gravity.START
             }
             val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = if (mirrored) Gravity.END else Gravity.START }
+            // A vertical LinearLayout stretches its children to its width, so the text itself must be aligned too.
+            val align = if (mirrored) Gravity.END else Gravity.START
             col.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 15f, Ui.TEXT, bold = true).apply {
-                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = align
             })
-            if (t.record.isNotBlank()) col.addView(Ui.text(this, t.record, 10.5f, Ui.TEXT_2).apply { setPadding(0, dp(3), 0, 0) })
+            if (t.record.isNotBlank()) col.addView(Ui.text(this, t.record, 10.5f, Ui.TEXT_2).apply { setPadding(0, dp(3), 0, 0); gravity = align })
             val logo = Logos.view(this, t, 32)
             val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             if (mirrored) {
