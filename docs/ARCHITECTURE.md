@@ -138,14 +138,14 @@ Playback pipeline:
    Source list (`SourceMerge.insertExtras`: before the first open-page entry). The waiting screen stays open until the late read
    ends (`onLateDone`). Prefetcher, reconnects and renewals still read page sources before finishing. Prefetcher now also uses the
    remembered address (`useRemembered`, quiet). **List reads pause** while `Session.mode` is waiting/finding/player/clean/site
-   (`ListReadGate`; a read already running may finish; queued reads, including phone requests, start again on the home
-   5 s tick / the sport screen's 1 s beat); log lines "List reads paused while a video plays" / "List reads resumed".
+   (`ListReadGate`; a read already running may finish; queued reads, including phone requests, start again on
+   `ListReads`' own 5 s tick); log lines "List reads paused while a video plays" / "List reads resumed".
 Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (NFL RedZone first while it airs, then live games with streams, NFL games first; see "Live games rules"
 below), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`; the top bar has two focusable
 items side by side, "Your lists" and "Send a link", and Recent follows the rows; the lists are no longer a home row),
 `ListsActivity` ("Your lists", opened from the top bar: list tiles in a 4-column grid built by `ListTiles.kt`; OK opens
 `ListActivity`, hold OK removes, Menu re-reads all, the add tile returns home and shows the phone code; the home screen
-still owns the background list reader and tells it to redraw through `ListEvents`; Session.mode "list"),
+asks the app's one list reader, `ListReads`, through the home screen's `ListEvents.refresh`; Session.mode "list"),
 `SportActivity` (one sport: game sections, "All games" toggle, "Other" streams), `StreamsActivity` (one game's score card and
 streams, or the 24/7 channels),
 `Ui.kt` (shared UI kit; focus look = `Ui.focusCard` / `Ui.primaryCard` / `Ui.focusRing`: the focused view never changes size (no scaling); its fill brightens (SURFACE_FOCUS) and an accent ring is a `View.foreground` stroke drawn inside the view's own bounds, so nothing can clip it; default Android focus highlight is off), `WaitingActivity` (loading screen), `assets/phone.html` (phone page: Live now, Lists,
@@ -157,8 +157,8 @@ Remote tabs; prefetch toggle).
   when the site player shows the page loaded a playlist the app can see. The early give-up on a
   player frame from another site (8 s after the first tap) was removed (f396b92): those players often need 10-15 s.
   `Prefetcher` gives
-  Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block images,
-  fonts and similar.
+  Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block every
+  request except playlists once a playlist was seen (no separate image/font rule; the list reader has one, see "Lists").
 - **Learned habits per site** (`SiteHabits.kt`, pure helpers unit tested in `SiteHabitsTest`; not the hand-written list recipes).
   Pref `site_habits_1`, per host (lower case, no www.), max 80 (LRU), 14-day expiry. Recorded in `StreamSniffer.finish` (via
   `habitFinished`) after a primary search (not light, not click-only, not the remembered-address path) ends with a verified stream:
@@ -217,6 +217,23 @@ Remote tabs; prefetch toggle).
   fallback (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers.
+  **One reader for the app** (`ListReads.kt`, pure rules in `ListReadLogic.kt`, unit tested in `ListReadLogicTest`;
+  2026-11-19, not yet tested on the TV): one queue, one read at a time, run in the hidden holder of the newest attached
+  screen (home, `ListActivity`, `SportActivity` attach in onResume, detach in onDestroy; a read in a screen that goes away
+  is cancelled and queued again first). Screens `request(id, reason)` and listen; duplicates merge. Reasons: MANUAL
+  (Menu, refresh notes, phone Refresh, a new list) always reads; OPEN (a screen opening) skips a list read in the last
+  2.5 min; TIMER skips within 60 s ("List: skipped <host> (read N s ago)", once per skip). One 90 s watchdog; `ListReadGate`
+  inside. Re-read timing on the list and sport screens: `nextReadDelay` = 5 min, 90 s while an event starts within 15 min
+  or started within 10 min (min 60 s), counted from the last read or try ("List: next read in N s"); home keeps its
+  10 min `STALE_MS`. The list screen rebuilds rows only when the look (sections, links, titles, statuses) changes;
+  the 30 s refresh updates meta lines, badges and scores in place.
+  **Reader speed** (`IndexReader`): pictures, fonts, audio and video are answered empty (`ListReadLogic.isHeavy`, by
+  Accept header or extension; never the main frame; "List: blocked N heavy files"); `list-extract.js imageOf` keeps an
+  unloaded, unsized picture only as a last resort (it cannot be measured). Settle polling starts at first paint
+  (`onPageCommitVisible`) or 2 s after the load began; nothing is read while `readyState` is "loading". From 3 s of
+  polling the extractor itself runs at each poll (~1.5 s apart, at most 4 looks): two equal non-empty event keys
+  (links, titles, time texts) finish the read ("List: events stable after N s (M looks)"); otherwise the old rule
+  (unchanged twice / 15 s). The Save-sample snapshot (picture + page copy) is taken only after a failed or empty read.
   Learned shapes (pref `list_shapes_v2`) are applied with the same quality rules as a fresh read (no chrome, no
   links inside running text, a timeless group needs 4+ rows) and are only remembered when at least half the rows of
   the read had a time or live marker (`shapeTimed`). A read that loaded but found no events (`ListResult.noEvents`)
@@ -298,8 +315,8 @@ Remote tabs; prefetch toggle).
   Screens: home "Live games" row (`LiveGames.sample`, cards open the game) and "Sports" row (tiles open `SportActivity` /
   the 24/7 `StreamsActivity`); both are rebuilt (focus kept) on every list render and by `ScoreFeed.refreshIfDue` on resume
   and the 60 s tick. `SportActivity` works out folders/sections on one background thread (`sport-calc`, generation counter, stale results dropped), draws on the main thread only when the computed look (sections, games, scores, stream counts, statuses) changed or the "All games" chip toggled, and shows a quiet "Loading games…" row first; its 1 s beat only checks the read watchdog (score refresh check every 5 s, re-render every 30 s). `StreamsActivity` does the same (`streams-calc`). `SportActivity` shows cached lists at once, then re-reads
-  every list tagged with its sport one after another (own hidden `IndexReader`, 90 s watchdog, skips lists already busy,
-  not again within 60 s of the last round, then every 2 min while open; Menu forces); the "All games" choice is kept per
+  every list tagged with its sport through `ListReads` (on open: lists read in the last 2.5 min are skipped; then every
+  5 s it asks for lists due by `ListReadLogic.nextReadDelay`; Menu and the refresh note force all); the "All games" choice is kept per
   sport (pref `sport_all_games_<league>`, default off = games with streams only). `StreamsActivity` never reads lists; it
   rebuilds from caches + `ScoreFeed` and uses `Prefetcher` head start. Both new screens use `Session.mode = "list"` (so the
   phone's stop works and head start is allowed). Pure text lives in `SportsText.kt` (`SportsTextTest`); `SportsData.kt`

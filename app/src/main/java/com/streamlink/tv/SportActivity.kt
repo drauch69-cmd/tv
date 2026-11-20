@@ -20,24 +20,18 @@ import java.time.ZoneId
 
 /**
  * One sport (NFL, college football or NBA): its games in sections, then "Other" streams that matched no game.
- * Shows the cached lists at once, then re-reads every list tagged with this sport, one after another.
+ * Shows the cached lists at once, then asks the app's one reader (ListReads) for every list tagged with this sport.
  */
 class SportActivity : Activity() {
 
     private lateinit var league: String
-    private lateinit var reader: IndexReader
+    private lateinit var readHolder: FrameLayout
     private lateinit var rows: LinearLayout
     private lateinit var subtitle: TextView
     private lateinit var errorView: TextView
     private lateinit var refreshBtn: LinearLayout
     private lateinit var allChip: TextView
     private val main = Handler(Looper.getMainLooper())
-    private val queue = ArrayList<String>()
-    private var readingList: SavedList? = null
-    private var readStartedAt = 0L
-    private var lastReadAllAt = 0L
-    private var readTotal = 0
-    private var readDone = 0
     private var beats = 0
     /** One background thread works out the folders and sections; the main thread only draws them. */
     private val calc = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "sport-calc").apply { isDaemon = true } }
@@ -55,18 +49,18 @@ class SportActivity : Activity() {
         if (c == "stop") finish()
     }
 
+    /** A read finished or started for one of this sport's lists (ListReads): redraw. */
+    private val readListener: (String, ListResult?) -> Unit = { id, result ->
+        if (!isFinishing && !isDestroyed && SavedLists.get(this, id)?.has(league) == true) {
+            if (result != null) render() else updateHeader()
+        }
+    }
+
     private val beat = object : Runnable {
         override fun run() {
             assertSession()
             beats++
-            val now = System.currentTimeMillis()
-            val cur = readingList
-            if (cur != null && now - readStartedAt > READ_WATCHDOG_MS) {
-                reader.cancel()
-                finishRead(cur, ListResult(cur.url, "", emptyList(), "automatic", "the page took too long to answer"))
-            }
-            if (readingList == null && queue.isNotEmpty()) readNext() // resumes after a pause
-            maybeReadAll(REREAD_MS)
+            if (beats % READ_CHECK_BEATS == 0) readDue(ListReadLogic.Reason.TIMER)
             if (beats % SCORE_BEATS == 0) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed) render() }
             if (beats % RERENDER_BEATS == 0) render() // clock-based text and lists read elsewhere
             main.postDelayed(this, 1000)
@@ -80,6 +74,7 @@ class SportActivity : Activity() {
         league = l
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildUi()
+        ListReads.addListener(readListener)
         render()
     }
 
@@ -92,7 +87,8 @@ class SportActivity : Activity() {
         super.onResume()
         main.removeCallbacks(beat)
         main.post(beat)
-        maybeReadAll(MIN_GAP_MS)
+        ListReads.attach(this, readHolder)
+        readDue(ListReadLogic.Reason.OPEN) // lists read a moment ago (home, another screen) are skipped
         render()
     }
 
@@ -102,13 +98,12 @@ class SportActivity : Activity() {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_MENU) { maybeReadAll(0); return true }
+        if (keyCode == KeyEvent.KEYCODE_MENU) { readDue(ListReadLogic.Reason.MANUAL); return true }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onStop() {
         main.removeCallbacks(beat)
-        stopReading()
         releaseSession()
         super.onStop()
     }
@@ -116,7 +111,8 @@ class SportActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         calc.shutdownNow()
-        stopReading()
+        ListReads.removeListener(readListener)
+        ListReads.detach(this)
         releaseSession()
         super.onDestroy()
     }
@@ -143,51 +139,21 @@ class SportActivity : Activity() {
 
     // ---- Reading the tagged lists, one at a time ----
 
-    /** Starts a round of reads if none is running and the last round began at least [gapMs] ago. */
-    private fun maybeReadAll(gapMs: Long) {
-        if (readingList != null || queue.isNotEmpty()) return
+    /**
+     * Asks the app's one reader (ListReads) for this sport's tagged lists. MANUAL reads them all; OPEN asks for every
+     * list (ones read a moment ago are skipped); TIMER only for lists due by ListReadLogic.nextReadDelay.
+     */
+    private fun readDue(reason: ListReadLogic.Reason) {
         val now = System.currentTimeMillis()
-        if (lastReadAllAt != 0L && now - lastReadAllAt < gapMs) return
-        lastReadAllAt = now
-        val ids = SavedLists.all(this).filter { it.has(league) && !SavedLists.isBusy(it.id) }.map { it.id }
-        if (ids.isEmpty()) return
-        queue.addAll(ids)
-        readTotal = ids.size
-        readDone = 0
-        readNext()
-    }
-
-    private fun readNext() {
-        if (readingList != null) return
-        if (queue.isNotEmpty() && ListReadGate.blocked()) return
-        while (queue.isNotEmpty()) {
-            val l = SavedLists.get(this, queue.removeAt(0)) ?: continue
-            if (SavedLists.isBusy(l.id)) { readDone++; continue }
-            readingList = l
-            readStartedAt = System.currentTimeMillis()
-            SavedLists.setBusy(l.id, true)
-            updateHeader()
-            reader.read(l.url) { finishRead(l, it) }
-            return
+        for (l in SavedLists.all(this)) {
+            if (!l.has(league) || SavedLists.isBusy(l.id)) continue
+            if (reason == ListReadLogic.Reason.TIMER) {
+                val items = SavedLists.cached(this, l.id)?.result?.items ?: emptyList()
+                if (now < ListReads.lastAttempt(this, l.id) + ListReadLogic.nextReadDelay(items, now)) continue
+            }
+            ListReads.request(this, l.id, reason)
         }
         updateHeader()
-    }
-
-    private fun finishRead(l: SavedList, result: ListResult) {
-        if (readingList?.id != l.id) return // an answer from a read that was already given up on
-        readingList = null
-        readDone++
-        SavedLists.setBusy(l.id, false)
-        SavedLists.applyResult(this, l, result, System.currentTimeMillis())
-        render()
-        readNext()
-    }
-
-    private fun stopReading() {
-        queue.clear()
-        if (::reader.isInitialized) reader.cancel()
-        readingList?.let { SavedLists.setBusy(it.id, false) }
-        readingList = null
     }
 
     // ---- UI ----
@@ -195,9 +161,8 @@ class SportActivity : Activity() {
     private fun buildUi() {
         val root = FrameLayout(this)
         root.setBackgroundColor(Ui.BG)
-        val holder = FrameLayout(this)
-        root.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        reader = IndexReader(this, holder)
+        readHolder = FrameLayout(this)
+        root.addView(readHolder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -228,9 +193,9 @@ class SportActivity : Activity() {
             Ui.focusCard(this, 0, Ui.SURFACE_FOCUS, 10f)
             setPadding(dp(10), dp(6), dp(10), dp(6))
             isFocusable = true; isClickable = true
-            setOnClickListener { maybeReadAll(0) }
+            setOnClickListener { readDue(ListReadLogic.Reason.MANUAL) }
         }
-        refreshBtn.addView(Ui.text(this, "↻  Re-reads your pages every 2 minutes", 11f, Ui.TEXT_2).apply { gravity = Gravity.END })
+        refreshBtn.addView(Ui.text(this, "↻  Re-reads your pages by itself", 11f, Ui.TEXT_2).apply { gravity = Gravity.END })
         subtitle = Ui.text(this, "", 11f, Ui.TEXT_3).apply { gravity = Gravity.END; setPadding(0, dp(2), 0, 0) }
         refreshBtn.addView(subtitle)
         top.addView(refreshBtn)
@@ -261,7 +226,8 @@ class SportActivity : Activity() {
             oldest == null || oldest <= 0L -> "not read yet"
             else -> "updated ${ListText.ago(oldest, now)}"
         }
-        subtitle.text = if (readingList != null) "Reading pages… ${(readDone + 1).coerceAtMost(readTotal)} of $readTotal  ($ago)"
+        val busy = tagged.count { SavedLists.isBusy(it.id) }
+        subtitle.text = if (busy > 0) "Reading pages… $busy left  ($ago)"
         else ago.replaceFirstChar { it.uppercase() }
         val e = tagged.firstNotNullOfOrNull { SavedLists.lastError(it.id) }
         errorView.visibility = if (e == null) View.GONE else View.VISIBLE
@@ -391,11 +357,10 @@ class SportActivity : Activity() {
     companion object {
         private const val EXTRA_LEAGUE = "league"
         private const val PREF_PREFIX = "sport_all_games_"
-        private const val REREAD_MS = 120_000L
-        private const val MIN_GAP_MS = 60_000L
+        /** How often (beats = seconds) the tagged lists are checked for a due re-read. */
+        private const val READ_CHECK_BEATS = 5
         private const val RERENDER_BEATS = 30
         private const val SCORE_BEATS = 5
-        private const val READ_WATCHDOG_MS = 90_000L
         fun intent(ctx: Context, league: String) = Intent(ctx, SportActivity::class.java).putExtra(EXTRA_LEAGUE, league)
     }
 }

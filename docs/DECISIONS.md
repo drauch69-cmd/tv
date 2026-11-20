@@ -5,6 +5,21 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **List reading performance A+B+C + recipe zone** (user's go, 2026-11-19 23:28; on `sports`, unit-tested locally and in
+  CI, NOT tested on the TV). One shared list reader for the app (`ListReads`); fresh lists skipped (2.5 min on open);
+  re-reads every 5 min, 90 s near start times; list rows updated in place; reader blocks pictures/fonts/media, starts
+  looking at first paint and finishes when the events stop changing; Save-sample snapshot only after failed reads.
+  Recipes: a site entry may hold only `"zone"` (times with no label read in that zone); the saved recipe copy is used at
+  once and refreshed in the background after 10 min. Check on the TV: a sport screen with 4+ lists scrolls smoothly
+  while reading; a list screen left open 10 min doesn't flicker or move focus; lists show the same events as before;
+  after a failed read Save sample still has the list page; most "List: read N events … in X s" lines well under 10 s.
+  Not built from the site-recipes handoff (2026-11-19): sports already has `SiteHabits` (source button per site) and
+  `ServerMemory` (referer per server), so the playbook's button/referer parts would duplicate them; "remember which
+  player played" deferred (user may approve later). Buffstreams' UTC times need a recipe entry with its host + `"zone": "UTC"`.
+- **Next (user, 2026-11-19 23:40): finding speed 1, 2 and 4.** (1) check the first stream at once (no ~1.2 s sibling
+  wait), (2) read page sources after the picture starts (~1.5 s now before the player), (4) learned habits copyable into
+  `recipes.json` so they survive reinstalls. Not started.
+
 - **Other games tiles in the player menu + new button order** (user's go, 2026-11-19 22:25; on `sports`, CI only, NOT
   tested on the TV). Top-right tiles of other live games of the same sport with scores; pick one with a stream to
   switch (best-ranked list's stream; Back afterwards goes to the list). Up to 8 tiles (2 rows of 4), more = 7 + "+N".
@@ -156,12 +171,12 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
     behind the player and the phone can start reads mid-video: pause list reads while playing; (3) the background
     "extra sources" run loads a full page with media/ads during playback: block media/images, start only with a
     healthy buffer, or make it manual; (4) hidden finder/reader runs load images/fonts/media and the reader takes a
-    picture + 1.5 MB DOM snapshot after every read: block those, snapshot only on failure; (5) player buffer has no
+    picture + 1.5 MB DOM snapshot after every read: block those, snapshot only on failure [reader part built 2026-11-19]; (5) player buffer has no
     byte cap (60 s max, ~45-75 MB) and STALL_MS 20 s can restart a slow-but-alive stream: cap ~40 MB, recover only when
     no bytes arrive.
   - Batch B (menus): sport screen matching on the main thread and minute-tick full rebuilds on all screens; ScoreMatch
     recomputes team names per item and its cache thrashes; phone page polls every 1.5 s with a thread per request;
-    sport screen re-reads lists every 2 min.
+    sport screen re-reads lists every 2 min. [list-screen rebuilds and the sport re-reads built 2026-11-19]
   - Batch C (build): release build not minified/shrunk (R8 off); list caches stored in the main SharedPreferences file;
     small items (verifier thread pool per run, per-card drawables, dead resources, onBackPressed, dependency bumps).
 - **Home speed fix confirmed** (Sports build 188, 2026-11-18): the user says the app "feels much better now". Still to
@@ -210,8 +225,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   The user runs the StreamLink Sports app; `sports` branched before ESPN-driven status existed, so it showed ESPN's
   score but took Live from the site's stuck marker. Fixed by merging `test` into `sports` (ESPN-driven status, now
   scoped to the list's sport tags on the list screen and phone page) plus the stale-marker rule. Untested on the TV.
-- **List reading speed** (offered 2026-11-17): quick read of the page's plain text first, stop waiting once the list
-  stops changing, show the last list instantly. To do after the fixes; confirm with the user before starting.
+- **List reading speed** (offered 2026-11-17): built 2026-11-19 as part C of the list performance batch (see the top
+  open item); the "plain text first" idea was not built.
 
 - **Empty player box pages** (2026-11-17): built (source-switch.js anchor, hidden search presses source 1 then 2, site player
   presses source 1; chat-like narrow frames ignored). Not compiled or tested on the TV. Next: the user opens such a page and

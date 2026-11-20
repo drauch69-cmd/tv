@@ -43,10 +43,7 @@ class MainActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var recentList: LinearLayout
     private lateinit var recentLabel: TextView
-    private lateinit var reader: IndexReader
     private val main = Handler(Looper.getMainLooper())
-    private var readingId: String? = null
-    private var readToken = 0
     private var port = -1
     private var shownLink: String? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
@@ -78,7 +75,6 @@ class MainActivity : Activity() {
      */
     private val scoreTick = object : Runnable {
         override fun run() {
-            if (resumed && readingId == null && readQueue.isNotEmpty()) readNext() // reads held back during a video
             if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
             main.postDelayed(this, SCORE_TICK_MS)
         }
@@ -173,11 +169,11 @@ class MainActivity : Activity() {
         Session.prefetchEnabled = { PrefetchSettings.enabled(applicationContext) }
         sendLink.setOnClickListener { showQr(true) }
         yourLists.setOnClickListener { startActivity(ListsActivity.intent(this)) }
-        ListEvents.refresh = { id -> runOnUiThread { if (!isFinishing && !isDestroyed) refreshList(id) } }
+        ListEvents.refresh = { id -> runOnUiThread { if (!isFinishing && !isDestroyed) refreshList(id, manual = true) } }
         findViewById<View>(R.id.qrClose).setOnClickListener { showQr(false) }
         sniffer = StreamSniffer(this, findViewById(R.id.webHolder))
-        // Reads index pages when the phone asks for a refresh and no list screen is open.
-        reader = IndexReader(this, findViewById(R.id.webHolder))
+        // The app's one list reader reads in this screen's hidden holder while home is the newest screen (ListReads).
+        ListReads.addListener(readListener)
         prefetcher = Prefetcher(this, findViewById(R.id.prefetchHolder), "idle")
 
         val pages = mapOf("/" to asset("phone.html"), "/shortcut" to asset("shortcut.html"))
@@ -200,7 +196,7 @@ class MainActivity : Activity() {
             onListRank = { id, rank -> SavedLists.setRank(this, id, rank).also { ok -> if (ok) runOnUiThread { renderLists() } } },
             onListRename = { id, name -> SavedLists.rename(this, id, name).also { ok -> if (ok) runOnUiThread { renderLists() } } },
             onListRemove = { id -> removeList(id) },
-            onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id) }; true } ?: false },
+            onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id, manual = true) }; true } ?: false },
             onListPlay = { id, url, start ->
                 SavedLists.get(this, id)?.let { l -> runOnUiThread { playListItem(l, url, start) }; true } ?: false
             },
@@ -228,6 +224,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        ListReads.attach(this, findViewById(R.id.webHolder))
         main.removeCallbacks(scoreTick)
         main.post(scoreTick)
         prefetcher.setActive(true)
@@ -257,7 +254,7 @@ class MainActivity : Activity() {
             if (lists.isEmpty()) {
                 Toast.makeText(this, "No lists yet: add one from the phone page", Toast.LENGTH_SHORT).show()
             } else {
-                lists.forEach { refreshList(it.id) }
+                lists.forEach { refreshList(it.id, manual = true) }
                 Toast.makeText(this, "Refreshing ${lists.size} list${if (lists.size == 1) "" else "s"}…", Toast.LENGTH_SHORT).show()
             }
             return true
@@ -274,9 +271,9 @@ class MainActivity : Activity() {
         server.stop()
         sniffer.cancel()
         prefetcher.cancel()
-        reader.cancel()
+        ListReads.removeListener(readListener)
+        ListReads.detach(this)
         main.removeCallbacksAndMessages(null)
-        readingId?.let { SavedLists.setBusy(it, false) }
         super.onDestroy()
     }
 
@@ -359,7 +356,7 @@ class MainActivity : Activity() {
     /** Phone: save a link as a stream list. Returns null on success, else the reason. */
     private fun addList(url: String, name: String, sports: Set<String>): String? {
         val l = SavedLists.add(this, url, name, sports) ?: return "You can save up to ${SavedLists.MAX} stream lists. Remove one first."
-        runOnUiThread { renderLists(); refreshList(l.id) }
+        runOnUiThread { renderLists(); refreshList(l.id, manual = true) }
         return null
     }
 
@@ -369,53 +366,17 @@ class MainActivity : Activity() {
         return ok
     }
 
-    /** Lists waiting to be read in the background, in order. One page is read at a time. */
-    private val readQueue = LinkedHashSet<String>()
+    /** Any list read finished or changed state (ListReads): redraw the tiles and rows that depend on it. */
+    private val readListener: (String, ListResult?) -> Unit = { _, _ -> if (!isFinishing && !isDestroyed) renderLists() }
 
     /**
-     * Re-reads a list: through its own screen if it is open, otherwise here in the background.
-     * Background reads are queued, so adding several lists quickly reads every one of them
-     * (a new request used to cancel the read in progress).
+     * Re-reads a list through the app's one reader (ListReads), wherever it was asked from. [manual]: the user asked
+     * (phone, Menu, a new list) and it always reads; otherwise a list read a moment ago is skipped.
      */
-    private fun refreshList(id: String) {
-        if (ListActivity.openId == id) {
-            Session.commandHandler?.invoke("refresh", id)
-            return
-        }
+    private fun refreshList(id: String, manual: Boolean) {
         if (SavedLists.get(this, id) == null) return
-        if (readingId == id) return
-        readQueue.add(id)
-        SavedLists.setBusy(id, true)
+        ListReads.request(this, id, if (manual) ListReadLogic.Reason.MANUAL else ListReadLogic.Reason.TIMER)
         renderLists()
-        if (readingId == null) readNext()
-    }
-
-    private fun readNext() {
-        val id = readQueue.firstOrNull() ?: return
-        if (ListReadGate.blocked()) return // queued reads wait; the 5 s tick and onResume start them again
-        readQueue.remove(id)
-        val l = SavedLists.get(this, id)
-        if (l == null) {
-            readNext()
-            return
-        }
-        readingId = id
-        val token = ++readToken
-        fun done(r: ListResult) {
-            if (token != readToken) return
-            readingId = null
-            SavedLists.setBusy(id, false)
-            SavedLists.applyResult(this, l, r, System.currentTimeMillis())
-            renderLists()
-            readNext()
-        }
-        reader.read(l.url) { done(it) }
-        main.postDelayed({
-            if (token == readToken && readingId == id) {
-                reader.cancel()
-                done(ListResult(l.url, "", emptyList(), "automatic", "the page took too long to answer"))
-            }
-        }, 90_000)
     }
 
     /** An event from a list: the waiting screen finds its stream, or waits for it to start. */
@@ -435,7 +396,7 @@ class MainActivity : Activity() {
         for (l in SavedLists.all(this)) {
             val c = SavedLists.cached(this, l.id)
             if (c == null || now - c.readAt > STALE_MS) {
-                if (!SavedLists.isBusy(l.id) && SavedLists.lastError(l.id) == null) refreshList(l.id)
+                if (!SavedLists.isBusy(l.id) && SavedLists.lastError(l.id) == null) refreshList(l.id, manual = false)
             }
         }
     }

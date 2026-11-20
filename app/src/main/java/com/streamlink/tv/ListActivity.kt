@@ -19,13 +19,15 @@ import android.widget.ScrollView
 import android.widget.TextView
 
 /**
- * One stream list: shows the cached events at once, reads the index page again, and re-reads every
- * minute while open. OK on an event plays it (and waits for it if it has not started yet).
+ * One stream list: shows the cached events at once, asks the app's one reader (ListReads) for a fresh read, and
+ * re-reads while open on the adaptive timer (ListReadLogic.nextReadDelay: 5 min, 90 s near start times).
+ * Rows are rebuilt only when order, sections or statuses change; otherwise their texts are updated in place.
+ * OK on an event plays it (and waits for it if it has not started yet).
  */
 class ListActivity : Activity() {
 
     private lateinit var list: SavedList
-    private lateinit var reader: IndexReader
+    private lateinit var readHolder: FrameLayout
     private lateinit var prefetcher: Prefetcher
     private lateinit var rows: LinearLayout
     private lateinit var scroll: ScrollView
@@ -43,9 +45,14 @@ class ListActivity : Activity() {
     private var selectedUrl: String? = null
     private val main = Handler(Looper.getMainLooper())
     private var cached: CachedList? = null
-    private var reading = false
-    private var readStartedAt = 0L
+    private val reading get() = SavedLists.isBusy(list.id)
     private var nextReadAt = 0L
+    private var firstRequest = true
+    /** The rows' look when they were last built (ListReadLogic.listLook); null = rebuild next time. */
+    private var drawnLook: String? = null
+    /** Each drawn row's views by link, so the 30 s refresh can change texts in place. */
+    private class RowViews(val item: ListItem, val meta: TextView, val right: FrameLayout, val score: TextView)
+    private val rowViews = LinkedHashMap<String, RowViews>()
     private var beats = 0
     private var errorText: String? = null
     /** Score line of every row on screen, so a score update changes text in place (no rebuild, focus untouched). */
@@ -61,7 +68,21 @@ class ListActivity : Activity() {
     private val handler: (String, String?) -> Unit = { c, v ->
         when (c) {
             "stop" -> finish()
-            "refresh" -> if (v == null || v == list.id) refresh()
+            "refresh" -> if (v == null || v == list.id) refresh(ListReadLogic.Reason.MANUAL)
+        }
+    }
+
+    /** A read of this list finished (or was queued / started): show it. */
+    private val readListener: (String, ListResult?) -> Unit = { id, result ->
+        if (id == list.id && !isFinishing && !isDestroyed) {
+            if (result != null) {
+                errorText = SavedLists.lastError(list.id)
+                cached = SavedLists.cached(this, list.id)
+                scheduleNext(System.currentTimeMillis())
+                render()
+            } else {
+                updateHeader()
+            }
         }
     }
 
@@ -70,14 +91,12 @@ class ListActivity : Activity() {
             assertSession()
             beats++
             val now = System.currentTimeMillis()
-            if (reading && now - readStartedAt > READ_WATCHDOG_MS) {
-                // The reader never answered; drop it and try again at the next slot.
-                reader.cancel()
-                finishRead(ListResult(list.url, "", emptyList(), "automatic", "the page took too long to answer"))
+            if (!reading && now >= nextReadAt) {
+                refresh(if (firstRequest) ListReadLogic.Reason.OPEN else ListReadLogic.Reason.TIMER)
+                firstRequest = false
             }
-            if (!reading && now >= nextReadAt) refresh()
             ScoreFeed.refreshIfDue { if (!isFinishing) updateScores() }
-            if (beats % RERENDER_BEATS == 0) render() // keep badges, minutes and "updated ... ago" current without a read
+            if (beats % RERENDER_BEATS == 0) render() // badges, minutes, "updated ... ago": in place unless the rows changed
             main.postDelayed(this, 1000)
         }
     }
@@ -92,18 +111,19 @@ class ListActivity : Activity() {
         buildUi()
         cached = SavedLists.cached(this, list.id)
         errorText = SavedLists.lastError(list.id)
+        ListReads.addListener(readListener)
         render()
     }
 
     override fun onStart() {
         super.onStart()
-        openId = list.id
         assertSession()
     }
 
     override fun onResume() {
         super.onResume()
-        // The 60 s re-read and 30 s re-render only run while this screen is in front.
+        // The re-read timer and 30 s refresh only run while this screen is in front; reads run in this screen's holder.
+        ListReads.attach(this, readHolder)
         main.removeCallbacks(beat)
         main.post(beat)
         prefetcher.setActive(true)
@@ -121,18 +141,14 @@ class ListActivity : Activity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
-            nextReadAt = 0
-            refresh()
+            refresh(ListReadLogic.Reason.MANUAL)
             return true
         }
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onStop() {
-        if (openId == list.id) openId = null
         main.removeCallbacks(beat)
-        reader.cancel()
-        if (reading) { reading = false; SavedLists.setBusy(list.id, false) }
         releaseSession()
         super.onStop()
     }
@@ -140,8 +156,10 @@ class ListActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         prefetcher.cancel()
-        reader.cancel()
-        SavedLists.setBusy(list.id, false)
+        if (::list.isInitialized) {
+            ListReads.removeListener(readListener)
+            ListReads.detach(this)
+        }
         releaseSession()
         super.onDestroy()
     }
@@ -168,23 +186,20 @@ class ListActivity : Activity() {
 
     // ---- Reading ----
 
-    private fun refresh() {
-        if (reading) return
-        reading = true
-        readStartedAt = System.currentTimeMillis()
-        SavedLists.setBusy(list.id, true)
+    private fun refresh(reason: ListReadLogic.Reason) {
+        val now = System.currentTimeMillis()
+        if (!ListReads.request(this, list.id, reason)) {
+            // skipped: read a moment ago (by this or another screen); wait for the next slot
+            scheduleNext(now)
+            nextReadAt = maxOf(nextReadAt, now + 10_000L)
+        }
         updateHeader()
-        reader.read(list.url) { result -> finishRead(result) }
     }
 
-    private fun finishRead(result: ListResult) {
-        reading = false
-        SavedLists.setBusy(list.id, false)
-        val now = System.currentTimeMillis()
-        nextReadAt = now + REREAD_MS
-        errorText = SavedLists.applyResult(this, list, result, now)
-        cached = SavedLists.cached(this, list.id)
-        render()
+    /** The next timed re-read: after the last read or try, by the list's own events (ListReadLogic.nextReadDelay). */
+    private fun scheduleNext(now: Long) {
+        val items = cached?.result?.items ?: emptyList()
+        nextReadAt = ListReads.lastAttempt(this, list.id) + ListReadLogic.nextReadDelay(items, now)
     }
 
     // ---- UI ----
@@ -193,9 +208,8 @@ class ListActivity : Activity() {
         val root = FrameLayout(this)
         root.setBackgroundColor(Ui.BG)
         // Hidden page loader for the reader, behind the content.
-        val holder = FrameLayout(this)
-        root.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        reader = IndexReader(this, holder)
+        readHolder = FrameLayout(this)
+        root.addView(readHolder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         // Second hidden loader for "Head start" (the focused event's stream, looked up in advance).
         val prefetchHolder = FrameLayout(this)
         root.addView(prefetchHolder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -225,9 +239,9 @@ class ListActivity : Activity() {
             Ui.focusCard(this, 0, Ui.SURFACE_FOCUS, 10f)
             setPadding(dp(10), dp(6), dp(10), dp(6))
             isFocusable = true; isClickable = true
-            setOnClickListener { nextReadAt = 0; refresh() }
+            setOnClickListener { refresh(ListReadLogic.Reason.MANUAL) }
         }
-        refreshBtn.addView(text("↻  Refreshes by itself every minute", 11f, Ui.TEXT_2).apply { gravity = Gravity.END })
+        refreshBtn.addView(text("↻  Refreshes by itself", 11f, Ui.TEXT_2).apply { gravity = Gravity.END })
         subtitle = text("", 11f, Ui.TEXT_3).apply { gravity = Gravity.END; setPadding(0, dp(2), 0, 0) }
         refreshBtn.addView(subtitle)
         top.addView(refreshBtn)
@@ -297,18 +311,32 @@ class ListActivity : Activity() {
         errorView.text = e ?: ""
     }
 
+    /**
+     * Draws the rows. When order, sections, titles and statuses are the same as last time (ListReadLogic.listLook),
+     * only the texts change in place (no rebuild, focus untouched); otherwise the rows are rebuilt, keeping focus by link.
+     */
     private fun render() {
         updateHeader()
         val now = System.currentTimeMillis()
+        val items = cached?.let { ListJson.visible(it.result.items, now, games()) } ?: emptyList()
+        val sections = if (items.isEmpty()) emptyList() else ListSections.group(items, now, games())
+        val look = ListReadLogic.listLook(sections.flatMap { sec ->
+            sec.items.map { ListReadLogic.RowKey(sec.label, it.url + '\u0002' + ListText.displayTitle(it), look(it, now)) }
+        })
+        if (items.isNotEmpty() && !ListReadLogic.needsRebuild(drawnLook, look)) {
+            refreshInPlace(now)
+            return
+        }
         // Keep the highlighted event highlighted across rebuilds (matched by link).
         val focus = currentFocus
         val hadFocusInRows = focus?.parent === rows
         val focusedUrl = if (hadFocusInRows) focus?.tag as? String else null
-        val items = cached?.let { ListJson.visible(it.result.items, now, games()) } ?: emptyList()
         rows.removeAllViews()
         scoreViews.clear()
         rowLook.clear()
+        rowViews.clear()
         if (items.isEmpty()) {
+            drawnLook = null
             val msg = when {
                 reading && cached == null -> "Reading events…"
                 cached == null -> "No events yet."
@@ -320,10 +348,11 @@ class ListActivity : Activity() {
             if (!refreshBtn.hasFocus()) refreshBtn.requestFocus()
             return
         }
+        drawnLook = look
         var focusTarget: View? = null
         var firstRow: View? = null
         var first = true
-        for (section in ListSections.group(items, now, games())) {
+        for (section in sections) {
             val color = if (section.status == ListStatus.LIVE) Ui.LIVE_TEXT else Ui.TEXT_2
             rows.addView(Ui.sectionLabel(this, section.label, color), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = if (first) 0 else dp(8); bottomMargin = dp(6)
@@ -343,6 +372,24 @@ class ListActivity : Activity() {
             focusTarget != null -> focusTarget.requestFocus()
             hadFocusInRows || currentFocus == null -> firstRow?.requestFocus()
         }
+    }
+
+    /** Same rows as drawn: refresh each row's meta line, badge and score, and the details panel, without touching focus. */
+    private fun refreshInPlace(now: Long) {
+        for (rv in rowViews.values) {
+            val meta = ListSections.meta(rv.item, now, games = games())
+            rv.meta.text = meta
+            rv.meta.visibility = if (meta.isEmpty()) View.GONE else View.VISIBLE
+            rv.right.removeAllViews()
+            rv.right.addView(badgeView(rv.item, now))
+            applyScore(rv.item, rv.score)
+        }
+        selected?.let { sel -> showDetails(rowViews[sel.url]?.item ?: sel, now) }
+    }
+
+    private fun badgeView(item: ListItem, now: Long): View {
+        val b = ListSections.badge(item, now, games())
+        return if (b.pill) Ui.badge(this, b.text, b.live) else text(b.text, 11f, Ui.TEXT_2, bold = true)
     }
 
     private fun showDetails(item: ListItem, now: Long) {
@@ -422,16 +469,21 @@ class ListActivity : Activity() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(text(ListText.displayTitle(item), 16f, Ui.TEXT, bold = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END })
         val meta = ListSections.meta(item, now, games = games())
-        if (meta.isNotEmpty()) col.addView(text(meta, 11f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
+        val metaView = text(meta, 11f, Ui.TEXT_2).apply {
+            maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0)
+            visibility = if (meta.isEmpty()) View.GONE else View.VISIBLE
+        }
+        col.addView(metaView)
         val scoreLine = text("", 11f, Ui.TEXT_2, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0); visibility = View.GONE }
         col.addView(scoreLine)
         applyScore(item, scoreLine)
         scoreViews.add(item to scoreLine)
         rowLook[item.url] = look(item, now)
         row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(14) })
-        val b = ListSections.badge(item, now, games())
-        val right: View = if (b.pill) Ui.badge(this, b.text, b.live) else text(b.text, 11f, Ui.TEXT_2, bold = true)
+        val right = FrameLayout(this)
+        right.addView(badgeView(item, now))
         row.addView(right)
+        if (!rowViews.containsKey(item.url)) rowViews[item.url] = RowViews(item, metaView, right, scoreLine)
         return row
     }
 
@@ -451,12 +503,8 @@ class ListActivity : Activity() {
 
     companion object {
         private const val EXTRA_ID = "id"
-        /** The list whose screen is in front right now, so the phone's Refresh goes through it. */
-        @Volatile var openId: String? = null
-        const val REREAD_MS = 60_000L
-        /** Statuses are re-rendered every 30 beats (30 s) even without a read. */
+        /** Statuses are refreshed every 30 beats (30 s) even without a read. */
         private const val RERENDER_BEATS = 30
-        private const val READ_WATCHDOG_MS = 90_000L
         fun intent(ctx: Context, id: String) = Intent(ctx, ListActivity::class.java).putExtra(EXTRA_ID, id)
     }
 }

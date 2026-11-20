@@ -42,6 +42,16 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private var deadlineAt = 0L
     private var recipes: List<ListRecipes.Recipe>? = null // null while still being fetched
     private var snapshotting = false
+    /** When the settle polling started (first paint, page loaded, or [EARLY_POLL_MS] after the load began). */
+    private var pollFrom = 0L
+    /** Bumped on every new page load (read or follow), so a stale "start polling" timer does nothing. */
+    private var loadSeq = 0
+    /** Events key of the last look (C2), how many looks ran, and whether the current expand step ends in a look. */
+    private var lookKey: String? = null
+    private var looks = 0
+    private var lookMode = false
+    /** Pictures, fonts and media answered empty for this read (counted on the web view's network thread). */
+    private val blocked = java.util.concurrent.atomic.AtomicInteger(0)
 
     private val overallTimeout = Runnable {
         if (done) return@Runnable
@@ -88,12 +98,18 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         followedFrom = null
         recipes = null
         snapshotting = false
+        pollFrom = 0L
+        lookKey = null
+        looks = 0
+        lookMode = false
+        blocked.set(0)
         val wv = createWebView(url)
         webView = wv
         // A fixed desktop-ish size, so pages lay out their list and not a phone menu.
         holder.addView(wv, ViewGroup.LayoutParams(1280, 720))
         Report.log("List: loading ${Report.host(url)}")
         wv.loadUrl(url)
+        schedulePollStart()
         deadlineAt = startedAt + OVERALL_MS
         main.postDelayed(overallTimeout, OVERALL_MS)
         thread {
@@ -147,8 +163,12 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
     private fun finish(result: ListResult) {
         if (done) return
+        val n = blocked.get()
+        if (n > 0) Report.log("List: blocked $n heavy files")
         val wv = webView
-        if (wv == null || snapshotting) {
+        // A2: a snapshot (picture + page copy, on the main thread) only when the read failed or found nothing.
+        // A successful read leaves the last failure's snapshot in place for "Save sample".
+        if (wv == null || snapshotting || !shouldSnapshot(result)) {
             complete(result)
             return
         }
@@ -205,10 +225,29 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         wv.isFocusable = false
         wv.isFocusableInTouchMode = false
         SafeWeb.configure(wv)
+        // This hidden reader never plays anything.
+        wv.settings.mediaPlaybackRequiresUserGesture = true
         wv.webChromeClient = SafeChromeClient()
         val c = object : SafeWebViewClient(url) {
             override fun onLoaded() {
                 pageLoaded()
+            }
+
+            /** C1: first paint; start looking without waiting for slow ads and trackers to finish loading. */
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                main.post {
+                    if (done) return@post
+                    if (firstLoadedAt == 0L) firstLoadedAt = System.currentTimeMillis()
+                    startPolling()
+                }
+            }
+
+            /** A1: pictures, fonts and media are answered empty (never the page itself; image links come from attributes). */
+            override fun blockResource(request: WebResourceRequest): Boolean {
+                val accept = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value
+                if (!ListReadLogic.isHeavy(accept, request.url?.path, request.isForMainFrame)) return false
+                blocked.incrementAndGet()
+                return true
             }
 
             override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -241,25 +280,49 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         // a (re)load restarts the "has it stopped changing" count
         lastSignature = null
         unchanged = 0
-        if (!polling) {
-            polling = true
-            main.postDelayed(poll, POLL_MS)
-        }
+        startPolling()
     }
 
-    /** One look at the page; settled = unchanged for 2 polls in a row, or 15s since it first finished loading. */
+    /** C1: polling also starts [EARLY_POLL_MS] after the load began, if neither first paint nor the full load came yet. */
+    private fun schedulePollStart() {
+        val gen = generation
+        val seq = ++loadSeq
+        main.postDelayed({ if (!done && gen == generation && seq == loadSeq) startPolling() }, EARLY_POLL_MS)
+    }
+
+    private fun startPolling() {
+        if (done || polling) return
+        polling = true
+        if (pollFrom == 0L) pollFrom = System.currentTimeMillis()
+        main.postDelayed(poll, POLL_MS)
+    }
+
+    /**
+     * One look at the page. Settled = unchanged for 2 polls in a row, or 15 s of polling: then read it (old rule).
+     * C2: from [LOOK_AFTER_MS] of polling on, the extractor itself runs at each poll (at most [ListReadLogic.MAX_LOOKS]
+     * times); two equal non-empty results in a row finish the read even on pages that never stop changing.
+     * Nothing is read while the document is still "loading".
+     */
     private fun pollOnce() {
         val wv = webView ?: return
         val gen = generation
         wv.evaluateJavascript(SIGNATURE_JS) { raw ->
             if (done || gen != generation || extracting) return@evaluateJavascript
-            val sig = (try { MiniJson.parse(raw ?: "null") as? String } catch (_: Exception) { null }) ?: ""
-            if (sig == lastSignature) unchanged++ else { unchanged = 0; lastSignature = sig }
-            val waited = System.currentTimeMillis() - firstLoadedAt
-            if (unchanged >= 2 || waited >= SETTLE_MAX_MS) {
-                expandThenExtract()
-            } else {
+            val full = (try { MiniJson.parse(raw ?: "null") as? String } catch (_: Exception) { null }) ?: ""
+            val state = full.substringBefore('|', "")
+            val sig = full.substringAfter('|')
+            if (state == "loading") {
+                lastSignature = null
+                unchanged = 0
                 main.postDelayed(poll, POLL_MS)
+                return@evaluateJavascript
+            }
+            if (sig == lastSignature) unchanged++ else { unchanged = 0; lastSignature = sig }
+            val waited = System.currentTimeMillis() - pollFrom
+            when {
+                unchanged >= 2 || waited >= SETTLE_MAX_MS -> { lookMode = false; expandThenExtract() }
+                waited >= LOOK_AFTER_MS && looks < ListReadLogic.MAX_LOOKS -> { lookMode = true; expandThenExtract() }
+                else -> main.postDelayed(poll, POLL_MS)
             }
         }
     }
@@ -272,9 +335,9 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private fun expandThenExtract() {
         val wv = webView ?: return
         if (done || extracting) return
-        if (expandTried) { extract(allowRetry = true); return }
+        if (expandTried) { afterExpand(); return }
         expandTried = true
-        val script = try { loadAsset(context, "list-expand.js") } catch (_: Exception) { extract(allowRetry = true); return }
+        val script = try { loadAsset(context, "list-expand.js") } catch (_: Exception) { afterExpand(); return }
         val gen = generation
         val urlBefore = try { wv.url } catch (_: Throwable) { null }
         try {
@@ -284,7 +347,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                     val inner = MiniJson.parse(raw ?: "null") as? String
                     ((MiniJson.parse(inner ?: "") as? Map<*, *>)?.get("pressed") as? Double)?.toInt() ?: 0
                 } catch (_: Exception) { 0 }
-                if (pressed <= 0) { extract(allowRetry = true); return@evaluateJavascript }
+                if (pressed <= 0) { afterExpand(); return@evaluateJavascript }
                 Report.log("List: pressed $pressed 'show more' button(s)")
                 lastSignature = null
                 unchanged = 0
@@ -292,7 +355,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                 main.postDelayed({ settleAfterPress(gen, urlBefore, until) }, EXPAND_POLL_MS)
             }
         } catch (_: Throwable) {
-            extract(allowRetry = true)
+            afterExpand()
         }
     }
 
@@ -314,19 +377,25 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
             val sig = (try { MiniJson.parse(raw ?: "null") as? String } catch (_: Exception) { null }) ?: ""
             if (sig == lastSignature) unchanged++ else { unchanged = 0; lastSignature = sig }
             if (unchanged >= 2 || System.currentTimeMillis() >= until) {
-                extract(allowRetry = true)
+                afterExpand()
             } else {
                 main.postDelayed({ settleAfterPress(gen, urlBefore, until) }, EXPAND_POLL_MS)
             }
         }
     }
 
-    private fun extract(allowRetry: Boolean) {
+    private fun afterExpand() { if (lookMode) look() else extract(allowRetry = true) }
+
+    /**
+     * Runs the extractor once (recipe and learned row shapes included) and hands the parsed result to [then]
+     * (null = unreadable). Waits briefly for the recipe list first; [again] restarts the caller then.
+     */
+    private fun runExtractor(again: () -> Unit, then: (Extraction?, ListRecipes.Recipe?) -> Unit) {
         val wv = webView ?: return
         if (done || extracting) return
         // The recipe list may still be downloading; give it a moment (the overall timeout bounds this).
         if (recipes == null && System.currentTimeMillis() - startedAt < OVERALL_MS - 6000) {
-            main.postDelayed({ if (!done) extract(allowRetry) }, 300)
+            main.postDelayed({ if (!done) again() }, 300)
             return
         }
         extracting = true
@@ -335,27 +404,63 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         val reqHost = Uri.parse(requestUrl).host
         val recipe = recipes?.let { ListRecipes.match(it, pageHost) ?: ListRecipes.match(it, reqHost) }
         val script = try { loadScript(context) } catch (e: Exception) { finish(fail("Reader script missing")); return }
-        val arg = if (recipe != null) JSONObject.quote(recipe.toJson()) else "null"
+        // A recipe may hold only a time zone (no row selector): then the rows are read automatically.
+        val rowRecipe = if (recipe != null && recipe.item != null) recipe else null
+        val arg = if (rowRecipe != null) JSONObject.quote(rowRecipe.toJson()) else "null"
+        val zone = recipe?.zone ?: ZoneId.systemDefault()
         val shapes = (LearnedShapes.forHost(context, pageHost) + LearnedShapes.forHost(context, reqHost)).distinct()
         val learnedArg = if (shapes.isEmpty()) "null" else JSONObject.quote(org.json.JSONArray(shapes).toString())
         wv.evaluateJavascript("($script)($arg, $learnedArg)") { raw ->
             if (done || gen != generation) return@evaluateJavascript
             val ex = try {
-                parseExtraction(MiniJson.parse(raw ?: "null") as? String ?: "", currentPage(), recipe?.host)
+                parseExtraction(MiniJson.parse(raw ?: "null") as? String ?: "", currentPage(), rowRecipe?.host, zone = zone)
             } catch (e: Exception) {
                 null
             }
+            then(ex, recipe)
+        }
+    }
+
+    private fun extract(allowRetry: Boolean) {
+        runExtractor({ extract(allowRetry) }) { ex, _ -> handle(ex, allowRetry) }
+    }
+
+    /** C2: one look at the events while the page may still be changing; two equal non-empty looks in a row finish the read. */
+    private fun look() {
+        runExtractor({ look() }) { ex, _ ->
+            looks++
+            val items = ex?.result?.items
+            val key = if (items == null) "" else ListReadLogic.eventsKey(items)
+            if (ex != null && ListReadLogic.stable(lookKey, key)) {
+                val secs = (System.currentTimeMillis() - startedAt) / 1000.0
+                Report.log(String.format(java.util.Locale.US, "List: events stable after %.1fs (%d looks)", secs, looks))
+                handle(ex, allowRetry = false)
+            } else {
+                lookKey = key.ifEmpty { null }
+                extracting = false
+                main.removeCallbacks(poll)
+                main.postDelayed(poll, LOOK_POLL_MS)
+            }
+        }
+    }
+
+    /** What to do with one extraction: retry paths for an empty result (frame, scroll, slow page), else report and finish. */
+    private fun handle(ex: Extraction?, allowRetry: Boolean) {
+        val wv = webView ?: return
+        val gen = generation
+        val reqHost = Uri.parse(requestUrl).host
+        run {
             val parsed = ex?.result
             if (ex == null || parsed == null) {
                 finish(fail("The page could not be read"))
-                return@evaluateJavascript
+                return
             }
             if (parsed.items.isEmpty() && allowRetry) {
                 val pick = if (followedFrom == null) FramePick.pick(ex.frames, currentPage()) else null
                 // 1. a big embedded frame holds the page's content: read that instead
                 if (pick != null && pick.strong) {
                     follow(pick.url, ex.debug)
-                    return@evaluateJavascript
+                    return
                 }
                 // 2. some lists load more when scrolled; scroll once and look again
                 if (!retried) {
@@ -366,7 +471,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                     lastSignature = null
                     unchanged = 0
                     main.postDelayed({ if (!done && gen == generation) extract(allowRetry = true) }, 2500)
-                    return@evaluateJavascript
+                    return
                 }
                 // 3. a nearly empty page or one still showing a loading indicator: give it more time
                 if (!slowRetried && (ex.textLen < SHORT_TEXT || ex.loading)) {
@@ -377,12 +482,12 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                     lastSignature = null
                     unchanged = 0
                     main.postDelayed({ if (!done && gen == generation) extract(allowRetry = true) }, SLOW_WAIT_MS)
-                    return@evaluateJavascript
+                    return
                 }
                 // 4. still nothing: the largest embedded frame is the best remaining guess
                 if (pick != null) {
                     follow(pick.url, ex.debug)
-                    return@evaluateJavascript
+                    return
                 }
             }
             val secs = (System.currentTimeMillis() - startedAt) / 1000.0
@@ -422,11 +527,16 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         slowRetried = false
         expandTried = false // the embedded frame is a new load
         firstLoadedAt = 0L
+        pollFrom = 0L
+        lookKey = null
+        looks = 0
+        lookMode = false
         lastSignature = null
         unchanged = 0
         main.removeCallbacks(poll)
         extendDeadline(System.currentTimeMillis() - startedAt + FOLLOW_MS)
         wv.loadUrl(frameUrl)
+        schedulePollStart()
     }
 
     companion object {
@@ -438,6 +548,11 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         private const val EXPAND_POLL_MS = 500L
         private const val EXPAND_SETTLE_MS = 4000L
         private const val SETTLE_MAX_MS = 15_000L
+        /** C1: settle polling starts this long after the load began even if the page has not painted or loaded yet. */
+        private const val EARLY_POLL_MS = 2_000L
+        /** C2: looks at the events themselves start after this much polling, then run about every [LOOK_POLL_MS]. */
+        private const val LOOK_AFTER_MS = 3_000L
+        private const val LOOK_POLL_MS = 1_500L
         private const val OVERALL_MS = 25_000L
         /** The page's structure without scripts/styles, plus open shadow roots, capped at 1.5 MB. */
         internal const val SNAP_JS = """(function(){try{
@@ -453,7 +568,10 @@ if(fr.length){out+='\n<!-- IFRAMES\n'+fr.join('\n').replace(/--/g,'- -')+'\n-->'
 return out.slice(0,1500000);
 }catch(e){return 'snapshot failed: '+e;}})()"""
         private const val SIGNATURE_JS =
-            "(function(){var b=document.body;if(!b)return '0:0';return b.innerText.length+':'+b.getElementsByTagName('*').length;})()"
+            "(function(){var r=document.readyState;var b=document.body;if(!b)return r+'|0:0';return r+'|'+b.innerText.length+':'+b.getElementsByTagName('*').length;})()"
+
+        /** A2: snapshot for "Save sample" only after a failed or empty read. */
+        internal fun shouldSnapshot(result: ListResult): Boolean = ListReadLogic.shouldSnapshot(result)
 
         @Volatile private var scriptCache: String? = null
 
@@ -672,23 +790,28 @@ object ListRecipes {
     private const val PREFS = "streamlink"
     private const val KEY = "recipes_json"
     private const val KEY_AT = "recipes_json_at"
-    private const val REFRESH_MS = 6 * 60 * 60 * 1000L
+    /** The saved copy is used at once; one older than this is refreshed in the background for the next read. */
+    internal const val REFRESH_MS = 10 * 60 * 1000L
+    private val refreshing = java.util.concurrent.atomic.AtomicBoolean(false)
     private const val MAX_BYTES = 256 * 1024
 
+    /** [item] null = a site entry with only settings (like [zone]): its rows are read automatically. */
     data class Recipe(
         val host: String,
-        val item: String,
+        val item: String?,
         val title: String? = null,
         val subtitle: String? = null,
         val time: String? = null,
         val link: String? = null,
         val section: String? = null,
         val live: String? = null,
+        /** Time zone for times the page writes with no zone label ("zone": "UTC"); labelled times still win. */
+        val zone: ZoneId? = null,
     ) {
         /** The JSON handed to list-extract.js. */
         fun toJson(): String {
             val o = JSONObject()
-            o.put("host", host); o.put("item", item)
+            o.put("host", host); item?.let { o.put("item", it) }
             title?.let { o.put("title", it) }; subtitle?.let { o.put("subtitle", it) }; time?.let { o.put("time", it) }
             link?.let { o.put("link", it) }; section?.let { o.put("section", it) }; live?.let { o.put("live", it) }
             return o.toString()
@@ -697,19 +820,27 @@ object ListRecipes {
 
     private fun normHost(h: String?): String = (h ?: "").trim().lowercase().removePrefix("www.").trimEnd('.')
 
-    /** Reads recipes.json text; bad JSON gives an empty list, and entries without "host" and "item" are skipped. Never throws. */
+    /** Reads recipes.json text; bad JSON gives an empty list; entries need "host" plus "item" or a valid "zone", others are skipped. Never throws. */
     fun parse(json: String): List<Recipe> {
         val sites = try { (MiniJson.parse(json) as? Map<*, *>)?.get("sites") as? List<*> } catch (_: Exception) { null } ?: return emptyList()
         val out = ArrayList<Recipe>()
         for (e in sites) {
             val m = e as? Map<*, *> ?: continue
             val host = normHost(m["host"] as? String)
-            val item = (m["item"] as? String)?.trim().orEmpty()
-            if (host.isEmpty() || item.isEmpty()) continue
+            val item = (m["item"] as? String)?.trim()?.ifEmpty { null }
+            val zone = zoneOf(m["zone"] as? String)
+            if (host.isEmpty() || (item == null && zone == null)) continue
             fun opt(k: String) = (m[k] as? String)?.trim()?.ifEmpty { null }
-            out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live")))
+            out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live"), zone))
         }
         return out
+    }
+
+    /** "UTC", "Europe/London", "+01:00"... as a zone; null when missing or not a zone. */
+    internal fun zoneOf(raw: String?): ZoneId? {
+        val t = raw?.trim().orEmpty()
+        if (t.isEmpty()) return null
+        return try { ZoneId.of(t) } catch (_: Exception) { null }
     }
 
     /** The recipe for this page host (exact or a parent domain of it); the most specific one wins. */
@@ -719,13 +850,31 @@ object ListRecipes {
         return recipes.filter { h == it.host || h.endsWith("." + it.host) }.maxByOrNull { it.host.length }
     }
 
-    /** Blocking (network): the cached list if fresh, else download, else the cache, else empty. Call off the main thread. */
+    /**
+     * The saved copy at once when there is one (refreshed in the background when over [REFRESH_MS] old, for the next
+     * read); with no saved copy, a blocking download. Call off the main thread.
+     */
     fun load(context: Context): List<Recipe> {
         val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val cached = prefs.getString(KEY, null)
         val at = prefs.getLong(KEY_AT, 0L)
         val now = System.currentTimeMillis()
-        if (cached != null && now - at in 0 until REFRESH_MS) return parse(cached)
+        if (cached != null) {
+            if (!(now - at in 0 until REFRESH_MS) && refreshing.compareAndSet(false, true)) {
+                thread(name = "recipes-refresh") {
+                    try {
+                        val fresh = try { download() } catch (e: Exception) {
+                            Report.logOnce("recipes-fail", "List: could not refresh recipes (${describeFailure(e)}); using the saved copy")
+                            null
+                        }
+                        if (fresh != null) prefs.edit().putString(KEY, fresh).putLong(KEY_AT, System.currentTimeMillis()).apply()
+                    } finally {
+                        refreshing.set(false)
+                    }
+                }
+            }
+            return parse(cached)
+        }
         var why = ""
         val fresh = try { download() } catch (e: Exception) { why = describeFailure(e); null }
         if (fresh != null) {

@@ -639,13 +639,25 @@
 
     function imageOf(item) {
       var imgs = item.querySelectorAll('img');
+      var unsized = null; // the TV's list reader does not load pictures: an unloaded one with no size is kept as a last resort
       for (var i = 0; i < imgs.length; i++) {
         var im = imgs[i];
         var src = im.currentSrc || im.getAttribute('src') || im.getAttribute('data-src') || im.getAttribute('data-lazy-src') || '';
         if (!src || /^data:/i.test(src)) continue;
-        if (layoutOk) { var r = im.getBoundingClientRect(); if (r.width > 0 && r.width < 20 && r.height < 20) continue; }
+        var unknown = false;
+        if (layoutOk) {
+          var r = im.getBoundingClientRect();
+          if (r.width > 0 && r.width < 20 && r.height < 20) continue;
+          if (r.width === 0 && im.complete && !im.naturalWidth) {
+            var aw = parseInt(im.getAttribute('width') || '', 10), ah = parseInt(im.getAttribute('height') || '', 10);
+            if (aw > 0 && ah > 0 && aw < 20 && ah < 20) continue;
+            unknown = !(aw >= 20 || ah >= 20);
+          }
+        }
         var u = okAbs(src, baseOf(item));
-        if (u) return u;
+        if (!u) continue;
+        if (unknown) { if (!unsized) unsized = u; continue; }
+        return u;
       }
       var els = [item], more = item.querySelectorAll('*');
       for (var j = 0; j < more.length && j < 30; j++) els.push(more[j]);
@@ -656,7 +668,7 @@
           if (m && m[2] && !/^data:/i.test(m[2])) { var u2 = okAbs(m[2], baseOf(item)); if (u2) return u2; }
         }
       }
-      return null;
+      return unsized;
     }
     function okAbs(u, base) {
       try { var x = new URL(u, base || document.baseURI); if (x.protocol === 'http:' || x.protocol === 'https:') return x.href.substring(0, 500); } catch (e) { }

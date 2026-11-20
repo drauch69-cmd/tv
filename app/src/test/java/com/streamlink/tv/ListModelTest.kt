@@ -102,8 +102,39 @@ class ListModelTest {
 
     @Test fun shippedRecipesFileIsValid() {
         val text = java.io.File("../recipes.json").takeIf { it.exists() }?.readText() ?: return
-        assertTrue(MiniJson.parse(text) is Map<*, *>)
-        assertTrue(ListRecipes.parse(text).isEmpty()) // the "_example" is documentation, not a recipe
+        val root = MiniJson.parse(text) as Map<*, *>
+        // every entry in "sites" must parse (none silently skipped); the "_example" is documentation, not a recipe
+        assertEquals((root["sites"] as List<*>).size, ListRecipes.parse(text).size)
+    }
+
+    @Test fun recipeZoneOnlyEntries() {
+        val r = ListRecipes.parse("""{"sites":[
+            {"host":"utc.example","zone":"UTC"},
+            {"host":"both.example","item":"li","zone":"Europe/London"},
+            {"host":"bad.example","zone":"Not/AZone"},
+            {"host":"off.example","zone":"+01:00"}
+          ]}""")
+        assertEquals(listOf("utc.example", "both.example", "off.example"), r.map { it.host })
+        assertNull(r[0].item)
+        assertEquals(java.time.ZoneId.of("UTC"), r[0].zone)
+        assertEquals("li", r[1].item)
+        assertEquals(java.time.ZoneId.of("Europe/London"), r[1].zone)
+        assertNull(ListRecipes.zoneOf(""))
+        assertNull(ListRecipes.zoneOf(null))
+        assertFalse(r[0].toJson().contains("\"item\""))
+    }
+
+    @Test fun recipeZoneReadsUnlabelledTimes() {
+        // 8:00 PM with no zone label, read as UTC; a labelled time keeps its own zone
+        val json = """{"items":[
+            {"url":"https://a.example/1","title":"A vs B","timeText":"Jan 15 8:00 PM"},
+            {"url":"https://a.example/2","title":"C vs D","timeText":"Jan 15 8:00 PM ET"}]}"""
+        val utc = java.time.ZoneId.of("UTC")
+        val ex = IndexReader.parseExtraction(json, "https://a.example/", null, now = now, zone = utc)
+        val t1 = ex.result.items[0].startMillis!!
+        val t2 = ex.result.items[1].startMillis!!
+        assertEquals(20, java.time.Instant.ofEpochMilli(t1).atZone(utc).hour)
+        assertEquals(20, java.time.Instant.ofEpochMilli(t2).atZone(java.time.ZoneId.of("America/New_York")).hour)
     }
 
     // ---- extractor output -> ListResult ----

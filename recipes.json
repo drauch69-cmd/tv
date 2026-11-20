@@ -1,7 +1,7 @@
 {
   "sites": [],
   "_example": {
-    "_help": "Entries in \"sites\" tell the TV how to read one index page. Only host and item are required; everything else is optional and falls back to automatic reading. All selectors are CSS selectors. \"item\" matches every event row; the others are looked up INSIDE each row, except \"section\" (headings of date groups, anywhere on the page: the nearest one above the row is used). \"host\" also matches its subdomains. Copy this object into \"sites\" and fill it in.",
+    "_help": "Entries in \"sites\" tell the TV how to read one index page. Only host and item are required; everything else is optional and falls back to automatic reading. All selectors are CSS selectors. \"item\" matches every event row; the others are looked up INSIDE each row, except \"section\" (headings of date groups, anywhere on the page: the nearest one above the row is used). \"host\" also matches its subdomains. \"zone\" (optional, e.g. \"UTC\" or \"Europe/London\") is the time zone for times the page writes without a zone label; an entry may hold only \"host\" and \"zone\", and its rows are then read automatically. Copy this object into \"sites\" and fill it in.",
     "host": "example.com",
     "item": "ul.events > li",
     "title": "h3.name",
@@ -9,6 +9,7 @@
     "time": "time, .when",
     "link": "a.more",
     "section": "h2.day",
-    "live": ".badge-live"
+    "live": ".badge-live",
+    "zone": "UTC"
   }
 }
