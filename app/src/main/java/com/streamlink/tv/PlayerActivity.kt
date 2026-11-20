@@ -158,6 +158,8 @@ class PlayerActivity : Activity() {
     /** Experiment for stuck streams: jump to where the downloaded video actually is. */
     private var jumpTried = false
     private var loadsLogged = 0
+    /** What the stream needs, measured from its downloaded pieces (for the overlay's speed pill). */
+    private val streamRate = StreamRate()
     private var firstFrame = false
     /** Bumped whenever a different link takes over, so a pending reconnect for the old one is dropped. */
     private var linkGen = 0
@@ -410,6 +412,7 @@ class PlayerActivity : Activity() {
         // browsers don't refuse the player (see ChromeNet).
         val engine = if (useChromeNet) ChromeNet.engine else null
         loadsLogged = 0
+        streamRate.clear()
         Report.logOnce(
             "net-${engine != null}",
             "Network: " + if (engine != null) ChromeNet.describe() else "Android's standard networking",
@@ -658,6 +661,9 @@ class PlayerActivity : Activity() {
         }
 
         override fun onLoadCompleted(eventTime: AnalyticsListener.EventTime, info: LoadEventInfo, data: MediaLoadData) {
+            if (data.dataType == C.DATA_TYPE_MEDIA && data.mediaStartTimeMs != C.TIME_UNSET && data.mediaEndTimeMs != C.TIME_UNSET) {
+                streamRate.add(data.trackType, info.bytesLoaded, data.mediaEndTimeMs - data.mediaStartTimeMs)
+            }
             if (loadsLogged >= 12) return
             loadsLogged++
             val secs = info.loadDurationMs / 1000.0
@@ -1930,16 +1936,24 @@ class PlayerActivity : Activity() {
         btnOther = button("Try another player") { openCleanPlayer("chosen from the player menu") }
         btnPause = button("Pause") { player?.let { it.playWhenReady = !it.playWhenReady }; refreshProgress(); scheduleHide() }
         btnSource = button("Source") { showSource() }
+        row.gravity = Gravity.CENTER_VERTICAL
         for (b in listOf(btnPause, btnOptions, btnSource, btnLive, btnOther)) {
             row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { marginEnd = dp(9f) })
         }
+        // Connection pill, bottom right: speed vs what the stream needs, colored by how much room there is.
+        row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        ovNet = Ui.text(this, "", 13f, Ui.TEXT, bold = true).apply {
+            maxLines = 1
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14f), dp(8f), dp(16f), dp(8f))
+            visibility = View.GONE
+        }
+        row.addView(ovNet)
         col.addView(meta)
         col.addView(ovTitle, gap(12f))
         col.addView(progress, gap(12f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
-        ovNet = Ui.text(this, "", 11f, Ui.TEXT_2).apply { maxLines = 1 }
-        col.addView(ovNet, gap(6f))
-        col.addView(row, gap(12f))
+        col.addView(row, gap(12f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
         overlay.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
             .apply { marginStart = dp(42f); marginEnd = dp(42f); bottomMargin = dp(30f) })
 
@@ -2143,14 +2157,24 @@ class PlayerActivity : Activity() {
             ovStatus.text = if (dur != C.TIME_UNSET && dur > 0) "${mmss(p.currentPosition)} / ${mmss(dur)}" else mmss(p.currentPosition)
             fraction = if (dur != C.TIME_UNSET && dur > 0) p.currentPosition.toFloat() / dur else 0f
         }
-        if (p == null) ovNet.text = "" else {
+        if (p == null) ovNet.visibility = View.GONE else {
+            // What the stream needs: what it announces if it does, else what its pieces measure.
+            val announced = (p.videoFormat?.bitrate ?: -1).toLong()
             val line = PlayerStats.line(
                 DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate,
-                (p.videoFormat?.bitrate ?: -1).toLong(),
+                if (announced > 0) announced else streamRate.bps(),
                 p.videoDecoderCounters?.droppedBufferCount ?: -1,
             )
-            ovNet.text = line.text
-            ovNet.setTextColor(if (line.warn) Ui.WARN else Ui.TEXT_2)
+            val (fill, ink) = when (line.level) {
+                PlayerStats.Level.GOOD -> 0xE6163A28.toInt() to 0xFF8EE3B5.toInt()
+                PlayerStats.Level.TIGHT -> 0xE63D3115.toInt() to Ui.WARN
+                PlayerStats.Level.SLOW -> 0xE6461A1E.toInt() to Ui.LIVE_TEXT
+                PlayerStats.Level.MEASURING -> 0xE6232A35.toInt() to Ui.TEXT_2
+            }
+            ovNet.text = "\u25CF  " + line.text
+            ovNet.setTextColor(ink)
+            ovNet.background = Ui.rounded(this, fill, 99f, ink and 0x66FFFFFF, 1f)
+            ovNet.visibility = View.VISIBLE
         }
         val w = ovTrack.width
         ovFill.layoutParams = (ovFill.layoutParams as FrameLayout.LayoutParams).apply {

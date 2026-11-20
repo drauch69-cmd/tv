@@ -81,23 +81,55 @@ object SportPhotoRules {
     fun focus(raw: String?): Float? = raw?.trim()?.toFloatOrNull()?.takeIf { !it.isNaN() }?.coerceIn(0f, 1f)
 }
 
-/** The player overlay's connection line. */
+/** The player overlay's connection pill. */
 object PlayerStats {
-    data class Line(val text: String, val warn: Boolean)
+    enum class Level { MEASURING, GOOD, TIGHT, SLOW }
+    data class Line(val text: String, val level: Level)
 
-    private fun mbps(bps: Long) = String.format(Locale.US, "%.1f Mbps", bps / 1_000_000.0)
+    private fun mbps(bps: Long) = String.format(Locale.US, "%.1f", bps / 1_000_000.0)
 
     /**
-     * "Download 18.4 Mbps · stream needs 6.2 Mbps · 0 dropped frames". [haveBps] is the connection estimate,
-     * [needBps] the playing quality's bit rate (unknown when 0 or less), [dropped] the dropped-frame count (unknown
-     * when negative). [Line.warn] when the connection is under 1.2x what the stream needs.
+     * "18.4 Mbps · needs 6.2 · 0 dropped". [haveBps] is the connection estimate, [needBps] what the stream needs
+     * (unknown when 0 or less), [dropped] the dropped-frame count (unknown when negative). Level: GOOD at 1.5x what the
+     * stream needs or more, TIGHT from 1x, SLOW under it; MEASURING while either number is unknown.
      */
     fun line(haveBps: Long, needBps: Long, dropped: Int): Line {
         val parts = ArrayList<String>()
-        parts.add(if (haveBps > 0) "Download ${mbps(haveBps)}" else "Download: measuring…")
-        if (needBps > 0) parts.add("stream needs ${mbps(needBps)}")
-        if (dropped >= 0) parts.add(if (dropped == 1) "1 dropped frame" else "$dropped dropped frames")
-        val warn = haveBps > 0 && needBps > 0 && haveBps < needBps * 1.2
-        return Line(parts.joinToString(" · "), warn)
+        parts.add(if (haveBps > 0) "${mbps(haveBps)} Mbps" else "Measuring speed…")
+        if (needBps > 0) parts.add("needs ${mbps(needBps)}")
+        if (dropped >= 0) parts.add("$dropped dropped")
+        val level = when {
+            haveBps <= 0 || needBps <= 0 -> Level.MEASURING
+            haveBps >= needBps * 1.5 -> Level.GOOD
+            haveBps >= needBps -> Level.TIGHT
+            else -> Level.SLOW
+        }
+        return Line(parts.joinToString(" · "), level)
+    }
+}
+
+/**
+ * What a stream really needs, measured from the media pieces it downloads: their size against the seconds of video
+ * (or audio) they hold. Kept per track kind (video, audio, mixed) over the last [WINDOW] pieces each; the kinds add up,
+ * since separate audio and video pieces cover the same seconds. Not thread-safe: use from the player's thread.
+ */
+class StreamRate {
+    companion object { const val WINDOW = 8 }
+    private val pieces = HashMap<Int, ArrayDeque<Pair<Long, Long>>>() // kind -> (bytes, media ms)
+
+    fun clear() = pieces.clear()
+
+    /** One finished media piece of [kind] (any number), [bytes] long, holding [mediaMs] of media; ignored if odd. */
+    fun add(kind: Int, bytes: Long, mediaMs: Long) {
+        if (bytes <= 0 || mediaMs < 200 || mediaMs > 60_000) return
+        val q = pieces.getOrPut(kind) { ArrayDeque() }
+        q.addLast(bytes to mediaMs)
+        while (q.size > WINDOW) q.removeFirst()
+    }
+
+    /** Bits per second, or 0 until something was measured. */
+    fun bps(): Long = pieces.values.sumOf { q ->
+        val ms = q.sumOf { it.second }
+        if (ms <= 0) 0L else q.sumOf { it.first } * 8_000L / ms
     }
 }

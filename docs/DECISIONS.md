@@ -13,6 +13,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   Skipped on purpose (performance on the Onn box): blur, big shadows, video previews, side menu, grow-on-focus. FPS
   counter / speed test on home: not wanted (player line instead). Check on the TV: logos appear and stay on redraws,
   home scrolls smoothly, Watch plays, photo crop matches the phone's dashed box, speed line looks right while playing.
+  User TV feedback (2026-11-20 02:53): logos OK; home not seen yet (no games). Follow-up built: speed line became a
+  colored pill at the bottom right with a measured "needs" number (streams rarely announce it); sport rows left-align
+  both teams' names (user let the agent choose names over 3-letter codes) and drop the TV channel. Untested on the TV.
 
 - **List reading performance A+B+C + recipe zone** (user's go, 2026-11-19 23:28; Sports build 244, unit-tested locally and in
   CI, NOT tested on the TV). One shared list reader for the app (`ListReads`); fresh lists skipped (2.5 min on open);

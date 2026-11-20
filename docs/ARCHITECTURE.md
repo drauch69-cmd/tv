@@ -361,7 +361,8 @@ Remote tabs; prefetch toggle).
     drawn (tries ESPN's dark-background logo, then the normal one, through ESPN's resizer), saves it in the cache folder,
     keeps 4 MB in memory; until it arrives the circle shows the team abbreviation. Failures aren't retried until restart.
   - Featured card (home, top): `LiveGames.featured` = the live game with the most streams (tie: sport order, then
-    earliest start); it is left out of the Live games row. Watch (accent pill, first focus) plays the game's first stream;
+    earliest start); it is left out of the Live games row. Sport-screen rows: both teams read logo, then name and
+    record left-aligned; the second team in a fixed 200 dp block at the right end; no TV channel. Watch (accent pill, first focus) plays the game's first stream;
     the stream chip opens the game's stream list. Photo box 510x196 dp on the right (2.6:1), dark scrim on the left.
   - Sport photos (`SportPhotos`): uploaded per sport from the phone page's Lists tab ("Home photos"; the phone shrinks
     to 1600 px JPEG), stored only on the TV (`filesDir/sport-photos`, never in the repo). The user taps the spot to keep
@@ -369,9 +370,10 @@ Remote tabs; prefetch toggle).
     allow, and the phone draws the same crop as a dashed box. Routes: `GET /photos`, `GET /photo?league=`,
     `POST /photo/upload?league=` (raw bytes, 3 MB max, same-origin), `POST /photo/focus`, `POST /photo/remove`.
     Report line: "Photos: saved a N KB photo for <sport>". No photo: the card shows without one.
-- **Player connection line** (overlay, under the progress bar, refreshed every 0.5 s): "Download X Mbps · stream needs
-  Y Mbps · N dropped frames" from the player's bandwidth estimate, the playing quality's bit rate and the video
-  decoder's dropped-buffer count; yellow when the connection is under 1.2x what the stream needs.
+- **Player connection pill** (overlay, right end of the button row, refreshed every 0.5 s): "● 18.4 Mbps · needs 6.2 · 0
+  dropped". Speed = the player's bandwidth estimate. Needs = the playing quality's announced bit rate, else
+  `StreamRate` (measured from finished media pieces: bytes over media seconds, last 8 per track kind, kinds added).
+  Colors (`PlayerStats.Level`): green at 1.5x or more, yellow from 1x, red under, grey while measuring.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.

@@ -70,14 +70,34 @@ class LookRulesTest {
         assertNull(SportPhotoRules.focus(null))
     }
 
-    @Test fun playerSpeedLine() {
+    @Test fun playerSpeedPill() {
         val ok = PlayerStats.line(18_400_000, 6_200_000, 0)
-        assertEquals("Download 18.4 Mbps · stream needs 6.2 Mbps · 0 dropped frames", ok.text)
-        assertFalse(ok.warn)
-        val tight = PlayerStats.line(7_000_000, 6_200_000, 1)
-        assertEquals("Download 7.0 Mbps · stream needs 6.2 Mbps · 1 dropped frame", tight.text)
-        assertTrue(tight.warn)
-        assertEquals("Download: measuring…", PlayerStats.line(0, -1, -1).text)
-        assertFalse(PlayerStats.line(0, 6_000_000, 3).warn)
+        assertEquals("18.4 Mbps · needs 6.2 · 0 dropped", ok.text)
+        assertEquals(PlayerStats.Level.GOOD, ok.level)
+        assertEquals(PlayerStats.Level.TIGHT, PlayerStats.line(7_000_000, 6_200_000, 1).level)
+        assertEquals(PlayerStats.Level.SLOW, PlayerStats.line(5_000_000, 6_200_000, 1).level)
+        val unknown = PlayerStats.line(9_000_000, 0, 2)
+        assertEquals("9.0 Mbps · 2 dropped", unknown.text)
+        assertEquals(PlayerStats.Level.MEASURING, unknown.level)
+        assertEquals("Measuring speed…", PlayerStats.line(0, -1, -1).text)
+    }
+
+    @Test fun streamRateMeasuresFromPieces() {
+        val r = StreamRate()
+        assertEquals(0L, r.bps())
+        // 6-second video pieces of 3 MB = 4 Mbps
+        repeat(3) { r.add(2, 3_000_000, 6_000) }
+        assertEquals(4_000_000L, r.bps())
+        // Separate audio pieces over the same seconds add on top: 96 kB per 6 s = 128 kbps
+        r.add(1, 96_000, 6_000)
+        assertEquals(4_128_000L, r.bps())
+        // Odd pieces are ignored
+        r.add(2, 0, 6_000); r.add(2, 5_000, 50); r.add(2, 5_000, 120_000)
+        assertEquals(4_128_000L, r.bps())
+        // Only the last pieces count
+        repeat(StreamRate.WINDOW) { r.add(2, 1_500_000, 6_000) }
+        assertEquals(2_128_000L, r.bps())
+        r.clear()
+        assertEquals(0L, r.bps())
     }
 }

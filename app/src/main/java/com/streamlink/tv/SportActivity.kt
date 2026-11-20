@@ -334,22 +334,20 @@ class SportActivity : Activity() {
             contentDescription = SportsText.matchup(g)
             setOnClickListener { startActivity(StreamsActivity.gameIntent(this@SportActivity, league, g.id)) }
         }
-        fun side(t: TeamSide, right: Boolean): View {
-            val box = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL or if (right) Gravity.END else Gravity.START
-            }
-            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = if (right) Gravity.END else Gravity.START }
+        // Both teams read the same way: logo, then name with the record under it, left-aligned. The second team sits in
+        // a fixed-width block at the right end, so its logos and names line up from row to row.
+        fun side(t: TeamSide): LinearLayout {
+            val box = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            box.addView(Logos.view(this, t, 32))
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             col.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 15f, Ui.TEXT, bold = true).apply {
                 maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             })
             if (t.record.isNotBlank()) col.addView(Ui.text(this, t.record, 10.5f, Ui.TEXT_2).apply { setPadding(0, dp(3), 0, 0) })
-            val logo = Logos.view(this, t, 32)
-            val gap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            if (right) { box.addView(col, gap.apply { marginEnd = dp(12) }); box.addView(logo) } else { box.addView(logo); box.addView(col, gap.apply { marginStart = dp(12) }) }
+            box.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12) })
             return box
         }
-        row.addView(side(g.away, false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(side(g.away), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val mid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         if (started && ScoreStatus.cancelLabel(g) == null) {
             mid.addView(Ui.text(this, "${ScoreText.points(g.away)} – ${ScoreText.points(g.home)}", 21f, Ui.TEXT, bold = true))
@@ -359,9 +357,10 @@ class SportActivity : Activity() {
         } else {
             mid.addView(Ui.badge(this, ScoreStatus.cancelLabel(g) ?: SportsText.kickoff(g.startMillis, zone), false))
         }
-        if (g.broadcast.isNotBlank()) mid.addView(Ui.text(this, g.broadcast.trim(), 10f, Ui.TEXT_3).apply { maxLines = 1; setPadding(0, dp(3), 0, 0) })
         row.addView(mid, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT))
-        row.addView(side(g.home, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val homeSlot = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+        homeSlot.addView(side(g.home), LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT))
+        row.addView(homeSlot, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val chip = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
         chip.addView(Ui.streamChip(this, gf.streams.size, 12f))
         row.addView(chip, LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT))
