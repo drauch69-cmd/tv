@@ -5,6 +5,14 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Other games tiles in the player menu + new button order** (user's go, 2026-11-19 22:25; on `sports`, CI only, NOT
+  tested on the TV). Top-right tiles of other live games of the same sport with scores; pick one with a stream to
+  switch (best-ranked list's stream; Back afterwards goes to the list). Up to 8 tiles (2 rows of 4), more = 7 + "+N".
+  Games with no stream shown dimmed. No preloading of other games while watching (performance on the Onn box).
+  Buttons now: Pause/Play, Audio & quality, Source, Jump to live, Try another player ("Back to list" removed; the
+  remote's Back key does it). To check on the TV: tile look and size on a busy Sunday, D-pad Up/Down into and out of
+  the tiles, switch speed, no stutter when the menu opens.
+
 - **Live games rework (2026-11-19, on `sports`):** user reports it works on the TV (21:27). Still to see: the RedZone
   card on a Sunday. Open: the "2+ NFL games live" rule for RedZone was the lead's choice, not yet confirmed by the user.
 - **Rename lists (user's go, 2026-11-19 21:27; on `sports`, CI only, NOT tested on the TV):** "✎ Rename" chip on each list

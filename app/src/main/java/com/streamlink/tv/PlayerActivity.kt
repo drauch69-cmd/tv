@@ -109,7 +109,6 @@ class PlayerActivity : Activity() {
     private lateinit var ovFill: View
     private lateinit var ovStatus: TextView
     private lateinit var btnLive: TextView
-    private lateinit var btnBack: TextView
     private lateinit var btnOptions: TextView
     private lateinit var btnOther: TextView
     private lateinit var btnPause: TextView
@@ -1888,10 +1887,12 @@ class PlayerActivity : Activity() {
     // ---- Screen: info overlay ----
 
     private val hideOverlayRunnable = Runnable { hideOverlayNow() }
+    private var overlayTicks = 0
     private val overlayTick = object : Runnable {
         override fun run() {
             if (overlay.visibility != View.VISIBLE) return
             refreshProgress()
+            if (++overlayTicks % 20 == 0) ScoreFeed.refreshIfDue { refreshTiles() } // every 10 s; fetches only when due (30 s live)
             main.postDelayed(this, 500)
         }
     }
@@ -1923,12 +1924,11 @@ class PlayerActivity : Activity() {
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         btnLive = button("Jump to live") { player?.seekToDefaultPosition(); scheduleHide() }
-        btnBack = button("Back") { backToList() }
         btnOptions = button("Audio & quality") { showOptions() }
         btnOther = button("Try another player") { openCleanPlayer("chosen from the player menu") }
         btnPause = button("Pause") { player?.let { it.playWhenReady = !it.playWhenReady }; refreshProgress(); scheduleHide() }
         btnSource = button("Source") { showSource() }
-        for (b in listOf(btnPause, btnLive, btnSource, btnBack, btnOptions, btnOther)) {
+        for (b in listOf(btnPause, btnOptions, btnSource, btnLive, btnOther)) {
             row.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 .apply { marginEnd = dp(9f) })
         }
@@ -1939,7 +1939,127 @@ class PlayerActivity : Activity() {
         overlay.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
             .apply { marginStart = dp(42f); marginEnd = dp(42f); bottomMargin = dp(30f) })
 
+        tilesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.END; visibility = View.GONE }
+        overlay.addView(tilesBox, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.END)
+            .apply { topMargin = dp(24f); marginEnd = dp(32f) })
+
         root.addView(overlay, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    }
+
+    // ---- Overlay: other live games of the same sport (GameTiles) ----
+
+    private lateinit var tilesBox: LinearLayout
+    private var tilesShown: TileSet? = null
+    private var tilesBusy = false
+    private var tilesAgain = false
+
+    /** Works out the tiles off the main thread (cached lists and scores only, no network) and redraws if they changed. */
+    private fun refreshTiles() {
+        if (tilesBusy) { tilesAgain = true; return }
+        tilesBusy = true
+        val itemUrl = Session.listItemUrl
+        val title = Session.title
+        val ctx = applicationContext
+        kotlin.concurrent.thread(isDaemon = true, name = "game-tiles") {
+            val next = try {
+                val folders = SportsData.both(ctx)
+                GameTiles.current(folders, itemUrl, title, ScoreFeed.latest())?.let { (lg, id) -> GameTiles.pick(folders, lg, id) }
+            } catch (_: Exception) { null }
+            main.post {
+                tilesBusy = false
+                if (isFinishing || isDestroyed) return@post
+                if (!GameTiles.sameLook(tilesShown, next)) drawTiles(next)
+                if (tilesAgain) { tilesAgain = false; refreshTiles() }
+            }
+        }
+    }
+
+    /** Two rows of up to 4 small tiles, top right. Switchable games are focusable; Down from the last row goes to Pause. */
+    private fun drawTiles(set: TileSet?) {
+        val focusedId = (currentFocus?.tag as? String)?.takeIf { currentFocus?.parent?.parent === tilesBox }
+        tilesShown = set
+        tilesBox.removeAllViews()
+        if (set == null || set.tiles.isEmpty()) {
+            tilesBox.visibility = View.GONE
+            btnRowUpTarget(View.NO_ID)
+            if (focusedId != null && overlay.visibility == View.VISIBLE) btnPause.requestFocus()
+            return
+        }
+        if (btnPause.id == View.NO_ID) btnPause.id = View.generateViewId()
+        val views = ArrayList<View>()
+        for (t in set.tiles) views.add(tileView(t))
+        if (set.more > 0) views.add(moreView(set.more))
+        val rows = views.chunked(4)
+        rows.forEachIndexed { r, rowViews ->
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            rowViews.forEachIndexed { i, v ->
+                if (r == rows.lastIndex) v.nextFocusDownId = btnPause.id
+                if (i == rowViews.lastIndex) v.nextFocusRightId = v.id
+                row.addView(v, LinearLayout.LayoutParams(dp(112f), ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(6f) })
+            }
+            tilesBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                .apply { if (r > 0) topMargin = dp(6f) })
+        }
+        tilesBox.visibility = View.VISIBLE
+        // Up from the buttons goes to the first tile of the bottom row that can be picked (else any that can).
+        val target = rows.last().firstOrNull { it.isFocusable } ?: views.firstOrNull { it.isFocusable }
+        btnRowUpTarget(target?.id ?: View.NO_ID)
+        if (focusedId != null) {
+            val again = views.firstOrNull { it.tag == focusedId && it.isFocusable }
+            if (again != null) again.requestFocus() else btnPause.requestFocus()
+        }
+    }
+
+    private fun btnRowUpTarget(id: Int) {
+        for (b in listOf(btnPause, btnOptions, btnSource, btnLive, btnOther)) b.nextFocusUpId = id
+    }
+
+    private fun tileView(t: GameTile): View {
+        val can = t.stream != null
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            id = View.generateViewId()
+            tag = t.game.id
+            setPadding(dp(9f), dp(5f), dp(9f), dp(6f))
+            if (can) {
+                Ui.focusCard(this, 0xD9171B22.toInt(), 0xF21B2230.toInt(), 7f)
+                isFocusable = true; isClickable = true
+                setOnClickListener { switchToGame(t) }
+            } else {
+                background = Ui.rounded(context, 0x99171B22.toInt(), 7f)
+                alpha = 0.6f
+            }
+        }
+        box.addView(Ui.text(this, GameTiles.scoreLine(t.game), 11.5f, Ui.TEXT, bold = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        box.addView(Ui.text(this, GameTiles.statusLine(t.game, can), 10.5f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        return box
+    }
+
+    private fun moreView(n: Int): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        id = View.generateViewId()
+        gravity = Gravity.CENTER
+        alpha = 0.6f
+        background = Ui.rounded(context, 0x99171B22.toInt(), 7f)
+        setPadding(dp(9f), dp(5f), dp(9f), dp(6f))
+        addView(Ui.text(this@PlayerActivity, "+$n", 11.5f, Ui.TEXT, bold = true))
+        addView(Ui.text(this@PlayerActivity, "more live", 10.5f, Ui.TEXT_2))
+    }
+
+    /**
+     * Switch to another game: this player and its backup browser stop first (never two streams at once), then the
+     * game's best-ranked stream opens on the loading screen, as if picked from its list. Back then goes to the list.
+     */
+    private fun switchToGame(t: GameTile) {
+        val s = t.stream ?: return
+        Report.log("Switching game from the player menu: ${ListText.displayTitle(s.item)} (${s.listName})")
+        hideOverlayNow()
+        noteAddressAge(true)
+        cancelRecovery()
+        keeper?.stop()
+        release()
+        startActivity(WaitingActivity.intent(this, s.item, s.listId, s.listName))
+        finish()
     }
 
     private fun currentListItem(): ListItem? {
@@ -1957,7 +2077,6 @@ class PlayerActivity : Activity() {
         ovSub.text = listOfNotNull(listLabel().takeIf { it.isNotBlank() }, started?.let { startedText(it) }).joinToString(" · ")
         ovTitle.text = Session.title.ifBlank { host }
         btnLive.visibility = if (live) View.VISIBLE else View.GONE
-        btnBack.text = if (Session.listId != null) "Back to list" else "Back"
         btnSource.visibility = if (sourceButtonVisible()) View.VISIBLE else View.GONE
         refreshProgress()
         overlay.visibility = View.VISIBLE
@@ -1965,6 +2084,8 @@ class PlayerActivity : Activity() {
             btnPause.requestFocus()
             main.removeCallbacks(overlayTick)
             main.post(overlayTick)
+            refreshTiles()
+            ScoreFeed.refreshIfDue { refreshTiles() }
         }
         scheduleHide()
     }
@@ -2024,12 +2145,6 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun backToList() {
-        val id = Session.listId
-        release()
-        if (id != null) startActivity(ListActivity.intent(this, id))
-        finish()
-    }
 
     // ---- Screen: options panel (sources, quality, tunneling, live delay, reload) ----
 

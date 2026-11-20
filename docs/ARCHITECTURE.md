@@ -321,10 +321,16 @@ Remote tabs; prefetch toggle).
   it; portrait/narrow frames (chat) score 0. If no candidate is left after a few ticks (an empty player box), it presses
   source button 1 once per page (max 2 per visit) via `SourcePress`; report line "Site player: pressed source button N
   of M (the player was empty)". Not yet tested on the TV.
-- **Player overlay** buttons, in order: Pause/Play (first, focused), Jump to live, Source, Back to list,
-  Audio & quality, Try another player. Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
+- **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.
+- **Other games tiles** (`GameTiles`, PlayerActivity "Overlay: other live games"): when the menu opens, live games of the
+  sport being watched (the game whose folder holds the playing item; else a title naming both teams; RedZone = NFL)
+  show top right, 2 rows of up to 4 (7 + "+N more" past 8). Streams first, then start time. A tile with a stream ("▶")
+  switches: this player and its backup browser stop, then the best-ranked list's stream opens on the loading screen.
+  Worked out off the main thread from cached lists and scores (no list reads); scores refresh while the menu is open
+  (ScoreFeed: 30 s when live). Redrawn only when a tile changes; focus kept. Up from the buttons enters the tiles,
+  Down from the bottom row returns to Pause. Report line "Switching game from the player menu: …".
 - **Network engine.** The player fetches through Chrome's network engine (Cronet). If a stream never starts with it
   (stall), it retries once with Android's standard networking. A 403 on standard networking switches back to Chrome's
   engine for that page load (many stream servers refuse non-Chrome clients; the checker always uses Chrome's engine,
