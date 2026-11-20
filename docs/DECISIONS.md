@@ -5,6 +5,14 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Referer order + habit taps** (user's go, 2026-11-20 03:08; on `sports`, CI only, NOT tested on the TV). Trigger: CrackStreams
+  NFL Network report (build 248): video pieces 403 on every referer, but every referer tried was an ad/tracker frame
+  (crwdcntrl, yieldz); the page itself never fit in the 5 tries. Stream was also dead in desktop Chrome, so this may
+  not make it play. Fixed: page/player-frame referers first; crwdcntrl.net and yieldz.gs blocked as ad hosts; a
+  remembered ad-host referer is ignored (closes the "old tracker referer stays remembered" item). Habit: a player-spot
+  habit now fires when the player shows (was waiting ~4 s for ads to finish loading, so a normal tap went first) and its
+  taps are counted (the saved count was off). Check on the TV: a report's 403 line lists the site's own host first.
+
 - **Polished look** (user's go, 2026-11-20 02:27; mockups on the "StreamLink UI mockups" canvas). Built on `sports`,
   unit-tested in CI only, NOT tested on the TV: team logos from ESPN, dark-fade cards, stream count chip ("0" greyed),
   featured live game over a per-sport photo with a blue Watch button, roomier home spacing, sport-screen rows with logos
@@ -52,8 +60,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   the TV itself (typing with the remote). To check: rename on the phone, name updates on the TV tiles and cards.
 - **Build 234 on the TV (2026-11-19 13:41):** the broken CrackStreams NFL Network stream (pieces 403) gave up in
   15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
-  other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old
-  tracker referer stays remembered until its 7-day expiry (harmless).
+  other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Closed 2026-11-20: the old
+  tracker referer is now ignored (see "Referer order + habit taps").
 - **Build 234 on the TV (19:48), ~6 h uptime:** NFL game on ntv played at 9.7 s, no engine wedge after ~6 h open (the
   wedge earlier showed after ~3.5 h on build 227); "Other sites: 6 stream(s)" offered as backups. Seen: the ntv list's
   start time read as "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff (the site's time is likely UTC with no label; ESPN

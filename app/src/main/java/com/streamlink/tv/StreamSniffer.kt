@@ -243,7 +243,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val h = habit ?: return@Runnable
         if (done || verifying || candidates.isNotEmpty() || wv.width <= 0 || wv.height <= 0) return@Runnable
         habitTapAt = SystemClock.uptimeMillis()
-        tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
+        habitTap(wv, h)
+    }
+
+    /** One habit tap, counted like any other tap so the habit learned from this run has the real number of taps. */
+    private fun habitTap(wv: WebView, h: SiteHabits.Habit) {
+        val x = SiteHabits.toPixels(h.fx, wv.width)
+        val y = SiteHabits.toPixels(h.fy, wv.height)
+        noteTap(h.tapKind, x, y, wv)
+        tap(wv, x, y)
     }
 
     /** Start of a run: forget the last run's bookkeeping and look up this site's habit (primary searches only; light and click-only runs never use or record). */
@@ -287,7 +295,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (h.hasTap) {
             log(habitIntro(h) + SiteHabits.describe(h, withTap = true, withSource = false))
             habitTapAt = SystemClock.uptimeMillis()
-            tap(wv, SiteHabits.toPixels(h.fx, wv.width), SiteHabits.toPixels(h.fy, wv.height))
+            habitTap(wv, h)
             if (h.taps >= 2) main.postDelayed(habitSecondTap, SiteHabits.SECOND_TAP_MS)
         }
         if (h.hasSource) {
@@ -556,16 +564,21 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         CookieManager.getInstance().getCookie(url)?.let { if (it.isNotBlank()) headers["Cookie"] = it }
         // The embedded player frames, newest first.
         val frames = synchronized(frameUrls) { frameUrls.toList() }.asReversed()
+        val trusted = listOf(siteHost, Report.host(currentPage()), Report.host(this.referer ?: ""), playerFrameHost)
         val referers = if (embedded) {
             // Found inside another request: that request's Referer, then the player frames (no ad hosts), up to 4.
             Headers.embeddedReferers(requestReferer, frames, { AdBlock.isBlockedHost(Report.host(it)) }) + ""
         } else {
             // Candidates for "which page asked for this video": the frames, then the page itself, then no referer at all.
             // Each also as a bare origin ("https://host/") right after its full form.
+            // The page's and the player frame's own addresses go first, so ad/tracker frames can never push them out of the 5 tries.
             Headers.withOriginForms(
-                (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage(), referer))
-                    .filter { it.startsWith("http") }
-                    .distinct(),
+                RefererTrust.trustedFirst(
+                    (listOfNotNull(requestReferer) + frames + listOfNotNull(webView?.url, currentPage(), referer))
+                        .filter { it.startsWith("http") }
+                        .distinct(),
+                    trusted,
+                ),
                 5,
             ) + ""
         }
@@ -574,7 +587,6 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             val dropped = candidates.entries.filter { it.value.embedded && StreamUrls.sameStream(it.value.url, url) }.map { it.key }
             for (k in dropped) candidates.remove(k)
         }
-        val trusted = listOf(siteHost, Report.host(currentPage()), Report.host(this.referer ?: ""), playerFrameHost)
         candidates[url] = StreamCandidate(url, headers, referers, "", true, embedded, possible, RefererTrust.eligibleReferers(referers, trusted))
         if (possible) {
             // Not a stream yet: no wait is started and playlistSeen stays as it is. A quick content check decides.
@@ -988,6 +1000,10 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         // (On a click-only list page that is still showing the list, a tap would open some other event.)
         val onList = clickRef != null && !pageChanged()
         // A learned-habit tap was just made: skip this nudge's tap (the nudge's other work already ran).
+        // A player-spot habit waits for the player to show, not for the whole page to finish loading
+        // (ads can hold that back for seconds): the habit's tap replaces this nudge's tap.
+        val h = habit
+        if (h != null && h.hasTap && h.tapKind == SiteHabits.KIND_PLAYER && !habitApplied && playerX > 0 && !onList) applyHabit()
         val habitBusy = habitTapAt != 0L && SystemClock.uptimeMillis() - habitTapAt < HABIT_TAP_GAP_MS
         if (wv.width > 0 && !onList && !habitBusy) {
             val hasPlayer = playerX > 0

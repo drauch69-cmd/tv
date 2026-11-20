@@ -99,6 +99,15 @@ object RefererTrust {
         return trustedHosts.any { it.isNotBlank() && sameSite(host, it) }
     }
 
+    /**
+     * [referers] with the ones from the page or player frame ([trustedHosts]) moved to the front, each group in its
+     * original order. Ad/tracker frames on a page can otherwise fill every try before the page itself is reached.
+     */
+    fun trustedFirst(referers: List<String>, trustedHosts: Collection<String>): List<String> {
+        val (mine, other) = referers.partition { eligible(it, trustedHosts) }
+        return mine + other
+    }
+
     /** The referers of a candidate that may be remembered. */
     fun eligibleReferers(referers: List<String>, trustedHosts: Collection<String>): List<String> =
         referers.filter { it.isNotEmpty() && eligible(it, trustedHosts) }

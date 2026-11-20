@@ -28,7 +28,7 @@ object AdBlock {
         "amazon-adsystem.com", "criteo.com", "pubmatic.com", "rubiconproject.com",
         "openx.net", "33across.com", "yieldmo.com",
         // Ad/tracker frames (useless as a stream's referer)
-        "lijit.com", "sovrn.com", "adsco.re", "sharethis.com", "adsafeprotected.com",
+        "lijit.com", "sovrn.com", "crwdcntrl.net", "yieldz.gs", "adsco.re", "sharethis.com", "adsafeprotected.com",
         "moatads.com", "scorecardresearch.com", "quantserve.com", "casalemedia.com", "bidswitch.net",
     )
 

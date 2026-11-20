@@ -254,7 +254,8 @@ object Verifier {
         // Up to 5 real referers (the finder already caps each list), then the no-referer attempt last.
         // The referer this stream server accepted last time goes first (see [ServerMemory]).
         val host = Report.host(c.url)
-        val remembered = ServerMemory.refererFor(host)
+        // A remembered ad/tracker referer (saved by builds before 234) is ignored rather than tried first.
+        val remembered = ServerMemory.refererFor(host)?.takeUnless { AdBlock.isBlockedHost(Report.host(it)) }
         val refs = ServerMemory.refererOrder(c.referers, remembered)
         if (remembered != null && refs.firstOrNull() == remembered) log("Trying the referer this server accepted last time")
         var note = "no response"

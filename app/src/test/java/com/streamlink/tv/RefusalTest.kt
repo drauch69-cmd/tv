@@ -128,4 +128,20 @@ class CheckVerdictTest {
         assertNull(ServerMemory.lifetimeSample(false, 404))
         assertNull(ServerMemory.lifetimeSample(false, 200))
     }
+
+    @Test fun pageAndPlayerReferersGoBeforeTrackerFrames() {
+        val refs = listOf(
+            "https://bcp.tracker.example/x/pixels", "https://tags.tracker.example/y",
+            "https://site.example/stream/abc", "https://player.example/embed/1",
+        )
+        assertEquals(
+            listOf("https://site.example/stream/abc", "https://player.example/embed/1", "https://bcp.tracker.example/x/pixels", "https://tags.tracker.example/y"),
+            RefererTrust.trustedFirst(refs, listOf("site.example", "player.example", "")),
+        )
+        // the page referer and its bare origin now survive the 5-try cap
+        val capped = Headers.withOriginForms(RefererTrust.trustedFirst(refs, listOf("site.example")), 5)
+        assertEquals(listOf("https://site.example/stream/abc", "https://site.example/"), capped.take(2))
+        // nothing trusted: order unchanged
+        assertEquals(refs, RefererTrust.trustedFirst(refs, listOf("")))
+    }
 }

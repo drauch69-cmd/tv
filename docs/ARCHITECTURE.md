@@ -39,7 +39,7 @@ Playback pipeline:
    site player). The normal nudge/tap search then carries on with whatever player appears.
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
    being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
-   (`Headers.withOriginForms`). A 403 failure line lists the referers tried (hosts only). Only verified sources play. A check stops after 2 answers of 404/410 (the rest would say the same); a check cut off by the 10 s limit is judged on the answers it already got (a slow 404 = gone, not "too slow"), and checks that finish after the ranking returned write no report lines. A source whose every referer got an HTTP refusal (401/403/451) is marked "; refused on every referer" (`Refusal.isRefusedSource`) and is never played (dropped like a gone source): a search with only such candidates is treated like offline (`StreamSet.offline`; other sites' streams through the automatic switch, else the site player), line "The stream server refuses this stream (server said 403 to every referer); not playing it". Not yet tested on the TV.
+   (`Headers.withOriginForms`). Referers from the page or the player frame's host go first (`RefererTrust.trustedFirst`), so ad/tracker frames never push them out of the 5 tries; a remembered referer on a blocked ad host is ignored. A 403 failure line lists the referers tried (hosts only). Only verified sources play. A check stops after 2 answers of 404/410 (the rest would say the same); a check cut off by the 10 s limit is judged on the answers it already got (a slow 404 = gone, not "too slow"), and checks that finish after the ranking returned write no report lines. A source whose every referer got an HTTP refusal (401/403/451) is marked "; refused on every referer" (`Refusal.isRefusedSource`) and is never played (dropped like a gone source): a search with only such candidates is treated like offline (`StreamSet.offline`; other sites' streams through the automatic switch, else the site player), line "The stream server refuses this stream (server said 403 to every referer); not playing it". Not yet tested on the TV.
 4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
 5. **Extra sources.** Nothing runs in the background while playing (the old link run that pressed each source
@@ -160,6 +160,8 @@ Remote tabs; prefetch toggle).
   Live/Soon items a 2 s background head start (quiet: `Report.muted`). Light sniffs (25 s timeout) block every
   request except playlists once a playlist was seen (no separate image/font rule; the list reader has one, see "Lists").
 - **Learned habits per site** (`SiteHabits.kt`, pure helpers unit tested in `SiteHabitsTest`; not the hand-written list recipes).
+  A player-spot habit is applied at the first nudge that sees the player (else at page load), replacing that nudge's tap; habit
+  taps count toward the run's tap total, so the learned tap count is the real one (2026-11-20, not yet tested on the TV).
   **Shipped habits** (2026-11-19, `RecipeHabitTest`, not yet tested on the TV): a `recipes.json` site entry may carry
   `"habit": {"tap","x","y","taps","button" (from 1),"buttons","secs"}` (`SiteHabits.fromRecipe`; an entry may hold only
   host + habit). `SiteHabits.get` uses the learned habit when usable, else the shipped one (`pick`; from the saved
