@@ -22,6 +22,8 @@ data class TeamSide(
     val nickname: String,     // "Giants"
     val score: String,
     val record: String,
+    /** ESPN's team logo address ("https://a.espncdn.com/i/teamlogos/…png"), or "" if ESPN sent none. */
+    val logo: String = "",
 )
 
 /** One NFL, college football, NBA or college basketball game from ESPN's scoreboard. */
@@ -112,6 +114,7 @@ object ScoreParse {
             nickname = str(t, "name"),
             score = str(c, "score"),
             record = record,
+            logo = str(t, "logo").takeIf { it.startsWith("https://") } ?: "",
         )
     }
 
@@ -336,6 +339,19 @@ object ScoreText {
     private val KICKOFF = DateTimeFormatter.ofPattern("EEE h:mm a")
 
     private fun finalStatus(g: Game): String = if (g.shortDetail.startsWith("Final", ignoreCase = true)) g.shortDetail else "Final"
+
+    /** A team's points for big score displays ("0" when ESPN sent none). */
+    fun points(s: TeamSide): String = pts(s)
+
+    /** Status under a big score: "Q3 · 8:42", "Halftime", "Final", "Postponed"; null before the game starts. */
+    fun status(g: Game): String? {
+        ScoreStatus.cancelLabel(g)?.let { return it }
+        return when (g.state) {
+            "in" -> liveStatus(g, " · ")
+            "post" -> finalStatus(g)
+            else -> null
+        }
+    }
 
     /** One short line for a list row; null before the game starts. */
     fun rowLine(g: Game): String? {

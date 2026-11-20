@@ -352,6 +352,26 @@ Remote tabs; prefetch toggle).
   it; portrait/narrow frames (chat) score 0. If no candidate is left after a few ticks (an empty player box), it presses
   source button 1 once per page (max 2 per visit) via `SourcePress`; report line "Site player: pressed source button N
   of M (the player was empty)". Not yet tested on the TV.
+- **Polished look** (user, 2026-11-20; mockups on the "StreamLink UI mockups" canvas, "Polish pass" row). Pure rules in
+  `LookRules.kt` (`LogoUrls`, `PhotoFrame`, `SportPhotoRules`, `PlayerStats`; `LookRulesTest`).
+  - Cards (home live games, sport tiles, RedZone, sport-screen game rows) use `Ui.fadeCard`: a subtle dark fade, a
+    shade lighter when focused, accent ring on top. Stream counts are `Ui.streamChip` (broadcast mark + number; grey
+    outlined "0" when none).
+  - Team logos: `TeamSide.logo` from ESPN's scoreboard (https only). `Logos` downloads each logo once at the size it is
+    drawn (tries ESPN's dark-background logo, then the normal one, through ESPN's resizer), saves it in the cache folder,
+    keeps 4 MB in memory; until it arrives the circle shows the team abbreviation. Failures aren't retried until restart.
+  - Featured card (home, top): `LiveGames.featured` = the live game with the most streams (tie: sport order, then
+    earliest start); it is left out of the Live games row. Watch (accent pill, first focus) plays the game's first stream;
+    the stream chip opens the game's stream list. Photo box 510x196 dp on the right (2.6:1), dark scrim on the left.
+  - Sport photos (`SportPhotos`): uploaded per sport from the phone page's Lists tab ("Home photos"; the phone shrinks
+    to 1600 px JPEG), stored only on the TV (`filesDir/sport-photos`, never in the repo). The user taps the spot to keep
+    in view (focus point, 0..1 fractions); `PhotoFrame.place` covers the box with that spot as central as the edges
+    allow, and the phone draws the same crop as a dashed box. Routes: `GET /photos`, `GET /photo?league=`,
+    `POST /photo/upload?league=` (raw bytes, 3 MB max, same-origin), `POST /photo/focus`, `POST /photo/remove`.
+    Report line: "Photos: saved a N KB photo for <sport>". No photo: the card shows without one.
+- **Player connection line** (overlay, under the progress bar, refreshed every 0.5 s): "Download X Mbps · stream needs
+  Y Mbps · N dropped frames" from the player's bandwidth estimate, the playing quality's bit rate and the video
+  decoder's dropped-buffer count; yellow when the connection is under 1.2x what the stream needs.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.

@@ -78,6 +78,18 @@ class ScoresTest {
         assertEquals("", g.broadcast)
     }
 
+    @Test fun readsTeamLogosAndStatusText() {
+        val home = """{"homeAway":"home","score":"21","team":{"displayName":"New York Giants","shortDisplayName":"Giants","abbreviation":"NYG","location":"New York","name":"Giants","logo":"https://a.espncdn.com/i/teamlogos/nfl/500/scoreboard/nyg.png"}}"""
+        val away = """{"homeAway":"away","score":"24","team":{"displayName":"Washington Commanders","shortDisplayName":"Commanders","abbreviation":"WSH","location":"Washington","name":"Commanders","logo":"http://insecure.example/wsh.png"}}"""
+        val g = ScoreParse.parse(feed(jEvent("1", "2026-11-16T18:00Z", "in", "8:42 - 3rd", "$home,$away")), "nfl").single()
+        assertEquals("https://a.espncdn.com/i/teamlogos/nfl/500/scoreboard/nyg.png", g.home.logo)
+        assertEquals("", g.away.logo) // only https addresses are used
+        assertEquals("Q3 · 8:42", ScoreText.status(g))
+        assertEquals("24", ScoreText.points(g.away))
+        assertEquals(null, ScoreText.status(g.copy(state = "pre")))
+        assertEquals("Final", ScoreText.status(g.copy(state = "post", shortDetail = "")))
+    }
+
     @Test fun badJsonGivesEmpty() {
         assertEquals(emptyList<Game>(), ScoreParse.parse("not json at all", "nfl"))
         assertEquals(emptyList<Game>(), ScoreParse.parse("""{"nothing":1}""", "nfl"))

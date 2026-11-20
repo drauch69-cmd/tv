@@ -5,6 +5,15 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Polished look** (user's go, 2026-11-20 02:27; mockups on the "StreamLink UI mockups" canvas). Built on `sports`,
+  unit-tested in CI only, NOT tested on the TV: team logos from ESPN, dark-fade cards, stream count chip ("0" greyed),
+  featured live game over a per-sport photo with a blue Watch button, roomier home spacing, sport-screen rows with logos
+  and the score in the middle, player overlay line with download speed vs what the stream needs. Photos: the user's own,
+  uploaded from the phone (Lists tab, "Home photos") with tap-to-frame; kept on the TV only because the repo is public.
+  Skipped on purpose (performance on the Onn box): blur, big shadows, video previews, side menu, grow-on-focus. FPS
+  counter / speed test on home: not wanted (player line instead). Check on the TV: logos appear and stay on redraws,
+  home scrolls smoothly, Watch plays, photo crop matches the phone's dashed box, speed line looks right while playing.
+
 - **List reading performance A+B+C + recipe zone** (user's go, 2026-11-19 23:28; Sports build 244, unit-tested locally and in
   CI, NOT tested on the TV). One shared list reader for the app (`ListReads`); fresh lists skipped (2.5 min on open);
   re-reads every 5 min, 90 s near start times; list rows updated in place; reader blocks pictures/fonts/media, starts

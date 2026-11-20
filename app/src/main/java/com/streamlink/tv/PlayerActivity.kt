@@ -108,6 +108,8 @@ class PlayerActivity : Activity() {
     private lateinit var ovTrack: FrameLayout
     private lateinit var ovFill: View
     private lateinit var ovStatus: TextView
+    /** Connection line: download speed vs what the stream needs, dropped frames (PlayerStats). */
+    private lateinit var ovNet: TextView
     private lateinit var btnLive: TextView
     private lateinit var btnOptions: TextView
     private lateinit var btnOther: TextView
@@ -1935,6 +1937,8 @@ class PlayerActivity : Activity() {
         col.addView(meta)
         col.addView(ovTitle, gap(12f))
         col.addView(progress, gap(12f).apply { width = ViewGroup.LayoutParams.MATCH_PARENT })
+        ovNet = Ui.text(this, "", 11f, Ui.TEXT_2).apply { maxLines = 1 }
+        col.addView(ovNet, gap(6f))
         col.addView(row, gap(12f))
         overlay.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM)
             .apply { marginStart = dp(42f); marginEnd = dp(42f); bottomMargin = dp(30f) })
@@ -2138,6 +2142,15 @@ class PlayerActivity : Activity() {
             val dur = p.duration
             ovStatus.text = if (dur != C.TIME_UNSET && dur > 0) "${mmss(p.currentPosition)} / ${mmss(dur)}" else mmss(p.currentPosition)
             fraction = if (dur != C.TIME_UNSET && dur > 0) p.currentPosition.toFloat() / dur else 0f
+        }
+        if (p == null) ovNet.text = "" else {
+            val line = PlayerStats.line(
+                DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate,
+                (p.videoFormat?.bitrate ?: -1).toLong(),
+                p.videoDecoderCounters?.droppedBufferCount ?: -1,
+            )
+            ovNet.text = line.text
+            ovNet.setTextColor(if (line.warn) Ui.WARN else Ui.TEXT_2)
         }
         val w = ovTrack.width
         ovFill.layoutParams = (ovFill.layoutParams as FrameLayout.LayoutParams).apply {

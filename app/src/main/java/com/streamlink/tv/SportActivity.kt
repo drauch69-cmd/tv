@@ -323,25 +323,48 @@ class SportActivity : Activity() {
 
     private fun gameRow(gf: GameFolder, zone: ZoneId): View {
         val g = gf.game
-        val live = g.state == "in"
+        val started = g.state == "in" || g.state == "post"
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            Ui.focusCard(this)
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            Ui.fadeCard(this, 14f)
+            setPadding(dp(18), dp(12), dp(18), dp(12))
             isFocusable = true; isClickable = true
             tag = "g:" + g.id
+            contentDescription = SportsText.matchup(g)
             setOnClickListener { startActivity(StreamsActivity.gameIntent(this@SportActivity, league, g.id)) }
         }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(Ui.text(this, SportsText.matchup(g), 16f, Ui.TEXT, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END })
-        col.addView(Ui.text(this, SportsText.gameMeta(g, zone), 11f, if (live) Ui.LIVE_TEXT else Ui.TEXT_2).apply {
-            maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0)
-        })
-        row.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(14) })
-        if (live) row.addView(Ui.badge(this, "LIVE", true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(12) })
-        val n = gf.streams.size
-        row.addView(Ui.text(this, SportsText.streamsText(n), 12f, if (n > 0) Ui.TEXT else Ui.TEXT_3, bold = n > 0))
+        fun side(t: TeamSide, right: Boolean): View {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL or if (right) Gravity.END else Gravity.START
+            }
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = if (right) Gravity.END else Gravity.START }
+            col.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 15f, Ui.TEXT, bold = true).apply {
+                maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            })
+            if (t.record.isNotBlank()) col.addView(Ui.text(this, t.record, 10.5f, Ui.TEXT_2).apply { setPadding(0, dp(3), 0, 0) })
+            val logo = Logos.view(this, t, 32)
+            val gap = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            if (right) { box.addView(col, gap.apply { marginEnd = dp(12) }); box.addView(logo) } else { box.addView(logo); box.addView(col, gap.apply { marginStart = dp(12) }) }
+            return box
+        }
+        row.addView(side(g.away, false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val mid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+        if (started && ScoreStatus.cancelLabel(g) == null) {
+            mid.addView(Ui.text(this, "${ScoreText.points(g.away)} – ${ScoreText.points(g.home)}", 21f, Ui.TEXT, bold = true))
+            mid.addView(Ui.text(this, ScoreText.status(g) ?: "", 11f, if (g.state == "in") Ui.LIVE_TEXT else Ui.TEXT_2, bold = g.state == "in").apply {
+                setPadding(0, dp(3), 0, 0)
+            })
+        } else {
+            mid.addView(Ui.badge(this, ScoreStatus.cancelLabel(g) ?: SportsText.kickoff(g.startMillis, zone), false))
+        }
+        if (g.broadcast.isNotBlank()) mid.addView(Ui.text(this, g.broadcast.trim(), 10f, Ui.TEXT_3).apply { maxLines = 1; setPadding(0, dp(3), 0, 0) })
+        row.addView(mid, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT))
+        row.addView(side(g.home, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val chip = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
+        chip.addView(Ui.streamChip(this, gf.streams.size, 12f))
+        row.addView(chip, LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT))
         return row
     }
 

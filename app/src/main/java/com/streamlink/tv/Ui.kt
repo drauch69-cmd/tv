@@ -117,4 +117,43 @@ object Ui {
     /** Section label like "LIVE NOW" / "LATER". */
     fun sectionLabel(ctx: Context, s: String, color: Int = TEXT_2): TextView =
         text(ctx, s.uppercase(), 11f, color, bold = true).apply { letterSpacing = 0.08f }
+
+    // ---- Polished look (2026-11-20): dark-fade cards, stream count chip, team logos (Logos.kt) ----
+
+    const val FADE_TOP = 0xFF1E242E.toInt()
+    const val FADE_BOTTOM = 0xFF14181E.toInt()
+    const val FADE_TOP_FOCUS = 0xFF26303D.toInt()
+    const val FADE_BOTTOM_FOCUS = 0xFF1A2029.toInt()
+
+    private fun fade(ctx: Context, top: Int, bottom: Int, radiusDp: Float) =
+        GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(top, bottom)).apply { cornerRadius = dp(ctx, radiusDp).toFloat() }
+
+    /** Card look: a subtle dark-to-less-dark fade, a shade lighter when focused, with the accent ring on top. */
+    fun fadeCard(v: View, radiusDp: Float = 12f) {
+        val ctx = v.context
+        v.background = StateListDrawable().apply {
+            addState(FOCUS_STATES, fade(ctx, FADE_TOP_FOCUS, FADE_BOTTOM_FOCUS, radiusDp))
+            addState(PRESSED_STATES, fade(ctx, FADE_TOP_FOCUS, FADE_BOTTOM_FOCUS, radiusDp))
+            addState(intArrayOf(), fade(ctx, FADE_TOP, FADE_BOTTOM, radiusDp))
+        }
+        v.foreground = ringForeground(ctx, ACCENT, radiusDp)
+        v.defaultFocusHighlightEnabled = false
+    }
+
+    /** The stream count pill: a small broadcast mark and the number; grey "0" when there are none. */
+    fun streamChip(ctx: Context, n: Int, sp: Float = 11f): TextView {
+        val color = if (n > 0) 0xFF9CCBFF.toInt() else TEXT_3
+        return text(ctx, "$n", sp, color, bold = true).apply {
+            val dot = android.graphics.drawable.LayerDrawable(arrayOf<Drawable>(
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0); setStroke(dp(ctx, 1.5f), color); setSize(dp(ctx, 11), dp(ctx, 11)) },
+                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(color); setSize(dp(ctx, 4), dp(ctx, 4)) },
+            )).apply { setLayerInset(1, dp(ctx, 3.5f), dp(ctx, 3.5f), dp(ctx, 3.5f), dp(ctx, 3.5f)) }
+            setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
+            compoundDrawablePadding = dp(ctx, 5)
+            gravity = Gravity.CENTER_VERTICAL
+            background = if (n > 0) rounded(ctx, 0x244DA3FF, 99f) else rounded(ctx, 0, 99f, 0xFF3A4250.toInt(), 1f)
+            setPadding(dp(ctx, 8), dp(ctx, 3), dp(ctx, 9), dp(ctx, 3))
+            contentDescription = if (n == 1) "1 stream" else "$n streams"
+        }
+    }
 }

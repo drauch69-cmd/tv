@@ -283,4 +283,18 @@ class GamesTest {
         ))
         assertEquals(1, f.games.first { it.game.id == "1" }.streams.size)
     }
+
+    @Test fun featuredIsTheLiveGameWithMostStreams() {
+        val a = game("a", osu, mich, at("2026-11-19T12:00:00Z"), "in", "cfb")
+        val b = game("b", wsh, nyg, at("2026-11-19T13:00:00Z"), "in")
+        val c = game("c", chi, det, at("2026-11-19T11:00:00Z"), "in")
+        val pre = game("pre", mia, ne, at("2026-11-19T20:00:00Z"))
+        val nfl = SportFolders("nfl", listOf(folder(b, "https://x/1", "https://x/2"), folder(c, "https://x/3"), folder(pre, "https://x/4", "https://x/5", "https://x/6")), emptyList())
+        val cfb = SportFolders("cfb", listOf(folder(a, "https://x/7", "https://x/8")), emptyList())
+        // Two streams each for a and b: the tie goes to sport order (NFL first). The pre-game one never counts.
+        assertEquals("b", LiveGames.featured(listOf(cfb, nfl))?.game?.id)
+        val cfb3 = SportFolders("cfb", listOf(folder(a, "https://x/7", "https://x/8", "https://x/9")), emptyList())
+        assertEquals("a", LiveGames.featured(listOf(cfb3, nfl))?.game?.id)
+        assertEquals(null, LiveGames.featured(listOf(SportFolders("nfl", listOf(folder(c), folder(pre, "https://x/4")), emptyList()))))
+    }
 }

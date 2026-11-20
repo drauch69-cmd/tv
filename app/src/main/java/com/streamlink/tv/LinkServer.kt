@@ -40,6 +40,16 @@ class LinkServer(
     private val onListRefresh: (String) -> Boolean = { false },
     /** POST /list/play (id, url, start): plays an event of a list; start is its start time (epoch ms) if known. */
     private val onListPlay: (String, String, Long?) -> Boolean = { _, _, _ -> false },
+    /** GET /photos: JSON of the sport photos (which sports have one, focus points). */
+    private val photos: () -> String = { "{\"photos\":[]}" },
+    /** GET /photo?league=: one sport's photo bytes, or null if it has none. */
+    private val photo: (String) -> ByteArray? = { null },
+    /** POST /photo/upload?league= (body: the JPEG/PNG bytes): null on success, otherwise why it was refused. */
+    private val onPhotoUpload: (String, ByteArray) -> String? = { _, _ -> "Photos are not available" },
+    /** POST /photo/focus (league, x, y as 0..1 fractions): false if that sport has no photo. */
+    private val onPhotoFocus: (String, Float, Float) -> Boolean = { _, _, _ -> false },
+    /** POST /photo/remove (league): false if there was nothing to remove. */
+    private val onPhotoRemove: (String) -> Boolean = { false },
 ) {
     private var socket: ServerSocket? = null
     @Volatile private var running = false
@@ -107,7 +117,8 @@ class LinkServer(
                         "sec-fetch-site" -> fetchSite = value.lowercase()
                     }
                 }
-                val body = if (contentLength in 1..65_536) {
+                val limit = if (path == "/photo/upload") SportPhotoRules.MAX_BYTES else 65_536
+                val raw = if (contentLength in 1..limit) {
                     val buf = ByteArray(contentLength)
                     var read = 0
                     while (read < contentLength) {
@@ -115,8 +126,13 @@ class LinkServer(
                         if (n < 0) break
                         read += n
                     }
-                    String(buf, 0, read, Charsets.UTF_8)
-                } else ""
+                    if (read == contentLength) buf else buf.copyOf(read)
+                } else ByteArray(0)
+                if (path == "/photo/upload" && contentLength > limit) {
+                    respond(c, 400, "text/plain; charset=utf-8", "That photo is too big (3 MB at most)")
+                    return
+                }
+                val body = if (path == "/photo/upload") "" else String(raw, Charsets.UTF_8)
 
                 // Links and commands only from our own phone page or a Shortcut, never from another
                 // website (which a browser would label with its own Origin / Sec-Fetch-Site).
@@ -129,7 +145,7 @@ class LinkServer(
                     respond(c, 403, "text/plain; charset=utf-8", "Not allowed from another website")
                     return
                 }
-                route(c, method, path, query, host, contentType, body)
+                route(c, method, path, query, host, contentType, body, raw)
             } catch (_: Exception) {
             }
         }
@@ -142,7 +158,7 @@ class LinkServer(
         return o.isNotEmpty() && o == host.lowercase()
     }
 
-    private fun route(c: Socket, method: String, path: String, query: String, host: String, contentType: String, body: String) {
+    private fun route(c: Socket, method: String, path: String, query: String, host: String, contentType: String, body: String, payload: ByteArray = ByteArray(0)) {
         val html = "text/html; charset=utf-8"
         val text = "text/plain; charset=utf-8"
         val json = "application/json; charset=utf-8"
@@ -194,7 +210,26 @@ class LinkServer(
                 if (body1 == null) respond(c, 404, text, "No such list") else respond(c, 200, json, body1)
             }
 
+            method == "GET" && path == "/photos" -> respond(c, 200, json, photos())
+            method == "GET" && path == "/photo" -> {
+                val bytes = formValue(query, "league")?.let { photo(it) }
+                if (bytes == null) respond(c, 404, text, "No photo") else
+                    respondBytes(c, 200, if (bytes.size > 3 && bytes[1] == 'P'.code.toByte()) "image/png" else "image/jpeg", bytes)
+            }
             // The routes below only change things; handle() already insists on POST + same origin.
+            method == "POST" && path == "/photo/upload" -> {
+                val err = onPhotoUpload(formValue(query, "league") ?: "", payload)
+                if (err == null) respond(c, 200, text, "Saved") else respond(c, 400, text, err)
+            }
+            method == "POST" && path == "/photo/focus" -> {
+                val lg = formValue(body, "league") ?: ""
+                val x = SportPhotoRules.focus(formValue(body, "x"))
+                val y = SportPhotoRules.focus(formValue(body, "y"))
+                if (x != null && y != null && onPhotoFocus(lg, x, y)) respond(c, 200, text, "Saved") else respond(c, 400, text, "No photo for that sport")
+            }
+            method == "POST" && path == "/photo/remove" -> {
+                if (onPhotoRemove(formValue(body, "league") ?: "")) respond(c, 200, text, "Removed") else respond(c, 404, text, "No photo")
+            }
             method == "POST" && path == "/lists/add" -> {
                 val url = normalize(formValue(body, "url"))
                 if (url == null) {
@@ -254,7 +289,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/remove")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

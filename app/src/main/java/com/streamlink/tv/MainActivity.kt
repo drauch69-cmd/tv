@@ -161,6 +161,7 @@ class MainActivity : Activity() {
         yourLists = findViewById(R.id.yourLists)
         prefetchToggle = findViewById(R.id.prefetchToggle)
         styleHome()
+        buildFeatured()
         updateBanner.setOnClickListener { installUpdate() }
         updateSettings.setOnClickListener { openInstallSettings() }
         checkUpdate.setOnClickListener { Updater.check(this, manual = true) }
@@ -200,6 +201,11 @@ class MainActivity : Activity() {
             onListPlay = { id, url, start ->
                 SavedLists.get(this, id)?.let { l -> runOnUiThread { playListItem(l, url, start) }; true } ?: false
             },
+            photos = { SportPhotos.json(this) },
+            photo = { lg -> SportPhotos.bytes(this, lg) },
+            onPhotoUpload = { lg, bytes -> SportPhotos.save(this, lg, bytes).also { if (it == null) runOnUiThread { renderLists() } } },
+            onPhotoFocus = { lg, x, y -> SportPhotos.setFocus(this, lg, x, y).also { if (it) runOnUiThread { renderLists() } } },
+            onPhotoRemove = { lg -> SportPhotos.remove(this, lg).also { runOnUiThread { renderLists() } } },
         )
         port = try { server.start() } catch (_: Exception) { -1 }
         showAddress()
@@ -406,14 +412,147 @@ class MainActivity : Activity() {
 
     /** The "Live games" row (RedZone first while it airs, then games) and the "Sports" row. */
     private fun renderSports(m: HomeModel) {
-        renderLiveGames(m.folders, m.redZone)
+        val feat = LiveGames.featured(m.folders)
+        renderFeatured(feat)
+        renderLiveGames(m.folders, m.redZone, feat?.game?.id)
         renderSportTiles(m)
     }
 
-    private fun renderLiveGames(folders: List<SportFolders>, redZone: HomeFeed.Entry?) {
+    // ---- Featured game: the live game with the most streams, over the user's photo for its sport ----
+
+    private lateinit var featured: android.widget.FrameLayout
+    private lateinit var featPhoto: ImageView
+    private lateinit var featSport: TextView
+    private lateinit var featTeams: LinearLayout
+    private lateinit var featStatus: TextView
+    private lateinit var featWatch: TextView
+    private lateinit var featChipBox: android.widget.FrameLayout
+    private var featGame: GameFolder? = null
+    /** Sport + photo stamp shown now, so redraws only reload the photo when it changed. */
+    private var featPhotoKey = ""
+
+    private fun buildFeatured() {
+        featured = findViewById(R.id.featured)
+        featured.background = Ui.rounded(this, Ui.FADE_BOTTOM, 16f)
+        featured.clipToOutline = true
+        featPhoto = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        featured.addView(featPhoto, android.widget.FrameLayout.LayoutParams(dp(FEAT_PHOTO_W), ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.END))
+        // Dark on the left where the text sits, clear on the right so the photo shows.
+        featured.addView(View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(0xFF14181E.toInt(), 0xFA14181E.toInt(), 0xE014181E.toInt(), 0x5514181E, 0x0014181E))
+        }, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28), dp(22), dp(28), dp(22)) }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        top.addView(Ui.badge(this, "LIVE", true, 10.5f))
+        featSport = Ui.text(this, "", 12f, Ui.TEXT_2).apply { maxLines = 1 }
+        top.addView(featSport, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
+        col.addView(top)
+        featTeams = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(featTeams, LinearLayout.LayoutParams(dp(360), ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
+        col.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        featWatch = Ui.text(this, "Watch", 15f, Ui.ON_ACCENT, bold = true).apply {
+            val play = android.graphics.drawable.ShapeDrawable(android.graphics.drawable.shapes.PathShape(android.graphics.Path().apply {
+                moveTo(0f, 0f); lineTo(10f, 6f); lineTo(0f, 12f); close()
+            }, 10f, 12f)).apply { paint.color = Ui.ON_ACCENT; setIntrinsicWidth(dp(10)); setIntrinsicHeight(dp(12)) }
+            setCompoundDrawablesRelativeWithIntrinsicBounds(play, null, null, null)
+            compoundDrawablePadding = dp(9)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(20), dp(10), dp(24), dp(10))
+            Ui.primaryCard(this, 99f)
+            isFocusable = true; isClickable = true
+            setOnClickListener { watchFeatured() }
+        }
+        bottom.addView(featWatch)
+        featStatus = Ui.text(this, "", 12.5f, Ui.LIVE_TEXT, bold = true).apply { maxLines = 1 }
+        bottom.addView(featStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(16) })
+        // The stream count; OK opens the game's list of streams.
+        featChipBox = android.widget.FrameLayout(this).apply {
+            isFocusable = true; isClickable = true
+            Ui.focusRing(this, 99f)
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            setOnClickListener { featGame?.let { startActivity(StreamsActivity.gameIntent(this@MainActivity, it.game.league, it.game.id)) } }
+        }
+        bottom.addView(featChipBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
+        col.addView(bottom)
+        featured.addView(col, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        featPhoto.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePhoto() }
+    }
+
+    private fun teamLine(t: TeamSide, leading: Boolean, showScore: Boolean): View {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        row.addView(Logos.view(this, t, 34))
+        val c = if (leading) Ui.TEXT else 0xFFC4CAD3.toInt()
+        row.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 20f, c, bold = true).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12) })
+        if (showScore) row.addView(Ui.text(this, ScoreText.points(t), 22f, c, bold = true))
+        return row
+    }
+
+    private fun renderFeatured(gf: GameFolder?) {
+        val hadFocus = featured.hasFocus()
+        featGame = gf
+        if (gf == null) {
+            featured.visibility = View.GONE
+            featPhotoKey = ""
+            if (hadFocus) focusFirst()
+            return
+        }
+        featured.visibility = View.VISIBLE
+        val g = gf.game
+        featSport.text = Sports.label(g.league) + if (g.broadcast.isBlank()) "" else "  ·  ${g.broadcast.trim()}"
+        val away = g.away.score.toIntOrNull() ?: 0
+        val home = g.home.score.toIntOrNull() ?: 0
+        featTeams.removeAllViews()
+        featTeams.addView(teamLine(g.away, away >= home, true))
+        featTeams.addView(teamLine(g.home, home >= away, true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
+        featStatus.text = ScoreText.status(g) ?: ""
+        featChipBox.removeAllViews()
+        featChipBox.addView(Ui.streamChip(this, gf.streams.size, 12f))
+        featWatch.contentDescription = "Watch ${SportsText.matchup(g)}"
+        loadPhoto(g.league)
+    }
+
+    private fun loadPhoto(league: String) {
+        val key = league + "|" + (getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString())
+        if (key == featPhotoKey) return
+        featPhotoKey = key
+        val w = dp(FEAT_PHOTO_W)
+        val h = dp(FEAT_H)
+        val app = applicationContext
+        homeCalc.execute {
+            val b = try { SportPhotos.bitmap(app, league, w, h) } catch (_: Exception) { null }
+            main.post {
+                if (isFinishing || isDestroyed || featPhotoKey != key) return@post
+                featPhoto.setImageBitmap(b)
+                featPhoto.tag = league
+                placePhoto()
+            }
+        }
+    }
+
+    /** Covers the photo box with the photo, the spot the user tapped on the phone kept in view. */
+    private fun placePhoto() {
+        val d = featPhoto.drawable ?: return
+        val lg = featPhoto.tag as? String ?: return
+        val (fx, fy) = SportPhotos.focus(this, lg)
+        val p = PhotoFrame.place(d.intrinsicWidth, d.intrinsicHeight, featPhoto.width, featPhoto.height, fx, fy)
+        featPhoto.imageMatrix = android.graphics.Matrix().apply { setScale(p.scale, p.scale); postTranslate(p.dx, p.dy) }
+    }
+
+    /** Watch: plays the game's first stream (best-ranked list first), like picking it from the game's list. */
+    private fun watchFeatured() {
+        val s = featGame?.streams?.firstOrNull() ?: return
+        val l = SavedLists.get(this, s.listId) ?: return
+        playListItem(l, s.item.url, s.item.startMillis)
+    }
+
+    private fun renderLiveGames(folders: List<SportFolders>, redZone: HomeFeed.Entry?, featuredId: String?) {
         val focusedId = liveGamesRow.focusedChild?.tag as? String
         liveGamesRow.removeAllViews()
-        val games = LiveGames.sample(folders, 8)
+        val games = LiveGames.sample(folders, 9).filter { it.game.id != featuredId }.take(8)
         val vis = if (games.isEmpty() && redZone == null) View.GONE else View.VISIBLE
         liveGamesHeader.visibility = vis
         liveGamesScroll.visibility = vis
@@ -422,8 +561,8 @@ class MainActivity : Activity() {
         if (redZone != null) {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                Ui.focusCard(this, radiusDp = 12f)
-                setPadding(dp(15), dp(13), dp(15), dp(13))
+                Ui.fadeCard(this, 14f)
+                setPadding(dp(16), dp(14), dp(16), dp(14))
                 isFocusable = true
                 isClickable = true
                 tag = REDZONE_TAG
@@ -450,8 +589,8 @@ class MainActivity : Activity() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            val lp = LinearLayout.LayoutParams(dp(230), dp(126))
-            lp.marginEnd = dp(15)
+            val lp = LinearLayout.LayoutParams(dp(232), dp(146))
+            lp.marginEnd = dp(16)
             liveGamesRow.addView(card, lp)
             if (focusedId == REDZONE_TAG) focusTarget = card
         }
@@ -459,38 +598,51 @@ class MainActivity : Activity() {
             val g = gf.game
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                Ui.focusCard(this, radiusDp = 12f)
-                setPadding(dp(15), dp(13), dp(15), dp(13))
+                Ui.fadeCard(this, 14f)
+                setPadding(dp(16), dp(14), dp(16), dp(14))
                 isFocusable = true
                 isClickable = true
                 tag = g.id
+                contentDescription = SportsText.matchup(g)
                 setOnClickListener { startActivity(StreamsActivity.gameIntent(this@MainActivity, g.league, g.id)) }
             }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
             top.addView(Ui.badge(this, "LIVE", true, 10f))
             top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-            top.addView(Ui.text(this, Sports.label(g.league), 10.5f, Ui.TEXT_3).apply { maxLines = 1 })
+            top.addView(Ui.text(this, Sports.label(g.league), 10.5f, Ui.TEXT_2).apply { maxLines = 1 })
             card.addView(top)
-            card.addView(Ui.text(this, SportsText.matchupShort(g), 17f, Ui.TEXT, bold = true).apply {
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(9), 0, 0)
-            })
-            card.addView(Ui.text(this, ScoreText.rowLine(g) ?: "", 11.5f, Ui.LIVE_TEXT).apply {
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setPadding(0, dp(5), 0, 0)
-            })
+            val away = g.away.score.toIntOrNull() ?: 0
+            val home = g.home.score.toIntOrNull() ?: 0
+            card.addView(cardTeam(g.away, away >= home), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(11) })
+            card.addView(cardTeam(g.home, home >= away), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
             card.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
-            card.addView(Ui.text(this, SportsText.streamsText(gf.streams.size), 11.5f, Ui.TEXT_2).apply { maxLines = 1 })
-            val lp = LinearLayout.LayoutParams(dp(230), dp(126))
-            lp.marginEnd = dp(15)
+            val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+            foot.addView(Ui.text(this, ScoreText.status(g) ?: "", 11f, Ui.LIVE_TEXT, bold = true).apply { maxLines = 1 },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            foot.addView(Ui.streamChip(this, gf.streams.size))
+            card.addView(foot)
+            val lp = LinearLayout.LayoutParams(dp(232), dp(146))
+            lp.marginEnd = dp(16)
             liveGamesRow.addView(card, lp)
             if (g.id == focusedId) focusTarget = card
         }
+        // The focused game became the featured one: follow it to its Watch button.
+        if (focusedId != null && focusTarget == null && focusedId == featuredId) focusTarget = featWatch
         // The focused game ended or left the row: move focus to the sports tiles rather than losing it.
         if (focusedId != null && focusTarget == null) focusTarget = sportsRow.getChildAt(0)
         focusTarget?.requestFocus()
+    }
+
+    /** One team line on a small live card: logo, name, points (the trailing team dimmed). */
+    private fun cardTeam(t: TeamSide, leading: Boolean): View {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        val c = if (leading) Ui.TEXT else Ui.TEXT_2
+        row.addView(Logos.view(this, t, 22))
+        row.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 13.5f, c, bold = true).apply {
+            maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(9) })
+        row.addView(Ui.text(this, ScoreText.points(t), 14.5f, c, bold = true))
+        return row
     }
 
     private fun renderSportTiles(m: HomeModel) {
@@ -501,8 +653,8 @@ class MainActivity : Activity() {
         fun tile(key: String, name: String, line: String, foot: String, open: () -> Unit) {
             val t = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                Ui.focusCard(this, radiusDp = 11f)
-                setPadding(dp(15), dp(13), dp(15), dp(13))
+                Ui.fadeCard(this, 14f)
+                setPadding(dp(18), dp(16), dp(18), dp(16))
                 isFocusable = true
                 isClickable = true
                 tag = key
@@ -517,8 +669,8 @@ class MainActivity : Activity() {
             }
             t.addView(Ui.text(this, sb, 11.5f, Ui.TEXT_2).apply { maxLines = 1; setPadding(0, dp(7), 0, 0) })
             t.addView(Ui.text(this, foot, 10.5f, Ui.TEXT_3).apply { maxLines = 1; setPadding(0, dp(6), 0, 0) })
-            val lp = LinearLayout.LayoutParams(dp(210), ViewGroup.LayoutParams.WRAP_CONTENT)
-            lp.marginEnd = dp(15)
+            val lp = LinearLayout.LayoutParams(dp(220), ViewGroup.LayoutParams.WRAP_CONTENT)
+            lp.marginEnd = dp(16)
             sportsRow.addView(t, lp)
             if (key == focusedTag) focusTarget = t
         }
@@ -535,6 +687,7 @@ class MainActivity : Activity() {
     }
 
     private fun focusFirst() {
+        if (featured.visibility == View.VISIBLE) { featWatch.requestFocus(); return }
         (liveGamesRow.getChildAt(0)?.takeIf { it.isFocusable && liveGamesScroll.visibility == View.VISIBLE }
             ?: sportsRow.getChildAt(0)?.takeIf { it.isFocusable } ?: sendLink).requestFocus()
     }
@@ -703,6 +856,9 @@ class MainActivity : Activity() {
         const val STALE_MS = 10 * 60_000L
         const val ALWAYS_ON_TAG = "always-on"
         const val REDZONE_TAG = "redzone"
+        /** Featured card height and its photo box width (dp). The phone page frames photos for this shape (2.6:1). */
+        const val FEAT_H = 196
+        const val FEAT_PHOTO_W = 510
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

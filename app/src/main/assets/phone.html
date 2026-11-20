@@ -75,6 +75,12 @@
   a{color:#7DB8FF}
   .small{font-size:13px;color:var(--dim);margin:6px 0 0}
   [hidden]{display:none!important}
+  .photo{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+  .photo .pic{position:relative;border-radius:10px;overflow:hidden;background:#0B0E12;touch-action:manipulation;cursor:crosshair}
+  .photo .pic img{display:block;width:100%;height:auto}
+  .photo .dot{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}
+  .photo .frame{position:absolute;border:2px dashed rgba(255,255,255,.85);box-shadow:0 0 0 9999px rgba(0,0,0,.45);pointer-events:none}
+  .photo .hd{display:flex;justify-content:space-between;align-items:center;font-weight:600}
 </style>
 </head>
 <body>
@@ -120,6 +126,9 @@
     <div class="section">Stream lists</div>
     <div id="listItems"></div>
     <div id="listsEmpty" class="empty" hidden><b>No stream lists yet</b>Paste the link of an index page above and tap Add as stream list.</div>
+    <div class="section" style="margin-top:18px">Home photos</div>
+    <p class="small" style="margin:0 2px 10px">One photo per sport for the big featured game on the TV's home screen. After choosing one, tap the action in it: the dashed box shows what the TV will show. Photos stay on the TV.</p>
+    <div id="photoItems"></div>
   </div>
   <div id="listDetail" hidden>
     <div class="grid"><button type="button" id="lback">&lsaquo; Back</button><button type="button" id="lrefresh">Refresh</button></div>
@@ -237,7 +246,7 @@
       $('tab-' + n).setAttribute('aria-selected', n === t ? 'true' : 'false');
     });
     if (t === 'live') loadLive();
-    if (t === 'lists') { listsKey = ''; loadLists(); if (openId) loadDetail(); }
+    if (t === 'lists') { listsKey = ''; loadLists(); loadPhotos(); if (openId) loadDetail(); }
   }
   var tabBtns = document.querySelectorAll('[data-tab]');
   for (var ti = 0; ti < tabBtns.length; ti++) {
@@ -593,7 +602,92 @@
   setInterval(listsTick, 1500);
   setInterval(function(){ if (tab === 'live' && document.visibilityState !== 'hidden') loadLive(); }, 30000);
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && tab === 'live') loadLive(); });
+  // Home photos (one per sport; tap to set the spot that stays in view)
+  var PHOTO_ASPECT = 2.6; // the featured card's photo area, width / height
+  function drawFrame(box, img, x, y){
+    var fr = box.querySelector('.frame'), dot = box.querySelector('.dot');
+    var w = img.clientWidth, h = img.clientHeight;
+    if (!w || !h) return;
+    dot.style.left = (x * 100) + '%'; dot.style.top = (y * 100) + '%';
+    var iw = img.naturalWidth || w, ih = img.naturalHeight || h;
+    // Same rule as the TV: cover the box, the tapped spot as central as the edges allow.
+    var fw, fh;
+    if (iw / ih > PHOTO_ASPECT) { fh = 1; fw = (ih * PHOTO_ASPECT) / iw; } else { fw = 1; fh = (iw / PHOTO_ASPECT) / ih; }
+    var fx = Math.min(Math.max(x - fw / 2, 0), 1 - fw), fy = Math.min(Math.max(y - fh / 2, 0), 1 - fh);
+    fr.style.left = (fx * 100) + '%'; fr.style.top = (fy * 100) + '%'; fr.style.width = (fw * 100) + '%'; fr.style.height = (fh * 100) + '%';
+  }
+  function shrink(file){
+    return new Promise(function(ok, fail){
+      var url = URL.createObjectURL(file), im = new Image();
+      im.onload = function(){
+        var s = Math.min(1, 1600 / Math.max(im.width, im.height));
+        var c = document.createElement('canvas'); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
+        c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function(b){ b ? ok(b) : fail(); }, 'image/jpeg', 0.85);
+      };
+      im.onerror = function(){ URL.revokeObjectURL(url); fail(); };
+      im.src = url;
+    });
+  }
+  function photoCard(p){
+    var d = document.createElement('div'); d.className = 'card photo';
+    var hd = document.createElement('div'); hd.className = 'hd'; hd.textContent = p.name;
+    var msg = document.createElement('span'); msg.className = 'small'; msg.style.margin = '0'; hd.appendChild(msg);
+    d.appendChild(hd);
+    if (p.has) {
+      var box = document.createElement('div'); box.className = 'pic';
+      box.setAttribute('role', 'button'); box.setAttribute('aria-label', 'Tap the spot to keep in view');
+      var img = document.createElement('img'); img.alt = p.name + ' photo';
+      img.src = '/photo?league=' + p.league + '&t=' + p.at;
+      var fr = document.createElement('div'); fr.className = 'frame';
+      var dot = document.createElement('div'); dot.className = 'dot';
+      box.appendChild(img); box.appendChild(fr); box.appendChild(dot);
+      var x = p.x, y = p.y;
+      img.onload = function(){ drawFrame(box, img, x, y); };
+      box.onclick = function(e){
+        var r = img.getBoundingClientRect();
+        x = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
+        y = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
+        drawFrame(box, img, x, y);
+        msg.textContent = 'Saving…';
+        post('/photo/focus', 'league=' + p.league + '&x=' + x.toFixed(3) + '&y=' + y.toFixed(3))
+          .then(function(r){ msg.textContent = r.ok ? 'Saved' : 'Not saved'; })
+          .catch(function(){ msg.textContent = 'Not saved'; });
+      };
+      d.appendChild(box);
+    }
+    var row = document.createElement('div'); row.className = 'row';
+    var pick = document.createElement('input'); pick.type = 'file'; pick.accept = 'image/*'; pick.hidden = true;
+    var choose = document.createElement('button'); choose.type = 'button'; choose.className = 'ghost';
+    choose.textContent = p.has ? 'Change photo' : 'Choose photo';
+    choose.onclick = function(){ pick.click(); };
+    pick.onchange = function(){
+      var f = pick.files && pick.files[0]; if (!f) return;
+      msg.textContent = 'Sending…';
+      shrink(f).then(function(b){
+        return fetch('/photo/upload?league=' + p.league, {method:'POST', headers:{'Content-Type':'image/jpeg'}, body:b});
+      }).then(function(r){
+        return r.text().then(function(t){ msg.textContent = r.ok ? 'Saved: now tap the action' : t; if (r.ok) loadPhotos(); });
+      }).catch(function(){ msg.textContent = 'Couldn\'t send that photo'; });
+    };
+    row.appendChild(choose); row.appendChild(pick);
+    if (p.has) {
+      var rm = document.createElement('button'); rm.type = 'button'; rm.textContent = 'Remove';
+      rm.onclick = function(){ post('/photo/remove', 'league=' + p.league).then(loadPhotos); };
+      row.appendChild(rm);
+    }
+    d.appendChild(row);
+    return d;
+  }
+  function loadPhotos(){
+    fetch('/photos', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+      var box = $('photoItems'); box.innerHTML = '';
+      (d.photos || []).forEach(function(p){ box.appendChild(photoCard(p)); });
+    }).catch(function(){});
+  }
 })();
+
 </script>
 </body>
 </html>

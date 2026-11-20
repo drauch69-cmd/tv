@@ -149,6 +149,16 @@ object LiveGames {
             .sortedWith(compareBy<GameFolder>({ leaguePriority(it.game.league) }, { it.game.startMillis }))
             .take(max)
 
+    /**
+     * The home screen's featured game: the live game with the most streams; a tie goes to sport order, then the
+     * earliest start. Null when no live game has a stream.
+     */
+    fun featured(folders: List<SportFolders>): GameFolder? =
+        folders.flatMap { it.games }
+            .filter { it.game.state == "in" && it.streams.isNotEmpty() }
+            .sortedWith(compareBy<GameFolder>({ -it.streams.size }, { leaguePriority(it.game.league) }, { it.game.startMillis }))
+            .firstOrNull()
+
     /** Sport order for live games: NFL, college football, NBA, college basketball, anything else. */
     fun leaguePriority(league: String): Int = when (league) { "nfl" -> 0; "cfb" -> 1; "nba" -> 2; "cbb" -> 3; else -> 4 }
 
