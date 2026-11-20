@@ -254,7 +254,7 @@ class GamesTest {
     }
 
     @Test fun liveGamesSportOrderNflCollegeFootballNbaCollegeBasketball() {
-        val nba = game("nba-early", bos, lal, at("2026-11-19T10:00:00Z"), "in", "nba")
+        val nba = game("nba-early", buf, nyj, at("2026-11-19T10:00:00Z"), "in", "nba")
         val cbb = game("cbb-earliest", osu, mich, at("2026-11-19T09:00:00Z"), "in", "cbb")
         val cfb = game("cfb-late", chi, det, at("2026-11-19T14:00:00Z"), "in", "cfb")
         val nfl = game("nfl-late", wsh, nyg, at("2026-11-19T15:00:00Z"), "in")
