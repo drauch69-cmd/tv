@@ -223,6 +223,8 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **CLAUDE.md kept short to save tokens** (user, 2026-11-19 21:17): it loads on every step, so mechanism detail moved
+  to `docs/ARCHITECTURE.md` (read by section on demand). New detail goes there, not into CLAUDE.md.
 - **Home "Live now" row removed; one "Live games" row** (user, 2026-11-19 ~20:05; replaces the build 224 "Live now
   narrowing" and the channel-word list). RedZone is the only channel that gets a Live games card (first, while live);
   other always-on channels live in the 24/7 tile. NFL games come before other sports in Live games.
