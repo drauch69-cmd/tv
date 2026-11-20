@@ -5,7 +5,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **List reading performance A+B+C + recipe zone** (user's go, 2026-11-19 23:28; on `sports`, unit-tested locally and in
+- **List reading performance A+B+C + recipe zone** (user's go, 2026-11-19 23:28; Sports build 244, unit-tested locally and in
   CI, NOT tested on the TV). One shared list reader for the app (`ListReads`); fresh lists skipped (2.5 min on open);
   re-reads every 5 min, 90 s near start times; list rows updated in place; reader blocks pictures/fonts/media, starts
   looking at first paint and finishes when the events stop changing; Save-sample snapshot only after failed reads.
