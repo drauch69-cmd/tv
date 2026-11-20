@@ -37,10 +37,13 @@ android {
     // A fixed signing key, so every new build can be installed over the old one.
     signingConfigs {
         create("release") {
-            storeFile = file("signing.keystore")
-            storePassword = "streamlink"
+            // From GitHub Actions secrets (SIGNING_KEYSTORE_B64 decoded by the build workflow, SIGNING_PASSWORD).
+            // The key is no longer kept in the repo. Missing secrets fail only release packaging.
+            val pass = System.getenv("SIGNING_PASSWORD") ?: ""
+            storeFile = System.getenv("SIGNING_KEYSTORE_PATH")?.let { file(it) } ?: file("missing-signing-key")
+            storePassword = pass
             keyAlias = "streamlink"
-            keyPassword = "streamlink"
+            keyPassword = pass
         }
     }
 

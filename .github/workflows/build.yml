@@ -54,7 +54,19 @@ jobs:
           echo "$HLS_VERSION" > "$GITHUB_WORKSPACE/app/src/main/assets/hls.js.VERSION.txt"
           ls -l "$GITHUB_WORKSPACE/app/src/main/assets/"
 
+      # Release signing key from Actions secrets (moved out of the repo 2026-11-20).
+      - name: Signing key
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          set -e
+          if [ -z "$SIGNING_KEYSTORE_B64" ]; then echo "SIGNING_KEYSTORE_B64 secret is missing"; exit 1; fi
+          echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing.keystore"
+          echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/signing.keystore" >> "$GITHUB_ENV"
+
       - name: Build
+        env:
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         run: |
           set -o pipefail
           gradle testReleaseUnitTest assembleRelease --no-daemon --console=plain > build.log 2>&1 || {
@@ -68,6 +80,15 @@ jobs:
 
       - name: Rename APK
         run: cp app/build/outputs/apk/release/app-release.apk "$APK_NAME"
+
+      # The TV only accepts updates signed with the same certificate: stop before publishing if it changed.
+      - name: Check signing certificate
+        run: |
+          set -e
+          SIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$SIGNER" verify --print-certs "$APK_NAME" | tee signer.txt
+          grep -qi "SHA-256 digest: e0a53bad720869304e2c872c4bcd0c8d2df0cdbe69986f9d201f3fd286c24abb" signer.txt || {
+            echo "Signing certificate changed: the TV would refuse this update"; exit 1; }
 
       # Machine-readable version of this build; the app's updater reads it from the release.
       - name: Write version.json

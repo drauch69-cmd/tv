@@ -66,7 +66,9 @@ In practice:
   versionCode = run number. Lint is separate and never blocks. Transient Maven 429: `gh run rerun <id> --failed`.
 - **Docs-only commits: add `[skip ci]` to the commit message**, or a new build is released and the TV offers a
   pointless update.
-- Signing: the release key is still in the repo (move to GitHub secrets pending, see DECISIONS).
+- Signing: the release key lives in Actions secrets `SIGNING_KEYSTORE_B64` + `SIGNING_PASSWORD` (2026-11-20), not in
+  the repo. CI fails if the APK's certificate changes (the TV would refuse the update). `main` still has the old file
+  for the TV Cleaner build; leave it.
 
 ## Architecture in brief
 

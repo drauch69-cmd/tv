@@ -58,15 +58,14 @@ file's git history (commit 3680843 and earlier).
   proven to help (needs TV reports, one at a time).
 
 ### Cleanup (2026-11-20, user's go: 1 housekeeping, 2 dead code, 3 signing key)
-- Done: unused code removed (no behavior change); this file trimmed; docs say `sports` is the main line.
+- Done: unused code removed (no behavior change); this file trimmed; docs say `sports` is the main line; signing key in secrets.
 - **Waiting on the user (GitHub website):** this session's GitHub access can push to `sports` only. It cannot delete
-  branches, create tags, change the default branch, or set Actions secrets. The user does: default branch -> `sports`;
+  branches, create tags, change the default branch, or set Actions secrets. The user does (status unknown): default branch -> `sports`;
   delete `test`, `integrate`, `sports-int` and all `agent/*` (all already contained in `sports`, except one docs commit
   on `test`); keep `main` (the TV Cleaner app builds from it).
-- **Signing key:** the key and its password are public in the repo's history, so moving the file to secrets alone
-  doesn't make it private. Options put to the user: (a) move it to secrets as is (tidier, updates keep working);
-  (b) a new key in secrets (truly private, but the TV needs one uninstall + reinstall and loses saved lists/settings
-  unless exported first). Waiting for the user's choice, then the user adds the secrets on GitHub.
+- **Signing key moved to secrets** (user chose option A, same key, 2026-11-20): the user added the two Actions secrets;
+  the build signs from them and checks the certificate is unchanged; the key file is gone from `sports` (still on
+  `main` for the TV Cleaner, and in history). Untested on the TV: the next Sports update should install normally.
 
 Reminder: lay out options and get a "go" before starting any of these.
 
