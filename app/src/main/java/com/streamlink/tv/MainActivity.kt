@@ -412,13 +412,19 @@ class MainActivity : Activity() {
 
     /** The "Live games" row (RedZone first while it airs, then games) and the "Sports" row. */
     private fun renderSports(m: HomeModel) {
-        val feat = LiveGames.featured(m.folders)
+        val pick = FeaturedPick.choose(m.folders, System.currentTimeMillis(), featured.hasFocus(), featState)
+        val feat = pick?.folder
+        if (pick != null && pick.reason != "kept" && pick.reason != "protected" && pick.reason != "focused") {
+            Report.log("Featured: ${SportsText.matchup(pick.folder.game)} (${pick.reason}, score ${pick.rating.score.toInt()}" +
+                (if (pick.rating.why.isEmpty()) ")" else ", ${pick.rating.why.joinToString(", ")})"))
+        }
         renderFeatured(feat)
         renderLiveGames(m.folders, m.redZone, feat?.game?.id)
         renderSportTiles(m)
     }
 
-    // ---- Featured game: the live game with the most streams, over the user's photo for its sport ----
+    // ---- Featured game: chosen by FeaturedPick (excitement, big games, stickiness), over the user's photo for its sport ----
+    private val featState = FeaturedPick.State()
 
     private lateinit var featured: android.widget.FrameLayout
     private lateinit var featPhoto: ImageView

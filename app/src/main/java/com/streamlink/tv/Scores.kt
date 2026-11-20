@@ -24,6 +24,10 @@ data class TeamSide(
     val record: String,
     /** ESPN's team logo address ("https://a.espncdn.com/i/teamlogos/…png"), or "" if ESPN sent none. */
     val logo: String = "",
+    /** College poll rank 1-25 (ESPN curatedRank), null when unranked or not given. */
+    val rank: Int? = null,
+    /** ESPN conference id ("5" = Big Ten), "" if not given. */
+    val conferenceId: String = "",
 )
 
 /** One NFL, college football, NBA or college basketball game from ESPN's scoreboard. */
@@ -39,6 +43,14 @@ data class Game(
     val away: TeamSide,
     val broadcast: String,
     val statusName: String = "", // ESPN status.type.name, e.g. "STATUS_POSTPONED"
+    /** Live chance the home team wins (0..1) from ESPN's last play, when ESPN sends it. */
+    val homeWinProb: Double? = null,
+    /** Pregame line for the home team (negative = home favored), when ESPN sends odds. */
+    val homeSpread: Double? = null,
+    /** Football: the team with the ball is inside the 20 (ESPN situation.isRedZone). */
+    val redZone: Boolean = false,
+    /** Every TV network ESPN lists (the [broadcast] text keeps only two). */
+    val networks: List<String> = emptyList(),
 )
 
 /** Reads ESPN's scoreboard JSON. Never throws. */
@@ -81,6 +93,7 @@ object ScoreParse {
         val type = status?.optJSONObject("type")
         val state = str(type, "state").lowercase().let { if (it == "in" || it == "post") it else "pre" }
         var broadcast = ""
+        var networks = emptyList<String>()
         val bs = comp.optJSONArray("broadcasts")
         if (bs != null) {
             val names = LinkedHashSet<String>()
@@ -90,7 +103,13 @@ object ScoreParse {
                 if (n.isNotEmpty()) names.add(n)
             }
             broadcast = names.take(2).joinToString(" / ")
+            networks = names.toList()
         }
+        val situation = comp.optJSONObject("situation")
+        val prob = situation?.optJSONObject("lastPlay")?.optJSONObject("probability")
+        val homeWinProb = prob?.let { if (it.has("homeWinPercentage") && !it.isNull("homeWinPercentage")) it.optDouble("homeWinPercentage") else null }
+            ?.takeIf { !it.isNaN() && it in 0.0..1.0 }
+        val homeSpread = homeSpread(comp.optJSONArray("odds")?.optJSONObject(0), home.abbr)
         return Game(
             id = id, league = league, startMillis = start, state = state,
             shortDetail = str(type, "shortDetail"),
@@ -98,7 +117,30 @@ object ScoreParse {
             clock = str(status, "displayClock"),
             home = home, away = away, broadcast = broadcast,
             statusName = str(type, "name"),
+            homeWinProb = homeWinProb,
+            homeSpread = homeSpread,
+            redZone = situation?.optBoolean("isRedZone", false) ?: false,
+            networks = networks,
         )
+    }
+
+    /** The home team's line: favorite flags first, else the sign of `spread`, else "ABBR -3.5" in `details`. */
+    private fun homeSpread(odds: JSONObject?, homeAbbr: String): Double? {
+        if (odds == null) return null
+        val raw = if (odds.has("spread") && !odds.isNull("spread")) odds.optDouble("spread") else Double.NaN
+        val homeFav = odds.optJSONObject("homeTeamOdds")?.let { if (it.has("favorite")) it.optBoolean("favorite") else null }
+        val awayFav = odds.optJSONObject("awayTeamOdds")?.let { if (it.has("favorite")) it.optBoolean("favorite") else null }
+        if (!raw.isNaN()) {
+            val size = kotlin.math.abs(raw)
+            return when {
+                homeFav == true || awayFav == false -> -size
+                awayFav == true || homeFav == false -> size
+                else -> raw
+            }
+        }
+        val m = Regex("""^\s*(\S+)\s+-(\d+(?:\.\d+)?)\s*$""").matchEntire(str(odds, "details")) ?: return null
+        val n = m.groupValues[2].toDoubleOrNull() ?: return null
+        return if (m.groupValues[1].equals(homeAbbr, ignoreCase = true)) -n else n
     }
 
     private fun side(c: JSONObject): TeamSide? {
@@ -115,6 +157,8 @@ object ScoreParse {
             score = str(c, "score"),
             record = record,
             logo = str(t, "logo").takeIf { it.startsWith("https://") } ?: "",
+            rank = c.optJSONObject("curatedRank")?.optInt("current", 0)?.takeIf { it in 1..25 },
+            conferenceId = str(t, "conferenceId"),
         )
     }
 

@@ -362,8 +362,21 @@ Remote tabs; prefetch toggle).
   - Team logos: `TeamSide.logo` from ESPN's scoreboard (https only). `Logos` downloads each logo once at the size it is
     drawn (tries ESPN's dark-background logo, then the normal one, through ESPN's resizer), saves it in the cache folder,
     keeps 4 MB in memory; until it arrives the circle shows the team abbreviation. Failures aren't retried until restart.
-  - Featured card (home, top): `LiveGames.featured` = the live game with the most streams (tie: sport order, then
-    earliest start); it is left out of the Live games row. Sport-screen rows (user's mockup, 2026-11-20):
+  - Featured card (home, top): `FeaturedPick.choose` (2026-11-20). Live games with a stream get
+    score = (100 × doubt × timing + drama) × booster + streams. Doubt = 1 − |2p − 1| from ESPN's live win
+    probability (`Game.homeWinProb`), else estimated from margin and time left (σ NFL 13.5, CFB 16, NBA 12, CBB 11);
+    a one-score game in its final minute or overtime always counts as 1. Timing = 0.2 + 0.8 × played^1.5 (halftime
+    × 0.6). Drama (cap 25): crunch +15, comeback +10 (14/15+ lead cut to one score within 15 min, from
+    `FeaturedPick.State` score history; scores that go backwards are ignored), upset +8/+12 (college: only vs a ranked
+    team or a 7+ favorite), red zone +5 (2nd half). Booster: NFL quality/≥.500/division/spread (max 1.5); NBA
+    quality/national TV/spread (max 1.5); college rank (both .4, one .15, top-10 +.1 each), winning records, national
+    TV .15, +.05 per Big Ten team, spread (max 2.0). Streams: min(5, 2.5 × log2 n). College games with no ranked team
+    are used only when no other live game has a stream, except Big Ten vs Big Ten. Stickiness: 5 min hold; a challenger
+    needs ×1.2 and +10 (+20 in its first half); never while the card is focused; an undecided crunch game is kept,
+    except a tied/overtime final minute beats a 4+ lead; a game that ends, or a fallback game when a top game
+    appears, is replaced at once; blowout (<10 vs ≥30) is replaced at once. Report line "Featured: … (reason, score
+    …)" on each change. Tuned by replaying ESPN play-by-play (NFL weeks 8-10, college 2026-11-14); basketball weights
+    are untested guesses. It is left out of the Live games row. Sport-screen rows (user's mockup, 2026-11-20):
     full width, mirrored around the time/score pill: "Name [logo] 7:00 PM [logo] Name", first team's name and record
     right-aligned against its logo, second team's left-aligned; a spacer as wide as the stream chip on the left keeps the
     middle centred; no TV channel. "No events" notice: a rounded yellow warning triangle and the address in yellow, no box, under the title. Watch (accent pill, first focus) plays the game's first stream;
