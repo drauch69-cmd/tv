@@ -5,12 +5,12 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
-- **Live games rework (user's go, 2026-11-19 ~20:05; on `sports`, built and unit-tested in CI only, NOT tested on the TV):**
-  home "Live now" row removed; NFL RedZone card first in Live games while it airs; NFL games before other sports. To check
-  on the TV: no Live now row, D-pad order (Live games, then Sports), NFL games first, RedZone card on Sunday. Open: the
-  "2+ NFL games live" rule for RedZone was the lead's choice, not yet confirmed by the user.
-- **Rename lists (user asked, 2026-11-19 20:06):** not planned yet. Lay out options (phone Lists tab rename box +
-  `POST /lists/rename`, maybe a TV option) and wait for "go".
+- **Live games rework (2026-11-19, on `sports`):** user reports it works on the TV (21:27). Still to see: the RedZone
+  card on a Sunday. Open: the "2+ NFL games live" rule for RedZone was the lead's choice, not yet confirmed by the user.
+- **Rename lists (user's go, 2026-11-19 21:27; on `sports`, CI only, NOT tested on the TV):** "✎ Rename" chip on each list
+  on the phone's Lists tab (prompt; blank/Cancel = no change), `POST /lists/rename` (id, name; same-origin only),
+  `SavedLists.rename` (max 60 chars, false for unknown id/empty name); TV redraws home and "Your lists". No rename on
+  the TV itself (typing with the remote). To check: rename on the phone, name updates on the TV tiles and cards.
 - **Build 234 on the TV (2026-11-19 13:41):** the broken CrackStreams NFL Network stream (pieces 403) gave up in
   15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
   other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old

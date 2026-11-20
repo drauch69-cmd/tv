@@ -198,6 +198,7 @@ class MainActivity : Activity() {
             onListAdd = { url, name, sports -> addList(url, name, sports) },
             onListSport = { id, sports -> SavedLists.setSports(this, id, sports) },
             onListPreferred = { id, on -> SavedLists.setPreferred(this, id, on).also { ok -> if (ok) runOnUiThread { renderLists() } } },
+            onListRename = { id, name -> SavedLists.rename(this, id, name).also { ok -> if (ok) runOnUiThread { renderLists() } } },
             onListRemove = { id -> removeList(id) },
             onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id) }; true } ?: false },
             onListPlay = { id, url, start ->

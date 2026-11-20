@@ -384,6 +384,17 @@
           post('/lists/preferred', 'id=' + encodeURIComponent(l.id) + '&on=' + (on ? '1' : '0')).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
         };
         sp.appendChild(pf);
+        // Rename: the TV keeps the new name (max 60 characters); blank or Cancel changes nothing.
+        var rn = el('button', null, '✎ Rename'); rn.type = 'button';
+        rn.setAttribute('aria-label', 'Rename ' + l.name);
+        rn.onclick = function(){
+          var n = prompt('New name for this list', l.name);
+          if (n === null) return;
+          n = n.trim();
+          if (!n || n === l.name) return;
+          post('/lists/rename', 'id=' + encodeURIComponent(l.id) + '&name=' + encodeURIComponent(n)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
+        };
+        sp.appendChild(rn);
         row.appendChild(b); row.appendChild(x); row.appendChild(sp); box.appendChild(row);
       });
     }).catch(function(){});

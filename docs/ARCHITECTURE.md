@@ -277,7 +277,8 @@ Remote tabs; prefetch toggle).
   **Preferred list.** At most one saved list is preferred (`SavedList.preferred`, JSON "preferred", old JSON reads
   false; `Preferred` in SavedLists.kt enforces "only one"). Set with the "★ Preferred" chip on each list on the phone
   page's Lists tab (`POST /lists/preferred` id + on=1/0; `GET /lists` returns "preferred") or the "☆/★ Preferred" chip
-  at the top of the TV list screen; "Your lists" tiles show "★ Preferred". Code asks `SavedLists.preferredId(ctx)`; no
+  at the top of the TV list screen; "Your lists" tiles show "★ Preferred". **Rename:** "✎ Rename" chip per list on the phone's Lists tab ->
+  `POST /lists/rename` (id, name) -> `SavedLists.rename` (cleaned, max 60 chars; false = 404) -> home `renderLists()`. Code asks `SavedLists.preferredId(ctx)`; no
   site is ever named in code. Wherever a game has several streams the preferred list's come first, the rest keep their
   order: `GameFolders.build(..., preferredListId)` (handled first, so it also wins a duplicate address and leads
   "Other"), `AlwaysOn.collect`, `HomeModel` (RedZone card), the phone's "Live now", the Source panel's other-site

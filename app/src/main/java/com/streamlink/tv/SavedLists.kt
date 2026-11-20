@@ -171,11 +171,14 @@ object SavedLists {
         return true
     }
 
+    /** Renames a list (name cleaned, max 60 chars). False if there is no such list or the name is empty. */
     @Synchronized
-    fun rename(ctx: Context, id: String, name: String) {
+    fun rename(ctx: Context, id: String, name: String): Boolean {
         val clean = cleanName(name)
-        if (clean.isEmpty()) return
-        save(ctx, all(ctx).map { if (it.id == id) it.copy(name = clean) else it })
+        val lists = all(ctx)
+        if (clean.isEmpty() || lists.none { it.id == id }) return false
+        save(ctx, lists.map { if (it.id == id) it.copy(name = clean) else it })
+        return true
     }
 
     /** Sets or clears a list's sports. False if there is no such list. */

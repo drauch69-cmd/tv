@@ -15,6 +15,7 @@ class LinkServerTest {
     private val addedSport = CopyOnWriteArrayList<Set<String>>()
     private val sported = CopyOnWriteArrayList<Pair<String, Set<String>>>()
     private val removed = CopyOnWriteArrayList<String>()
+    private val renamed = CopyOnWriteArrayList<Pair<String, String>>()
     private val refreshed = CopyOnWriteArrayList<String>()
     private val played = CopyOnWriteArrayList<Triple<String, String, Long?>>()
     private lateinit var server: LinkServer
@@ -35,6 +36,7 @@ class LinkServerTest {
             onListRemove = { id -> removed.add(id); id == "a1" },
             onListSport = { id, sport -> sported.add(id to sport); id == "a1" },
             onListRefresh = { id -> refreshed.add(id); id == "a1" },
+            onListRename = { id, name -> renamed.add(id to name); id == "a1" && name.isNotBlank() },
             onListPlay = { id, url, start -> played.add(Triple(id, url, start)); id == "a1" },
         )
         port = server.start()
@@ -196,7 +198,7 @@ class LinkServerTest {
     @Test
     fun listChangesAreRefusedFromGetAndFromOtherWebsites() {
         val routes = listOf("/lists/add" to "url=https%3A%2F%2Fevil.example", "/lists/remove" to "id=a1", "/lists/sport" to "id=a1&sport=nfl",
-            "/list/refresh" to "id=a1", "/list/play" to "id=a1&url=https%3A%2F%2Fevil.example")
+            "/lists/rename" to "id=a1&name=evil", "/list/refresh" to "id=a1", "/list/play" to "id=a1&url=https%3A%2F%2Fevil.example")
         for ((path, body) in routes) {
             // GET (even with the data in the query) is refused.
             assertTrue(path, request("GET $path?$body HTTP/1.1\r\nHost: 192.168.1.50:8080\r\n\r\n").startsWith("HTTP/1.1 405"))
@@ -208,11 +210,18 @@ class LinkServerTest {
                 "Content-Type: $form\r\nContent-Length: ${body.length}\r\n\r\n$body")
             assertTrue(path, cross.startsWith("HTTP/1.1 403"))
         }
-        assertTrue(added.isEmpty() && sported.isEmpty() && removed.isEmpty() && refreshed.isEmpty() && played.isEmpty())
+        assertTrue(added.isEmpty() && sported.isEmpty() && removed.isEmpty() && refreshed.isEmpty() && played.isEmpty() && renamed.isEmpty())
         // Our own page is fine.
         val ok = request("POST /list/refresh HTTP/1.1\r\nHost: 192.168.1.50:8080\r\nOrigin: http://192.168.1.50:8080\r\n" +
             "Sec-Fetch-Site: same-origin\r\nContent-Type: $form\r\nContent-Length: 5\r\n\r\nid=a1")
         assertTrue(ok.startsWith("HTTP/1.1 200"))
     }
 
+    @Test
+    fun renameList() {
+        assertTrue(post("/lists/rename", form, "id=a1&name=Sunday+NFL").startsWith("HTTP/1.1 200"))
+        assertEquals("a1" to "Sunday NFL", renamed.last())
+        assertTrue(post("/lists/rename", form, "id=zz&name=X").startsWith("HTTP/1.1 404"))
+        assertTrue(post("/lists/rename", form, "id=a1&name=").startsWith("HTTP/1.1 404"))
+    }
 }
