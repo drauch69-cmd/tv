@@ -13,7 +13,7 @@ A personal, sideloaded Android TV app for an Onn Google TV box. The user sends a
 finds the page's livestream in a hidden browser and plays it in a clean native player. One person's own use; not
 distributed.
 
-- Package `com.streamlink.tv`; test channel `com.streamlink.tv.test` ("StreamLink Test"). Kotlin, minSdk 26,
+- App in use: `com.streamlink.tv.sports` ("StreamLink Sports"; code package `com.streamlink.tv`). Kotlin, minSdk 26,
   targetSdk 34, compileSdk 36, Media3 1.11.1 (ExoPlayer, HLS, DASH, Cronet).
 - Inputs: a link pasted on the phone page (served by the TV itself), or a saved "stream list" (an index page of
   one-time events, shown as Live now / Starting soon / Later).
@@ -47,29 +47,26 @@ In practice:
   words ("Link-1", "HD", site names). Detect by structure, position and behavior only.
 - The user's email and site details are private; reports may have URLs redacted. Ask for the app's exact report
   lines with only addresses removed.
-- Never push `main` without the user's OK. The `test` channel is the release path for now.
+- `sports` is the main line (user, 2026-11-20): push it directly. Never push `main` without the user's OK.
 - Never touch `cleaner/` or `.github/workflows/cleaner.yml` (a separate app).
 - Commit trailers: `Co-Authored-By:` and `Claude-Session:` lines, using the values given in the current session's
   own attribution instructions.
 
 ## Branches, releases, CI
 
-- `main`: stable release; moves only with the user's OK. `test`: working release channel.
-- `sports`: experimental "StreamLink Sports" app (`com.streamlink.tv.sports`, release `sports-latest`,
-  https://github.com/drauch69-cmd/tv/releases/download/sports-latest/StreamLink-Sports.apk), branched from `test`
-  for the sports-folders idea (see DECISIONS). Push it directly (`git push origin sports`); never merge it into
-  `test` or `main` without the user's OK.
-- The lead works on an `integrate` branch and publishes with `git push -qf origin integrate:test`.
-  **That is a force push: always start `integrate` from the latest `origin/test`** (`git fetch origin test` then
-  branch or rebase onto it), or commits made directly on `test` (like doc updates) are wiped.
-- Helpers work in their own clone on branch `agent/<name>`.
-- CI (`.github/workflows/build.yml`): every push builds and runs unit tests. `main` publishes release `latest`,
-  `test` publishes `test-latest`; versionCode = run number. Lint is separate and never blocks.
-  Transient Maven 429: `gh run rerun <id> --failed`.
+- `sports`: the main line, the "StreamLink Sports" app on the user's TV (`com.streamlink.tv.sports`, release
+  `sports-latest`, https://github.com/drauch69-cmd/tv/releases/download/sports-latest/StreamLink-Sports.apk). Work on
+  it directly and `git push origin sports` (fetch first; never force-push).
+- `test`, `integrate`, `sports-int` and `agent/*` are retired (2026-11-20); don't use or revive them. `main` stays only
+  because the TV Cleaner app builds from it (`cleaner.yml`, hands off); StreamLink's `latest`/`test-latest` releases are
+  frozen.
+- This session's GitHub access may only push to `sports`: deleting branches, tags, repo settings and Actions secrets
+  are refused. Hand those to the user.
+- CI (`.github/workflows/build.yml`): every push builds and runs unit tests; `sports` publishes `sports-latest`;
+  versionCode = run number. Lint is separate and never blocks. Transient Maven 429: `gh run rerun <id> --failed`.
 - **Docs-only commits: add `[skip ci]` to the commit message**, or a new build is released and the TV offers a
   pointless update.
-- Test APK: https://github.com/drauch69-cmd/tv/releases/download/test-latest/StreamLink-Test.apk
-- Signing: the release key is still in the repo (moving it to GitHub secrets is pending, see DECISIONS).
+- Signing: the release key is still in the repo (move to GitHub secrets pending, see DECISIONS).
 
 ## Architecture in brief
 

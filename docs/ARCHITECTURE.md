@@ -502,7 +502,7 @@ Remote tabs; prefetch toggle).
 - **Site player lines** in the report say whether the video really plays and whether the page loaded a playlist the
   app can see (if it did, the hidden search should have caught it: a finder bug, not a site limit). "A possible
   playlist" lines mean only a disguised address (no .m3u8/.mpd) was seen; the finder checks those by content.
-- **Recipes** are read from the build's own branch (`test` or `main`).
+- **Recipes** are read from the build's own branch (`sports` for the app in use).
 - **Built-in browser:** with the user's permission, inspect a live site's frames and network requests from the
   desktop app's browser pane.
 
