@@ -184,6 +184,25 @@ class FeaturedPickTest {
         assertEquals("b", FeaturedPick.choose(sports(bears, tied), now + 4 * min, false, st, 10)?.folder?.game?.id)
     }
 
+    @Test fun heatingUpFlame() {
+        assertTrue(FeaturedPick.heating(rate(game("a", side("A", 20), side("B", 20), 4, "1:00"))))           // crunch
+        assertTrue(FeaturedPick.heating(rate(game("a", side("A", 10), side("B", 17), 3, "5:00", spread = 7.5)))) // upset
+        assertFalse(FeaturedPick.heating(rate(game("a", side("A", 7), side("B", 7), 2, "5:00"))))
+        assertFalse(FeaturedPick.heating(null))
+    }
+
+    @Test fun chooseStoresEveryLiveRatingAndRowSortsWithinSport() {
+        val st = FeaturedPick.State()
+        val dullNfl = folder(game("n1", side("A", 0), side("B", 28), 3, "10:00"))
+        val hotNfl = folder(game("n2", side("C", 21), side("D", 21), 4, "5:00"))
+        val hotNba = folder(game("b1", side("E", 100), side("F", 100), 4, "1:00", league = "nba"))
+        val small = folder(game("c1", side("G", 7), side("H", 7), 2, "5:00", league = "cfb")) // fallback tier, still rated
+        FeaturedPick.choose(sports(dullNfl, hotNfl, hotNba, small), now, false, st, 10)
+        assertEquals(setOf("n1", "n2", "b1", "c1"), st.ratings.keys)
+        val order = LiveGames.sample(sports(dullNfl, hotNfl, hotNba, small), 9, st.ratings.mapValues { it.value.score }).map { it.game.id }
+        assertEquals(listOf("n2", "n1", "c1", "b1"), order) // sport order kept, most exciting first inside a sport
+    }
+
     @Test fun endedGameIsReplacedEvenWhileFocused() {
         val st = FeaturedPick.State()
         val a = folder(game("a", side("A", 7), side("B", 7), 2, "5:00"))

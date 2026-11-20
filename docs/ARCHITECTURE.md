@@ -377,7 +377,10 @@ Remote tabs; prefetch toggle).
     without; if both or neither have one, a tied/overtime final minute beats a 4+ lead; a game that ends, or a fallback game when a top game
     appears, is replaced at once; blowout (<10 vs ≥30) is replaced at once. Report line "Featured: … (reason, score
     …)" on each change. Tuned by replaying ESPN play-by-play (NFL weeks 8-10, college 2026-11-14); basketball weights
-    are untested guesses. It is left out of the Live games row. Sport-screen rows (user's mockup, 2026-11-20):
+    are untested guesses. It is left out of the Live games row. The same ratings (`FeaturedPick.shared`, one app-wide
+    State: card, score history, latest ratings) order the Live games row within each sport (sport order kept), and put a
+    flame ("heating up": crunch time, comeback or upset brewing) on Live games cards, the featured card's status and
+    live sport-screen rows. Sport-screen rows (user's mockup, 2026-11-20):
     full width, mirrored around the time/score pill: "Name [logo] 7:00 PM [logo] Name", first team's name and record
     right-aligned against its logo, second team's left-aligned; a spacer as wide as the stream chip on the left keeps the
     middle centred; no TV channel. "No events" notice: a rounded yellow warning triangle and the address in yellow, no box, under the title. Watch (accent pill, first focus) plays the game's first stream;

@@ -141,12 +141,13 @@ object AlwaysOn {
 object LiveGames {
     /**
      * Live games that have at least one stream, by sport (user, 2026-11-19): NFL, college football, NBA, then college
-     * basketball; within a sport, earliest start first.
+     * basketball; within a sport, most exciting first ([scores]: FeaturedPick ratings by game id, user 2026-11-20),
+     * then earliest start.
      */
-    fun sample(folders: List<SportFolders>, max: Int = 8): List<GameFolder> =
+    fun sample(folders: List<SportFolders>, max: Int = 8, scores: Map<String, Double> = emptyMap()): List<GameFolder> =
         folders.flatMap { it.games }
             .filter { it.game.state == "in" && it.streams.isNotEmpty() }
-            .sortedWith(compareBy<GameFolder>({ leaguePriority(it.game.league) }, { it.game.startMillis }))
+            .sortedWith(compareBy<GameFolder>({ leaguePriority(it.game.league) }, { -(scores[it.game.id] ?: 0.0) }, { it.game.startMillis }))
             .take(max)
 
     /**

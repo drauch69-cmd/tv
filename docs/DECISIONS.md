@@ -10,6 +10,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   (close-and-late, big games, stickiness); unranked vs unranked college games only as a fallback (the card is also
   there for looks); Big Ten teams get a slight lean even when unranked (Big Ten vs Big Ten counts as a top game). NFL tie-break between
   two finishes at once: the NFC North game wins (user, 2026-11-20 12:04, option 1; no lean elsewhere).
+  Also (user, 12:57): the Live games row is ordered by this score within each sport (sport order unchanged), and a
+  flame marks games heating up (crunch time, comeback, upset brewing) on the home cards and sport-screen rows.
   Replay results: NFL ~7-12 switches per Sunday, ~70% of close final minutes shown; college Saturday 17 switches.
   Still to check on the TV: a busy Sunday/Saturday (switch count, focus never jumps), ESPN's live win probability
   actually arriving on the scoreboard (else the estimate is used), basketball behavior (weights untested).

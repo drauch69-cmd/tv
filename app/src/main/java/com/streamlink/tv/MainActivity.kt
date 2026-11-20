@@ -424,7 +424,7 @@ class MainActivity : Activity() {
     }
 
     // ---- Featured game: chosen by FeaturedPick (excitement, big games, stickiness), over the user's photo for its sport ----
-    private val featState = FeaturedPick.State()
+    private val featState = FeaturedPick.shared
 
     private lateinit var featured: android.widget.FrameLayout
     private lateinit var featPhoto: ImageView
@@ -514,7 +514,7 @@ class MainActivity : Activity() {
         featTeams.removeAllViews()
         featTeams.addView(teamLine(g.away, away >= home, true))
         featTeams.addView(teamLine(g.home, home >= away, true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) })
-        featStatus.text = ScoreText.status(g) ?: ""
+        featStatus.text = (if (FeaturedPick.heating(featState.ratings[g.id])) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: "")
         featChipBox.removeAllViews()
         featChipBox.addView(Ui.streamChip(this, gf.streams.size, 12f))
         featWatch.contentDescription = "Watch ${SportsText.matchup(g)}"
@@ -558,7 +558,8 @@ class MainActivity : Activity() {
     private fun renderLiveGames(folders: List<SportFolders>, redZone: HomeFeed.Entry?, featuredId: String?) {
         val focusedId = liveGamesRow.focusedChild?.tag as? String
         liveGamesRow.removeAllViews()
-        val games = LiveGames.sample(folders, 9).filter { it.game.id != featuredId }.take(8)
+        val ratings = featState.ratings
+        val games = LiveGames.sample(folders, 9, ratings.mapValues { it.value.score }).filter { it.game.id != featuredId }.take(8)
         val vis = if (games.isEmpty() && redZone == null) View.GONE else View.VISIBLE
         liveGamesHeader.visibility = vis
         liveGamesScroll.visibility = vis
@@ -614,6 +615,9 @@ class MainActivity : Activity() {
             }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
             top.addView(Ui.badge(this, "LIVE", true, 10f))
+            if (FeaturedPick.heating(ratings[g.id])) top.addView(Ui.text(this, FeaturedPick.FLAME, 13f, Ui.TEXT).apply {
+                contentDescription = "Heating up"
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(6) })
             top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
             top.addView(Ui.text(this, Sports.label(g.league), 10.5f, Ui.TEXT_2).apply { maxLines = 1 })
             card.addView(top)

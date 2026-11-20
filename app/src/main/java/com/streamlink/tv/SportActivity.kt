@@ -283,6 +283,7 @@ class SportActivity : Activity() {
                 val g = gf.game
                 sb.append('|').append(g.id).append(g.state).append(SportsText.matchup(g)).append(SportsText.gameMeta(g, zone))
                     .append(SportsText.streamsText(gf.streams.size))
+                if (gf.streams.isNotEmpty() && FeaturedPick.heating(FeaturedPick.shared.rateNow(gf, now))) sb.append("#hot") // redraw when the flame changes
             }
             sb.append(']')
         }
@@ -381,7 +382,8 @@ class SportActivity : Activity() {
         val mid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         if (started && ScoreStatus.cancelLabel(g) == null) {
             mid.addView(Ui.text(this, "${ScoreText.points(g.away)} – ${ScoreText.points(g.home)}", 21f, Ui.TEXT, bold = true))
-            mid.addView(Ui.text(this, ScoreText.status(g) ?: "", 11f, if (g.state == "in") Ui.LIVE_TEXT else Ui.TEXT_2, bold = g.state == "in").apply {
+            val hot = gf.streams.isNotEmpty() && FeaturedPick.heating(FeaturedPick.shared.rateNow(gf, System.currentTimeMillis()))
+            mid.addView(Ui.text(this, (if (hot) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: ""), 11f, if (g.state == "in") Ui.LIVE_TEXT else Ui.TEXT_2, bold = g.state == "in").apply {
                 setPadding(0, dp(3), 0, 0)
             })
         } else {

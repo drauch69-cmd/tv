@@ -195,14 +195,32 @@ object FeaturedPick {
 
     // ---- choosing and keeping the card ----
 
-    /** What the card is showing and since when, plus each live game's recent scores. One per home screen. */
+    /** The "heating up" badge (a flame emoji). */
+    const val FLAME = "\uD83D\uDD25"
+
+    /** A game is "heating up" (flame badge): crunch time, a comeback, or an upset brewing. */
+    fun heating(r: Rating?): Boolean = r != null && (r.crunch || "comeback" in r.why || "upset" in r.why)
+
+    /** The app's one State: the home screen's card, and the score history and ratings other screens read. */
+    val shared = State()
+
+    /** What the card is showing and since when, each live game's recent scores and its latest rating. */
     class State {
         var currentId: String? = null
         var since: Long = 0
         internal val history = HashMap<String, ArrayDeque<Triple<Long, Int, Int>>>()
+        /** Latest rating of every live game with a stream (by game id), from the last [choose]. */
+        @Volatile var ratings: Map<String, Rating> = emptyMap()
+
+        /** Rates one live game outside the home screen (sport screen), using and updating this history. */
+        @Synchronized fun rateNow(gf: GameFolder, now: Long, week: Int = nflWeek(now)): Rating? {
+            if (gf.game.state != "in") return null
+            record(gf.game, now)
+            return rate(gf.game, now, gf.streams.size, week, historyOf(gf.game.id))
+        }
 
         /** Keeps 15 minutes of scores per game; a score lower than one already seen (bad data) is ignored. */
-        fun record(g: Game, now: Long) {
+        @Synchronized fun record(g: Game, now: Long) {
             val h = g.home.score.toIntOrNull() ?: return
             val a = g.away.score.toIntOrNull() ?: return
             val q = history.getOrPut(g.id) { ArrayDeque() }
@@ -212,9 +230,9 @@ object FeaturedPick {
             while (q.size > 1 && now - q.first().first > 15 * 60_000L) q.removeFirst()
         }
 
-        fun historyOf(id: String): List<Triple<Long, Int, Int>> = history[id]?.toList() ?: emptyList()
+        @Synchronized fun historyOf(id: String): List<Triple<Long, Int, Int>> = history[id]?.toList() ?: emptyList()
 
-        fun forget(liveIds: Set<String>) { history.keys.retainAll(liveIds) }
+        @Synchronized fun forget(liveIds: Set<String>) { history.keys.retainAll(liveIds) }
     }
 
     const val HOLD_MS = 5 * 60_000L
@@ -238,10 +256,11 @@ object FeaturedPick {
         val live = folders.flatMap { it.games }.filter { it.game.state == "in" && it.streams.isNotEmpty() }
         for (f in live) state.record(f.game, now)
         state.forget(folders.flatMap { it.games }.filter { it.game.state == "in" }.map { it.game.id }.toSet())
-        if (live.isEmpty()) { state.currentId = null; return null }
-        val top = live.filter { topTier(it.game) }
-        val pool = top.ifEmpty { live }
-        val rated = pool.map { it to rate(it.game, now, it.streams.size, week, state.historyOf(it.game.id)) }
+        if (live.isEmpty()) { state.currentId = null; state.ratings = emptyMap(); return null }
+        val all = live.map { it to rate(it.game, now, it.streams.size, week, state.historyOf(it.game.id)) }
+        state.ratings = all.associate { it.first.game.id to it.second }
+        val top = all.filter { topTier(it.first.game) }
+        val rated = top.ifEmpty { all }
             .sortedWith(compareByDescending<Pair<GameFolder, Rating>> { it.second.score }
                 .thenBy { LiveGames.leaguePriority(it.first.game.league) }.thenBy { it.first.game.startMillis })
         val best = rated.first()
