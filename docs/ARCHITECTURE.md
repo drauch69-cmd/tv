@@ -363,8 +363,10 @@ Remote tabs; prefetch toggle).
     drawn (tries ESPN's dark-background logo, then the normal one, through ESPN's resizer), saves it in the cache folder,
     keeps 4 MB in memory; until it arrives the circle shows the team abbreviation. Failures aren't retried until restart.
   - Featured card (home, top): `LiveGames.featured` = the live game with the most streams (tie: sport order, then
-    earliest start); it is left out of the Live games row. Sport-screen rows: both teams read logo, then name and
-    record left-aligned; the second team in a fixed 168 dp block at the right end (fits a 13-letter name); no TV channel. Watch (accent pill, first focus) plays the game's first stream;
+    earliest start); it is left out of the Live games row. Sport-screen rows (user's mockup, 2026-11-20):
+    full width, mirrored around the time/score pill: "Name [logo] 7:00 PM [logo] Name", first team's name and record
+    right-aligned against its logo, second team's left-aligned; a spacer as wide as the stream chip on the left keeps the
+    middle centred; no TV channel. "No events" notice: outlined box with a warning mark under the title. Watch (accent pill, first focus) plays the game's first stream;
     the stream chip opens the game's stream list. Photo box 510x196 dp on the right (2.6:1), dark scrim on the left.
   - Sport photos (`SportPhotos`): uploaded per sport from the phone page's Lists tab ("Home photos"; the phone shrinks
     to 1600 px JPEG), stored only on the TV (`filesDir/sport-photos`, never in the repo). The user taps the spot to keep
