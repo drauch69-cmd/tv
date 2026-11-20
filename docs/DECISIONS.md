@@ -8,7 +8,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 - **Featured card picks the most exciting game** (user's go, 2026-11-20 11:32; on `sports`, CI only, NOT tested on the
   TV). Replaces "most streams". Formula and rules in ARCHITECTURE (Featured card). User choices: options 1+3+6
   (close-and-late, big games, stickiness); unranked vs unranked college games only as a fallback (the card is also
-  there for looks); Big Ten teams get a slight lean even when unranked (Big Ten vs Big Ten counts as a top game).
+  there for looks); Big Ten teams get a slight lean even when unranked (Big Ten vs Big Ten counts as a top game). NFL tie-break between
+  two finishes at once: the NFC North game wins (user, 2026-11-20 12:04, option 1; no lean elsewhere).
   Replay results: NFL ~7-12 switches per Sunday, ~70% of close final minutes shown; college Saturday 17 switches.
   Still to check on the TV: a busy Sunday/Saturday (switch count, focus never jumps), ESPN's live win probability
   actually arriving on the scoreboard (else the estimate is used), basketball behavior (weights untested).

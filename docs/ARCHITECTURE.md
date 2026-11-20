@@ -373,7 +373,8 @@ Remote tabs; prefetch toggle).
     TV .15, +.05 per Big Ten team, spread (max 2.0). Streams: min(5, 2.5 × log2 n). College games with no ranked team
     are used only when no other live game has a stream, except Big Ten vs Big Ten. Stickiness: 5 min hold; a challenger
     needs ×1.2 and +10 (+20 in its first half); never while the card is focused; an undecided crunch game is kept,
-    except a tied/overtime final minute beats a 4+ lead; a game that ends, or a fallback game when a top game
+    except (after 1 min) another undecided crunch game with an NFC North team (CHI/DET/GB/MIN) takes over from one
+    without; if both or neither have one, a tied/overtime final minute beats a 4+ lead; a game that ends, or a fallback game when a top game
     appears, is replaced at once; blowout (<10 vs ≥30) is replaced at once. Report line "Featured: … (reason, score
     …)" on each change. Tuned by replaying ESPN play-by-play (NFL weeks 8-10, college 2026-11-14); basketball weights
     are untested guesses. It is left out of the Live games row. Sport-screen rows (user's mockup, 2026-11-20):

@@ -50,6 +50,10 @@ object FeaturedPick {
         setOf("ATL", "CAR", "NO", "TB"), setOf("ARI", "LAR", "SF", "SEA"),
     )
     const val BIG_TEN = "5"
+    private val NFC_NORTH = setOf("CHI", "DET", "GB", "MIN")
+
+    /** An NFL game with a Bears, Lions, Packers or Vikings team (user's tie-break, 2026-11-20). */
+    fun nfcNorth(g: Game): Boolean = g.league == "nfl" && (g.home.abbr.uppercase() in NFC_NORTH || g.away.abbr.uppercase() in NFC_NORTH)
     private val TV_FOOTBALL = setOf("ABC", "CBS", "NBC", "FOX", "ESPN")
     private val TV_CBB = TV_FOOTBALL + setOf("TNT", "TBS", "TRUTV")
     private val TV_NBA = setOf("ESPN", "ABC", "NBC", "PEACOCK", "PRIME VIDEO")
@@ -225,8 +229,9 @@ object FeaturedPick {
      * - not while [focused]: the shown game fell below 10 while another is 30 or more (blowout);
      * - else, not while [focused] and not before [HOLD_MS], a game beats it by 20% and 10 points (20 points while
      *   the challenger is in its first half);
-     * - a game in crunch time that is still undecided keeps the card, except that a tied or overtime game in its
-     *   final minute takes over from one led by 4 or more (after 1 minute).
+     * - a game in crunch time that is still undecided keeps the card, except (after 1 minute): another undecided
+     *   crunch game with an NFC North team takes over from one without; if both or neither have one, a tied or
+     *   overtime game in its final minute takes over from one led by 4 or more.
      * Null when no live game has a stream.
      */
     fun choose(folders: List<SportFolders>, now: Long, focused: Boolean, state: State, week: Int = nflWeek(now)): Pick? {
@@ -254,9 +259,17 @@ object FeaturedPick {
         if (cs < 10 && best.second.score >= 30) return take(best, "blowout")
         val held = now - state.since
         if (cur.second.crunch && cur.second.doubt >= 0.5) {
-            if (held >= TIE_BREAK_HOLD_MS && cur.second.margin >= 4) {
-                val ch = rated.firstOrNull { it !== cur && it.second.finalMinute && (it.second.margin == 0 || it.second.overtime) }
-                if (ch != null) return take(ch, "tie-break")
+            if (held >= TIE_BREAK_HOLD_MS) {
+                // two finishes at once: an NFC North game wins; if both or neither have one, a tied/overtime final
+                // minute beats a 4+ lead
+                val curNorth = nfcNorth(cur.first.game)
+                val north = rated.firstOrNull { it !== cur && it.second.crunch && it.second.doubt >= 0.5 && nfcNorth(it.first.game) }
+                if (!curNorth && north != null) return take(north, "NFC North")
+                if (cur.second.margin >= 4) {
+                    val ch = rated.firstOrNull { it !== cur && it.second.finalMinute && (it.second.margin == 0 || it.second.overtime) &&
+                        nfcNorth(it.first.game) == curNorth }
+                    if (ch != null) return take(ch, "tie-break")
+                }
             }
             return Pick(cur.first, cur.second, "protected")
         }

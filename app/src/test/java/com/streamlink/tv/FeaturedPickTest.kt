@@ -159,6 +159,8 @@ class FeaturedPickTest {
     @Test fun crunchTimeKeepsTheCardButTieBreakWins() {
         val st = FeaturedPick.State()
         val led = folder(game("l", side("A", 24), side("B", 20), 4, "1:30", wp = 0.4))
+        assertTrue(FeaturedPick.nfcNorth(game("x", side("GB", 0), side("NE", 0), 1, "15:00")))
+        assertFalse(FeaturedPick.nfcNorth(game("x", side("GB", 0), side("NE", 0), 1, "15:00", league = "cfb")))
         assertEquals("l", FeaturedPick.choose(sports(led), now, false, st, 10)?.folder?.game?.id)
         val other = folder(game("o", side("C", 20), side("D", 17), 4, "0:40"))
         assertEquals("protected", FeaturedPick.choose(sports(led, other), now + 10 * min, false, st, 10)?.reason)
@@ -166,6 +168,20 @@ class FeaturedPickTest {
         val p = FeaturedPick.choose(sports(led, tied), now + 11 * min, false, st, 10)
         assertEquals("t", p?.folder?.game?.id)
         assertEquals("tie-break", p?.reason)
+    }
+
+    @Test fun nfcNorthWinsOverlappingFinishes() {
+        val st = FeaturedPick.State()
+        val led = folder(game("l", side("HOU", 24), side("CLE", 20), 4, "1:30", wp = 0.4))
+        assertEquals("l", FeaturedPick.choose(sports(led), now, false, st, 10)?.folder?.game?.id)
+        // a close Bears finish takes over even though it is not tied
+        val bears = folder(game("b", side("CHI", 20), side("TB", 17), 4, "1:50", wp = 0.45))
+        val p = FeaturedPick.choose(sports(led, bears), now + 2 * min, false, st, 10)
+        assertEquals("b", p?.folder?.game?.id)
+        assertEquals("NFC North", p?.reason)
+        // and keeps the card against a tied non-NFC North final minute
+        val tied = folder(game("t", side("SF", 20), side("DAL", 20), 4, "0:40"))
+        assertEquals("b", FeaturedPick.choose(sports(bears, tied), now + 4 * min, false, st, 10)?.folder?.game?.id)
     }
 
     @Test fun endedGameIsReplacedEvenWhileFocused() {
