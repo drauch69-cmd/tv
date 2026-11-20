@@ -1,18 +1,15 @@
 package com.streamlink.tv
 
 /**
- * Tells matchups ("A vs B") from channels, and applies the user's own "Live now" channel words.
- * Pure (no Android), unit tested.
+ * Tells matchups ("A vs B") from channels, and finds NFL RedZone. Pure (no Android), unit tested.
  *
- * Deliberate, user-owned exception to the "never key on page words" rule: the word list is the user's own viewing
- * filter (typed by them on the phone page), not detection. Whether a title is a matchup is decided by structure
+ * Deliberate, user-owned exception to the "never key on page words" rule: "RedZone" is the user's own viewing
+ * choice (it gets a card in Live games), not detection. Whether a title is a matchup is decided by structure
  * only: a separator token between two sides, as the list reader builds titles.
  */
 object ChannelFilter {
-    /** What the user sees until they change the words. */
-    val DEFAULT_WORDS: List<String> = listOf("ESPN", "NFL", "NBA", "RedZone")
-    const val MAX_WORDS = 20
-    const val MAX_WORD_LENGTH = 30
+    /** The one channel word left (user, 2026-11-19): RedZone shows first in Live games while it airs. */
+    val REDZONE: List<String> = listOf("RedZone")
 
     /** Separator tokens the list reader puts between two sides (hyphens are left out: "NBA TV - HD" is a channel). */
     private val SEPARATORS = setOf("vs", "vs.", "v", "v.", "versus", "@", "at")
@@ -59,25 +56,12 @@ object ChannelFilter {
         }
     }
 
-    /** Words from typed text: separated by commas or new lines, trimmed, no blanks or repeats (any case), capped. */
-    fun parseWords(raw: String): List<String> {
-        val out = ArrayList<String>()
-        val seen = HashSet<String>()
-        for (p in raw.split(',', '\n', ';')) {
-            val w = p.filter { !it.isISOControl() }.trim().replace(Regex("\\s+"), " ").take(MAX_WORD_LENGTH).trim()
-            if (w.isEmpty() || !seen.add(w.lowercase())) continue
-            out.add(w)
-            if (out.size >= MAX_WORDS) break
-        }
-        return out
-    }
-
-    fun joinWords(words: List<String>): String = words.joinToString("\n")
+    /** A channel whose title says RedZone ("NFL RedZone", "Red Zone"). */
+    fun isRedZone(title: String): Boolean = isChannel(title) && matchesWords(title, REDZONE)
 
     /**
-     * Whether an item belongs on the "Live now" row / tab. [matchedGame]: it matched an NFL/CFB/NBA game (ESPN decides);
-     * otherwise it must be a channel whose title holds one of [words].
+     * Whether an item belongs on the phone's Live now tab: it matched an NFL/CFB/NBA game (ESPN decides), or it is
+     * RedZone.
      */
-    fun inLiveNow(title: String, matchedGame: Boolean, words: List<String>): Boolean =
-        matchedGame || (isChannel(title) && matchesWords(title, words))
+    fun inLiveNow(title: String, matchedGame: Boolean): Boolean = matchedGame || isRedZone(title)
 }

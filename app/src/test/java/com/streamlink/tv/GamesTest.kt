@@ -155,7 +155,8 @@ class GamesTest {
         val pre = game("pre", mia, ne, at("2026-11-19T20:00:00Z"))
         val nfl = SportFolders("nfl", listOf(folder(l2, "https://x/2/"), folder(l4), folder(pre, "https://x/pre")), emptyList())
         val cfb = SportFolders("cfb", listOf(folder(l3, "https://x/3"), folder(l1, "https://x/1")), emptyList())
-        assertEquals(listOf("c-early", "nfl-same", "cfb-same"), LiveGames.sample(listOf(cfb, nfl)).map { it.game.id })
+        // NFL first, then the rest by start time
+        assertEquals(listOf("nfl-same", "c-early", "cfb-same"), LiveGames.sample(listOf(cfb, nfl)).map { it.game.id })
         assertEquals(2, LiveGames.sample(listOf(cfb, nfl), 2).size)
         val urls = LiveGames.matchedUrls(listOf(nfl, cfb))
         assertTrue("https://x/2/" in urls && "https://x/2" in urls && "https://x/1" in urls && "https://x/3" in urls)

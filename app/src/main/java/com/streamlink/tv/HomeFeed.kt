@@ -2,50 +2,29 @@ package com.streamlink.tv
 
 /** What the home screen shows from the saved lists. Pure (no Android), unit tested. */
 object HomeFeed {
-    /** One card in the "Live now" row. */
+    /** A list item shown on the home screen (the RedZone card), with its status. */
     data class Entry(val list: SavedList, val item: ListItem, val status: String)
 
     /** Per-list counts for the list tiles. */
     data class Counts(val live: Int, val later: Int)
 
-    const val MAX_CARDS = 10
-    /** Upcoming events that start within this window fill the row after the live and soon ones. */
-    const val UPCOMING_WINDOW_MS = 6 * 60 * 60 * 1000L
+    /** RedZone only airs while several NFL games are on at once (Sunday windows), so it needs this many live. */
+    const val REDZONE_MIN_NFL = 2
 
     /**
-     * Live events from every list first (earliest start first), then ones starting within 30 min,
-     * then (to fill the row) ones starting within [UPCOMING_WINDOW_MS]. The same event URL in two
-     * lists shows once.
-     *
-     * With [words] (the user's channel words) the row is narrow: only items matched to an NFL/college/NBA game that
-     * are not finished (live ones too; HomeModel drops those already shown as a Live games card), and channels (titles that are not
-     * two-sided) holding one of the words. Everything else is left out. [words] null = no narrowing.
+     * NFL RedZone for the front of the Live games row (user, 2026-11-19): the first RedZone channel in list order
+     * (preferred list first), only while at least [REDZONE_MIN_NFL] NFL games are live by ESPN. Its own status
+     * must be live or unknown (an always-on channel, or no time given); one with a later start time waits.
+     * One card even when several lists carry it. Null otherwise.
      */
-    fun liveRow(
-        lists: List<Pair<SavedList, List<ListItem>>>, now: Long, max: Int = MAX_CARDS, games: List<Game> = ScoreFeed.latest(),
-        words: List<String>? = null,
-    ): List<Entry> {
-        val all = ArrayList<Entry>()
-        val seen = HashSet<String>()
+    fun redZone(lists: List<Pair<SavedList, List<ListItem>>>, now: Long, games: List<Game>): Entry? {
+        if (LiveGames.nflLiveCount(games) < REDZONE_MIN_NFL) return null
         for ((l, items) in lists) for (i in items) {
-            if (!seen.add(i.url)) continue
-            val r = ScoreStatus.resolve(i, now, games) // the card's item carries ESPN's kickoff when matched
-            if (words != null) {
-                val matched = ScoreStatus.gameFor(i, games) != null
-                if (!ChannelFilter.inLiveNow(ListText.displayTitle(i), matched, words)) continue
-                if (matched && r.status == ListStatus.FINISHED) continue // live ones stay: HomeModel skips those already shown in Live games
-            }
-            all.add(Entry(l, r.item, r.status))
+            if (!ChannelFilter.isRedZone(ListText.displayTitle(i))) continue
+            val r = ScoreStatus.resolve(i, now, games)
+            if (r.status == ListStatus.LIVE || r.status == ListStatus.UNKNOWN) return Entry(l, r.item, ListStatus.LIVE)
         }
-        fun startKey(e: Entry) = e.item.startMillis ?: Long.MAX_VALUE
-        // Real live events first (earliest start first), always-on channels after them.
-        val live = all.filter { it.status == ListStatus.LIVE }
-            .sortedWith(compareBy({ e -> e.item.startMillis?.let { ListStatus.isAlwaysOn(it, now) } == true }, { startKey(it) }))
-        val soon = all.filter { it.status == ListStatus.SOON }.sortedBy { startKey(it) }
-        val later = all.filter {
-            it.status == ListStatus.UPCOMING && (it.item.startMillis ?: Long.MAX_VALUE) - now <= UPCOMING_WINDOW_MS
-        }.sortedBy { startKey(it) }
-        return (live + soon + later).take(max)
+        return null
     }
 
     fun counts(items: List<ListItem>, now: Long, games: List<Game> = ScoreFeed.latest()): Counts {

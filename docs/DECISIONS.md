@@ -5,6 +5,12 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Live games rework (user's go, 2026-11-19 ~20:05; on `sports`, built and unit-tested in CI only, NOT tested on the TV):**
+  home "Live now" row removed; NFL RedZone card first in Live games while it airs; NFL games before other sports. To check
+  on the TV: no Live now row, D-pad order (Live games, then Sports), NFL games first, RedZone card on Sunday. Open: the
+  "2+ NFL games live" rule for RedZone was the lead's choice, not yet confirmed by the user.
+- **Rename lists (user asked, 2026-11-19 20:06):** not planned yet. Lay out options (phone Lists tab rename box +
+  `POST /lists/rename`, maybe a TV option) and wait for "go".
 - **Build 234 on the TV (2026-11-19 13:41):** the broken CrackStreams NFL Network stream (pieces 403) gave up in
   15 s and handed to the site player (was ~3 min). Confirmed working. Offered: treat same-named 24/7 channels in
   other lists as backups/automatic-switch targets; **user declined** (rarely uses 24/7 streams). Open: the old
@@ -60,8 +66,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   Cause found for "every ntv channel stuck on the loading screen until a force close": the shared Chrome network
   engine kept a dead connection to the video-piece CDN (playlists fine, pieces timed out); a force close fixed it.
   Next: the user plays ntv channels and sends reports; look for the new piece/engine lines and "Timing:".
-- **"Live now" word list is a deliberate exception** (user, 2026-11-19) to "never key on page words": it is the
-  user's own viewing filter (default ESPN, NFL, NBA, RedZone; editable on the phone), not detection.
+- **"RedZone" is a deliberate exception** to "never key on page words" (user, 2026-11-19): the user's own viewing
+  choice for the Live games row, not detection. (The earlier editable "Live now" word list was removed the same day.)
 - **Next step (agreed in principle, 2026-11-19, build after Sports build 224):** recovery both ways at once (keep the
   stream trying while backups are readied; first picture wins); learn per server how long saved addresses last (ntv codes
   die within minutes; skip the shortcut where they always fail); while watching, keep fresh addresses for the BACKUP
@@ -217,6 +223,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **Home "Live now" row removed; one "Live games" row** (user, 2026-11-19 ~20:05; replaces the build 224 "Live now
+  narrowing" and the channel-word list). RedZone is the only channel that gets a Live games card (first, while live);
+  other always-on channels live in the 24/7 tile. NFL games come before other sports in Live games.
 - **Sources come from the app, not from pressing buttons** (2026-11-19): the background link run is retired. The Source
   panel = this page's playable sources, its own numbered addresses (`?source=N`-style, read from the page), and other
   sites' streams for the same game. A stream that goes down switches automatically (after reconnects fail, max 3 per

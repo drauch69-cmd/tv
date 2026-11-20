@@ -208,8 +208,8 @@ Playback pipeline:
    remembered address (`useRemembered`, quiet). **List reads pause** while `Session.mode` is waiting/finding/player/clean/site
    (`ListReadGate`; a read already running may finish; queued reads, including phone requests, start again on the home
    5 s tick / the sport screen's 1 s beat); log lines "List reads paused while a video plays" / "List reads resumed".
-Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (live NFL/college games with streams), "Live now" row from
-`HomeFeed` (narrow, see "Live now rules" below; skips streams shown as a live game), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`; the top bar has two focusable
+Screens: `MainActivity` (TV-home-style dashboard; "Live games" row (NFL RedZone first while it airs, then live games with streams, NFL games first; see "Live games rules"
+below), "Sports" row (NFL, College football, NBA, 24/7 tiles), sections from `ListSections`; the top bar has two focusable
 items side by side, "Your lists" and "Send a link", and Recent follows the rows; the lists are no longer a home row),
 `ListsActivity` ("Your lists", opened from the top bar: list tiles in a 4-column grid built by `ListTiles.kt`; OK opens
 `ListActivity`, hold OK removes, Menu re-reads all, the add tile returns home and shows the phone code; the home screen
@@ -318,24 +318,17 @@ Remote tabs; prefetch toggle).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
   Matching is cheap and thread-safe: `ScoreMatch` keeps a small LRU (6) of prepared entries per games-list instance (names per team, answers per title), and `GameViews` (Games.kt; `ScoreFeed.forLeagues`) hands out the same filtered/windowed list instance per (source instance, filter), so screens and the home calculation no longer evict each other's cache.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
-- **Live now rules** (`ChannelFilter.kt`, `HomeFeed.liveRow(words = ...)`, `HomeModel`, phone "Live now" tab). The row is narrow.
-  It holds only (a) items matched to an NFL/college/NBA game (ESPN, through `ScoreStatus.gameFor`) that have not finished
-  yet or are live (finished ones never show; a live one already shown as a "Live games" card is skipped by `HomeModel`, so live games of tagged lists appear only there and live ones of untagged lists appear here), and (b) channels whose title holds
-  one of the user's channel words. A *channel* is an entry whose title is not a matchup; `ChannelFilter.isMatchup` decides by
-  structure only: a whole separator token (`vs`, `vs.`, `v`, `v.`, `versus`, `@`, `at`, any case) with a letter somewhere on
-  both sides, as the list reader builds titles ("A vs B", "A at B"); hyphens do not count ("NBA TV - HD" is a channel).
-  Words: case-insensitive, whole words ("NBA TV" matches, a word merely containing "nba" does not); a camel-case word also
-  matches with a space inside ("RedZone" matches "Red Zone"); spaces inside a word match any run of spaces. Default words
-  `ESPN, NFL, NBA, RedZone`; an empty saved list means no channels. Everything else (unmatched events, other channels,
-  cricket, soccer...) is left out of the row. The word list is a **deliberate, user-owned exception** to "never key on page
-  words": it is the user's own viewing filter typed on the phone page, never used for detection. Stored on the TV
-  (`LiveWords`, pref `live_words`, one word per line); `HomeModel.build(..., liveWords)` takes it and `HomeModel.look`
-  includes it, so a change redraws home. Phone endpoint: `GET /livenow/words` -> `{"words":[...],"defaults":[...]}`;
-  `POST /livenow/words` with `words=` (comma or new-line separated, max 20 words of 30 characters) or `reset=1` (back to
-  the defaults), same-origin only, answers like the GET and redraws home. The phone's Live now tab shows the words editor
-  under the list and keeps items whose `liveNow` flag (added to `GET /list` items by `ListJson.listForPhone`) is not false
-  and whose status is live or soon; on the phone, matched games of any status (live too) stay, because the phone has no
-  "Live games" row. The 24/7 tile is unchanged (every always-on channel of every list). Not yet tested on the TV.
+- **Live games rules** (user, 2026-11-19; `LiveGames.sample`, `HomeFeed.redZone`, `ChannelFilter`, `HomeModel`). The home
+  "Live now" row and the user's channel-word list (`LiveWords`, `/livenow/words`, the phone editor) were removed. Home shows
+  one "Live games" row: (1) an NFL RedZone card first, while it airs: the first list item (list order, preferred list first)
+  whose title is a channel (`ChannelFilter.isMatchup` false) holding "RedZone"/"Red Zone" (`ChannelFilter.isRedZone`), shown
+  only while at least 2 NFL games are live by ESPN (`HomeFeed.REDZONE_MIN_NFL`, RedZone only airs in multi-game windows) and
+  the item's own status is live or unknown; one card even when several lists carry it; it plays the list item (head start on
+  focus); (2) live games with streams, NFL games first, then the others by start time (college before NBA as a tiebreak).
+  "RedZone" is a deliberate, user-owned exception to "never key on page words" (the user's viewing choice, not detection).
+  Always-on channels (ESPN, NFL Network...) are in the 24/7 tile; unmatched two-sided games in each sport's "Other". The
+  phone's Live now tab keeps items whose `liveNow` flag (`ListJson.listForPhone`: matched to a game, or RedZone) is not false
+  and whose status is live or soon. Not yet tested on the TV.
 - **Sports folders** (`Games.kt`, pure Kotlin; logic only so far, screens come separately). A saved list carries a
   set of sport tags (`SavedList.sports`, any of "nfl", "cfb", "nba" via `Sports`, empty = none; `has(league)`; JSON
   `"sports": [...]`, the old single `"sport"` string is still read; set with toggle chips on the phone page's Lists tab, when
@@ -347,7 +340,7 @@ Remote tabs; prefetch toggle).
   league is built, so an item never lands in two sports); unmatched go to `other` (so in every tagged sport's Other) only when the title is a matchup (`ChannelFilter.isMatchup`: two-sided; channels and shows are dropped, they stay reachable in their list and the 24/7 tile); always-on items are never placed, finished ones only when they match a
   game; the same address (trailing slash ignored) appears once. `GameSections.group` makes Live now / Today /
   Tomorrow / weekday / Final sections (`withStreamsOnly` hides games without streams); `AlwaysOn.collect` gathers
-  24/7 channels from all lists; `LiveGames.sample` / `matchedUrls` feed the home live row; `GameFolders.summary` is
+  24/7 channels from all lists; `LiveGames.sample` feeds the home Live games row (`matchedUrls` is kept for tests); `GameFolders.summary` is
   the quiet "Sports:" report line.
   **Preferred list.** At most one saved list is preferred (`SavedList.preferred`, JSON "preferred", old JSON reads
   false; `Preferred` in SavedLists.kt enforces "only one"). Set with the "★ Preferred" chip on each list on the phone
@@ -355,12 +348,12 @@ Remote tabs; prefetch toggle).
   at the top of the TV list screen; "Your lists" tiles show "★ Preferred". Code asks `SavedLists.preferredId(ctx)`; no
   site is ever named in code. Wherever a game has several streams the preferred list's come first, the rest keep their
   order: `GameFolders.build(..., preferredListId)` (handled first, so it also wins a duplicate address and leads
-  "Other"), `AlwaysOn.collect`, `HomeModel` (live row ties), the phone's "Live now", the Source panel's other-site
+  "Other"), `AlwaysOn.collect`, `HomeModel` (RedZone card), the phone's "Live now", the Source panel's other-site
   entries and automatic switching. On the game screen the first (focused) row is the preferred one, meta "★ Preferred".
   `HomeModel.look` and the `StreamsActivity` look include the preferred id. Not yet tested on the TV.
   Screens: home "Live games" row (`LiveGames.sample`, cards open the game) and "Sports" row (tiles open `SportActivity` /
   the 24/7 `StreamsActivity`); both are rebuilt (focus kept) on every list render and by `ScoreFeed.refreshIfDue` on resume
-  and the 60 s tick, and "Live now" skips `LiveGames.matchedUrls`. `SportActivity` works out folders/sections on one background thread (`sport-calc`, generation counter, stale results dropped), draws on the main thread only when the computed look (sections, games, scores, stream counts, statuses) changed or the "All games" chip toggled, and shows a quiet "Loading games…" row first; its 1 s beat only checks the read watchdog (score refresh check every 5 s, re-render every 30 s). `StreamsActivity` does the same (`streams-calc`). `SportActivity` shows cached lists at once, then re-reads
+  and the 60 s tick. `SportActivity` works out folders/sections on one background thread (`sport-calc`, generation counter, stale results dropped), draws on the main thread only when the computed look (sections, games, scores, stream counts, statuses) changed or the "All games" chip toggled, and shows a quiet "Loading games…" row first; its 1 s beat only checks the read watchdog (score refresh check every 5 s, re-render every 30 s). `StreamsActivity` does the same (`streams-calc`). `SportActivity` shows cached lists at once, then re-reads
   every list tagged with its sport one after another (own hidden `IndexReader`, 90 s watchdog, skips lists already busy,
   not again within 60 s of the last round, then every 2 min while open; Menu forces); the "All games" choice is kept per
   sport (pref `sport_all_games_<league>`, default off = games with streams only). `StreamsActivity` never reads lists; it
@@ -370,14 +363,14 @@ Remote tabs; prefetch toggle).
 - **Home screen refresh and list cache.** `SavedLists.cached` / `all` keep the parsed lists in memory (`CacheMemo`; the same
   object until a read is saved or a list removed, so no screen re-parses JSON on every draw). `MainActivity` has ONE score
   refresher: `scoreTick` (5 s) asks `ScoreFeed.refreshIfDue`; when data changed it calls `requestHome(false)`. Everything
-  on home that depends on lists or scores (Live games row, Sports tiles, Live now, list tile counts) comes from one
+  on home that depends on lists or scores (Live games row incl. the RedZone card, Sports tiles, list tile counts) comes from one
   `HomeModel` (`HomeModel.kt`, pure) built on a single background thread (`home-calc`) and drawn on the main thread;
   results from older requests are dropped (`homeGen`). A non-forced request (new scores) redraws only if `HomeModel.look`
   changed (look covers statuses, counts, live-game score lines, sport tile lines); forced requests (`renderLists()`:
   list changes, busy marks, the 60 s clock tick, resume) always redraw. First draw and list removal use `renderHomeNow()`
   (synchronous). Rows still keep focus as before. Not yet tested on the TV.
-- **ESPN-driven status** (`ScoreStatus.resolve`). Every status, badge and start time (list screen, home "Live now"
-  row and counts, phone page, prefetcher) goes through it. The list screen and the phone page's list view use only the games of the list's sport
+- **ESPN-driven status** (`ScoreStatus.resolve`). Every status, badge and start time (list screen, home RedZone card
+  and counts, phone page, prefetcher) goes through it. The list screen and the phone page's list view use only the games of the list's sport
   tags (same as its score lines), so status and score always agree. For an item that matches a game: in progress = Live (any
   length, ignores the site's marker), final = Finished with badge "Final", postponed/canceled = Finished with that
   badge, not started = normal time windows using ESPN's kickoff as the start (the site's "live" marker is ignored). Unmatched items, or no fresh scores (a league's last fetch of today over 15 min old drops today's games; the 2-day schedule keeps only games not started), use

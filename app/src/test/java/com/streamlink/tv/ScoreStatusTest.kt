@@ -133,23 +133,12 @@ class ScoreStatusTest {
         assertTrue(meta, meta.contains("PM") || meta.contains("AM"))
     }
 
-    @Test fun homeFeedAgreesWithOverride() {
-        val list = SavedList("a", "A", "https://a.example")
+    @Test fun homeCountsAgreeWithOverride() {
         val live = item(now - 5 * hour)
         val none = item(null, t = "Chess Open")
         val g = listOf(game(now - 5 * hour, "in"))
-        val rows = HomeFeed.liveRow(listOf(list to listOf(live, none)), now, games = g)
-        assertEquals(listOf(title), rows.map { it.item.title })
-        assertEquals(ListStatus.LIVE, rows[0].status)
         assertEquals(1, HomeFeed.counts(listOf(live, none), now, g).live)
-        // final: leaves the row
-        val gf = listOf(game(now - 5 * hour, "post"))
-        assertTrue(HomeFeed.liveRow(listOf(list to listOf(live)), now, games = gf).isEmpty())
-        // no start time: ESPN's kickoff gives the card a time
-        val g3 = listOf(game(now + 2 * hour, "pre"))
-        val r3 = HomeFeed.liveRow(listOf(list to listOf(item(null))), now, games = g3)
-        assertEquals(ListStatus.UPCOMING, r3[0].status)
-        assertEquals(now + 2 * hour, r3[0].item.startMillis)
+        assertEquals(0, HomeFeed.counts(listOf(live), now, listOf(game(now - 5 * hour, "post"))).live)
     }
 
     @Test fun cardTextForPostponed() {

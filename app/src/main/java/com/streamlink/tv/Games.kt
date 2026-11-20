@@ -139,16 +139,22 @@ object AlwaysOn {
 
 /** Live games for the home screen. */
 object LiveGames {
-    /** Live games that have at least one stream: earliest start first, NFL, then college, then NBA only as a tiebreak. */
+    /**
+     * Live games that have at least one stream: NFL games first (user, 2026-11-19), then the other sports; within
+     * each, earliest start first, college before NBA as a tiebreak.
+     */
     fun sample(folders: List<SportFolders>, max: Int = 8): List<GameFolder> =
         folders.flatMap { it.games }
             .filter { it.game.state == "in" && it.streams.isNotEmpty() }
-            .sortedWith(compareBy<GameFolder>({ it.game.startMillis }, { when (it.game.league) { "nfl" -> 0; "cfb" -> 1; else -> 2 } }))
+            .sortedWith(compareBy<GameFolder>({ if (it.game.league == "nfl") 0 else 1 }, { it.game.startMillis }, { when (it.game.league) { "nfl" -> 0; "cfb" -> 1; else -> 2 } }))
             .take(max)
+
+    /** NFL games live right now (any streams or not). RedZone only airs when several are on at once. */
+    fun nflLiveCount(games: List<Game>): Int = games.count { it.league == "nfl" && it.state == "in" }
 
     /**
      * Addresses of the streams placed in any live game, both as written and as [GameFolders.urlKey], so the
-     * home "Live now" row can skip them.
+     * phone and tests can tell placed streams apart.
      */
     fun matchedUrls(folders: List<SportFolders>): Set<String> {
         val out = HashSet<String>()

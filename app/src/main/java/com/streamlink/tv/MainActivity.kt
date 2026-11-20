@@ -29,7 +29,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 /**
- * The home screen: "Live now" from all saved lists, the list tiles, recent links, and the "Send a link"
+ * The home screen: "Live games" (RedZone first while it airs, NFL games first), the sport and 24/7 tiles, recent links, and the "Send a link"
  * panel with the QR code for the phone page. Also runs the phone page server.
  */
 class MainActivity : Activity() {
@@ -37,7 +37,8 @@ class MainActivity : Activity() {
     private lateinit var sniffer: StreamSniffer
     private lateinit var prefetcher: Prefetcher
     private lateinit var prefetchToggle: TextView
-    private var liveItems: Map<String, ListItem> = emptyMap()
+    /** The RedZone card's item, for the head start when focus comes back to it. */
+    private var redZoneItem: ListItem? = null
     private lateinit var server: LinkServer
     private lateinit var statusView: TextView
     private lateinit var recentList: LinearLayout
@@ -55,8 +56,6 @@ class MainActivity : Activity() {
     private lateinit var updateSettings: TextView
     private lateinit var checkUpdate: TextView
     private lateinit var updateInfo: TextView
-    private lateinit var liveRow: LinearLayout
-    private lateinit var liveSub: TextView
     private lateinit var liveGamesHeader: View
     private lateinit var liveGamesScroll: View
     private lateinit var liveGamesRow: LinearLayout
@@ -100,7 +99,7 @@ class MainActivity : Activity() {
         val lists = SavedLists.all(ctx)
         val byId = HashMap<String, CachedList>()
         for (l in lists) SavedLists.cached(ctx, l.id)?.let { byId[l.id] = it }
-        return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault(), LiveWords.get(ctx))
+        return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault())
     }
 
     /**
@@ -135,7 +134,7 @@ class MainActivity : Activity() {
         if (!homeForce && (m.look == homeLook || !resumed)) return
         homeForce = false
         homeLook = m.look
-        renderSports(m) // also draws "Live now"
+        renderSports(m)
         ListEvents.changed() // the "Your lists" screen, if open
     }
     private val updateTick = object : Runnable {
@@ -157,8 +156,6 @@ class MainActivity : Activity() {
         updateSettings = findViewById(R.id.updateSettings)
         checkUpdate = findViewById(R.id.checkUpdate)
         updateInfo = findViewById(R.id.updateInfo)
-        liveRow = findViewById(R.id.liveRow)
-        liveSub = findViewById(R.id.liveSub)
         liveGamesHeader = findViewById(R.id.liveGamesHeader)
         liveGamesScroll = findViewById(R.id.liveGamesScroll)
         liveGamesRow = findViewById(R.id.liveGamesRow)
@@ -195,14 +192,12 @@ class MainActivity : Activity() {
             lists = { ListJson.listsForPhone(SavedLists.all(this), { SavedLists.cached(this, it) }, { SavedLists.isBusy(it) }, { SavedLists.lastError(it) }, System.currentTimeMillis()) },
             list = { id ->
                 SavedLists.get(this, id)?.let { l ->
-                    ListJson.listForPhone(l, SavedLists.cached(this, id), SavedLists.isBusy(id), SavedLists.lastError(id), System.currentTimeMillis(), LiveWords.get(this))
+                    ListJson.listForPhone(l, SavedLists.cached(this, id), SavedLists.isBusy(id), SavedLists.lastError(id), System.currentTimeMillis())
                 }
             },
             onListAdd = { url, name, sports -> addList(url, name, sports) },
             onListSport = { id, sports -> SavedLists.setSports(this, id, sports) },
             onListPreferred = { id, on -> SavedLists.setPreferred(this, id, on).also { ok -> if (ok) runOnUiThread { renderLists() } } },
-            liveWords = { LiveWords.get(this) },
-            onLiveWords = { w -> if (w == null) LiveWords.reset(this) else LiveWords.set(this, w); runOnUiThread { renderLists() } },
             onListRemove = { id -> removeList(id) },
             onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id) }; true } ?: false },
             onListPlay = { id, url, start ->
@@ -241,8 +236,8 @@ class MainActivity : Activity() {
         refreshStale()
         if (ListEvents.showQrOnHome) { ListEvents.showQrOnHome = false; showQr(true) }
         if (Session.mode == "idle") statusView.text = lastStatusForScreen()
-        // Back from playing with a "Live now" card still focused: no focus event comes, so start the 2 s again.
-        (liveRow.focusedChild?.tag as? String)?.let { liveItems[it] }?.let { prefetcher.focus(it) }
+        // Back from playing with the RedZone card still focused: no focus event comes, so start the 2 s again.
+        if (liveGamesRow.focusedChild?.tag == REDZONE_TAG) redZoneItem?.let { prefetcher.focus(it) }
     }
 
     @Deprecated("Deprecated in Java")
@@ -433,7 +428,7 @@ class MainActivity : Activity() {
         startActivity(WaitingActivity.intent(this, item, l.id, l.name))
     }
 
-    /** Re-reads, in the background, lists not read for [STALE_MS] (so "Live now" stays current). */
+    /** Re-reads, in the background, lists not read for [STALE_MS] (so Live games and the tiles stay current). */
     private fun refreshStale() {
         val now = System.currentTimeMillis()
         for (l in SavedLists.all(this)) {
@@ -447,94 +442,57 @@ class MainActivity : Activity() {
     /** Redraws the home rows from the saved lists and the scores (worked out in the background). */
     private fun renderLists() { requestHome(true); ListEvents.changed() }
 
-    /** The "Live now" row: live events from every list, then ones starting soon. */
-    private fun renderLive(m: HomeModel) {
-        val focusedUrl = liveRow.focusedChild?.tag as? String
-        liveRow.removeAllViews()
-        val now = System.currentTimeMillis()
-        val lists = m.lists
-        val cached = m.cached
-        // Items already shown as a live game card are not shown a second time here (worked out in the model).
-        val rows = m.liveRows
-        val oldest = cached.minOfOrNull { it.second.readAt }
-        liveSub.text = when {
-            lists.isEmpty() -> "add a list of events from your phone to see what's live"
-            lists.any { SavedLists.isBusy(it.id) } -> "from all your lists · checking now…"
-            oldest != null -> "from all your lists · updated ${ListText.ago(oldest, now)}"
-            else -> "from all your lists"
-        }
+    /** The "Live games" row (RedZone first while it airs, then games) and the "Sports" row. */
+    private fun renderSports(m: HomeModel) {
+        renderLiveGames(m.folders, m.redZone)
+        renderSportTiles(m)
+    }
+
+    private fun renderLiveGames(folders: List<SportFolders>, redZone: HomeFeed.Entry?) {
+        val focusedId = liveGamesRow.focusedChild?.tag as? String
+        liveGamesRow.removeAllViews()
+        val games = LiveGames.sample(folders, 8)
+        val vis = if (games.isEmpty() && redZone == null) View.GONE else View.VISIBLE
+        liveGamesHeader.visibility = vis
+        liveGamesScroll.visibility = vis
         var focusTarget: View? = null
-        val zone = TimeZone.getDefault()
-        val locale = Locale.getDefault()
-        liveItems = rows.associate { it.item.url to it.item }
-        for (e in rows) {
-            val live = e.status == ListStatus.LIVE
+        redZoneItem = redZone?.item
+        if (redZone != null) {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 Ui.focusCard(this, radiusDp = 12f)
                 setPadding(dp(15), dp(13), dp(15), dp(13))
                 isFocusable = true
                 isClickable = true
-                tag = e.item.url
-                if (e.status == ListStatus.UPCOMING) alpha = 0.75f
-                setOnClickListener { playListItem(e.list, e.item.url, e.item.startMillis) }
-                // Head start on focus.
-                setOnFocusChangeListener { _, has -> if (has) prefetcher.focus(e.item) else prefetcher.blur() }
+                tag = REDZONE_TAG
+                setOnClickListener { playListItem(redZone.list, redZone.item.url, redZone.item.startMillis) }
+                // Head start on focus, like the other list cards.
+                setOnFocusChangeListener { _, has -> if (has) prefetcher.focus(redZone.item) else prefetcher.blur() }
             }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
-            val badgeText = HomeFeed.badge(e.item, e.status, now, zone, locale)
-            if (badgeText.isNotEmpty()) top.addView(Ui.badge(this, badgeText, live, 10f))
+            top.addView(Ui.badge(this, "LIVE", true, 10f))
             top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-            top.addView(Ui.text(this, e.list.name, 10.5f, Ui.TEXT_3).apply {
+            top.addView(Ui.text(this, Sports.label("nfl"), 10.5f, Ui.TEXT_3).apply { maxLines = 1 })
+            card.addView(top)
+            card.addView(Ui.text(this, ListText.displayTitle(redZone.item), 17f, Ui.TEXT, bold = true).apply {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
-                maxWidth = dp(100)
-            })
-            card.addView(top)
-            card.addView(Ui.text(this, ListText.displayTitle(e.item), 16f, Ui.TEXT, bold = true).apply {
-                maxLines = 2
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                setLineSpacing(0f, 1.15f)
                 setPadding(0, dp(9), 0, 0)
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-            card.addView(Ui.text(this, HomeFeed.whenLine(e.item, now, zone, locale), 11.5f, Ui.TEXT_2).apply { maxLines = 1 })
-            val lp = LinearLayout.LayoutParams(dp(210), dp(126))
-            lp.marginEnd = dp(15)
-            liveRow.addView(card, lp)
-            if (e.item.url == focusedUrl) focusTarget = card
-        }
-        // The focused card left the row (e.g. its event ended): keep focus in the row instead of losing it.
-        if (focusedUrl != null && focusTarget == null) focusTarget = liveRow.getChildAt(0)?.takeIf { it.isFocusable } ?: sendLink
-        if (rows.isEmpty()) {
-            val msg = when {
-                lists.isEmpty() -> "Nothing to show yet. On the phone page, paste a page that lists events and tap “Add as stream list”."
-                cached.isEmpty() -> "Your lists haven't been read yet. Press Menu to read them now."
-                else -> "Nothing live or starting soon. Press Menu to check again, or open a list for later events."
-            }
-            liveRow.addView(Ui.text(this, msg, 13f, Ui.TEXT_2).apply {
-                background = Ui.rounded(this@MainActivity, Ui.SURFACE, 12f)
-                setPadding(dp(18), dp(16), dp(18), dp(16))
-                maxWidth = dp(560)
             })
+            card.addView(Ui.text(this, "Every game, live", 11.5f, Ui.LIVE_TEXT).apply {
+                maxLines = 1
+                setPadding(0, dp(5), 0, 0)
+            })
+            card.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f))
+            card.addView(Ui.text(this, redZone.list.name, 11.5f, Ui.TEXT_2).apply {
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            })
+            val lp = LinearLayout.LayoutParams(dp(230), dp(126))
+            lp.marginEnd = dp(15)
+            liveGamesRow.addView(card, lp)
+            if (focusedId == REDZONE_TAG) focusTarget = card
         }
-        focusTarget?.requestFocus()
-    }
-
-    /** The "Live games" row, the "Sports" row, and "Live now" (which skips games shown as cards). */
-    private fun renderSports(m: HomeModel) {
-        renderLiveGames(m.folders)
-        renderSportTiles(m)
-        renderLive(m)
-    }
-
-    private fun renderLiveGames(folders: List<SportFolders>) {
-        val focusedId = liveGamesRow.focusedChild?.tag as? String
-        liveGamesRow.removeAllViews()
-        val games = LiveGames.sample(folders, 8)
-        val vis = if (games.isEmpty()) View.GONE else View.VISIBLE
-        liveGamesHeader.visibility = vis
-        liveGamesScroll.visibility = vis
-        var focusTarget: View? = null
         for (gf in games) {
             val g = gf.game
             val card = LinearLayout(this).apply {
@@ -615,7 +573,8 @@ class MainActivity : Activity() {
     }
 
     private fun focusFirst() {
-        (liveRow.getChildAt(0)?.takeIf { it.isFocusable } ?: sendLink).requestFocus()
+        (liveGamesRow.getChildAt(0)?.takeIf { it.isFocusable && liveGamesScroll.visibility == View.VISIBLE }
+            ?: sportsRow.getChildAt(0)?.takeIf { it.isFocusable } ?: sendLink).requestFocus()
     }
 
     /** The "Send a link" panel: QR code, address, version and update check. */
@@ -781,6 +740,7 @@ class MainActivity : Activity() {
         /** Lists older than this are re-read in the background while the home screen is shown. */
         const val STALE_MS = 10 * 60_000L
         const val ALWAYS_ON_TAG = "always-on"
+        const val REDZONE_TAG = "redzone"
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

@@ -105,12 +105,6 @@
 
 <section id="pane-live" role="tabpanel">
   <div id="livebox"></div>
-  <div class="fl card" style="margin-top:14px">
-    <label for="lwords" class="lbl">Channel words: channels with one of these in the name show in Live now (separate with commas)</label>
-    <input id="lwords" type="text" maxlength="300" placeholder="ESPN, NFL, NBA, RedZone" autocomplete="off">
-    <div class="grid"><button type="button" id="lwsave">Save words</button><button type="button" class="ghost" id="lwreset">Reset</button></div>
-    <div id="lwmsg" class="small" aria-live="polite"></div>
-  </div>
 </section>
 
 <section id="pane-lists" role="tabpanel" hidden>
@@ -240,7 +234,7 @@
       $('pane-' + n).hidden = n !== t;
       $('tab-' + n).setAttribute('aria-selected', n === t ? 'true' : 'false');
     });
-    if (t === 'live') { loadLive(); loadWords(); }
+    if (t === 'live') loadLive();
     if (t === 'lists') { listsKey = ''; loadLists(); if (openId) loadDetail(); }
   }
   var tabBtns = document.querySelectorAll('[data-tab]');
@@ -349,28 +343,6 @@
       });
     }).catch(function(){});
   }
-
-  // Channel words (kept on the TV): which channels show in Live now
-  function showWords(d, msg){
-    var w = (d && d.words) || [];
-    $('lwords').value = w.join(', ');
-    $('lwmsg').textContent = msg || '';
-    liveKey = null;
-    if (tab === 'live') loadLive();
-  }
-  function loadWords(){
-    fetch('/livenow/words', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
-      if (document.activeElement !== $('lwords')) $('lwords').value = (d.words || []).join(', ');
-    }).catch(function(){});
-  }
-  function sendWords(body, doneMsg){
-    $('lwmsg').textContent = 'Saving…';
-    post('/livenow/words', body).then(function(r){ return r.json(); }).then(function(d){ showWords(d, doneMsg); })
-      .catch(function(){ $('lwmsg').textContent = NOREACH; });
-  }
-  $('lwsave').onclick = function(){ sendWords('words=' + encodeURIComponent($('lwords').value), 'Saved. The TV home screen is updated.'); };
-  $('lwreset').onclick = function(){ sendWords('reset=1', 'Back to the standard words.'); };
-  loadWords();
 
   // Stream lists
   var openId = null, listsKey = '', detailKey = '';

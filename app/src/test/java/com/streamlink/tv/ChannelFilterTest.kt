@@ -29,7 +29,7 @@ class ChannelFilterTest {
     }
 
     @Test fun wholeWordsIgnoreCase() {
-        val w = ChannelFilter.DEFAULT_WORDS
+        val w = listOf("ESPN", "NFL", "NBA", "RedZone")
         assertTrue(ChannelFilter.matchesWords("NBA TV", w))
         assertTrue(ChannelFilter.matchesWords("espn 2 HD", w))
         assertTrue(ChannelFilter.matchesWords("US | ESPN+", w))
@@ -41,7 +41,7 @@ class ChannelFilterTest {
     }
 
     @Test fun redZoneAlsoMatchesWithASpace() {
-        val w = ChannelFilter.DEFAULT_WORDS
+        val w = listOf("ESPN", "NFL", "NBA", "RedZone")
         assertTrue(ChannelFilter.matchesWords("NFL RedZone", listOf("RedZone")))
         assertTrue(ChannelFilter.matchesWords("Sunday Red Zone", listOf("RedZone")))
         assertTrue(ChannelFilter.matchesWords("redzone", listOf("RedZone")))
@@ -57,18 +57,17 @@ class ChannelFilterTest {
         ChannelFilter.matchesWords("C++ TV", listOf("C++", "[a", "\\")) // regex characters never crash
     }
 
-    @Test fun parseWords() {
-        assertEquals(listOf("ESPN", "Red Zone", "NBA"), ChannelFilter.parseWords(" ESPN , Red  Zone,\nNBA,, espn;"))
-        assertEquals(emptyList<String>(), ChannelFilter.parseWords("  , \n"))
-        assertEquals(ChannelFilter.MAX_WORDS, ChannelFilter.parseWords((1..50).joinToString(",") { "w$it" }).size)
-        assertEquals(ChannelFilter.MAX_WORD_LENGTH, ChannelFilter.parseWords("x".repeat(100)).single().length)
+    @Test fun redZone() {
+        assertTrue(ChannelFilter.isRedZone("NFL RedZone"))
+        assertTrue(ChannelFilter.isRedZone("Red Zone HD"))
+        assertFalse(ChannelFilter.isRedZone("NFL Network"))
+        assertFalse(ChannelFilter.isRedZone("RedZone vs Giants")) // two-sided: not a channel
     }
 
     @Test fun inLiveNow() {
-        val w = listOf("ESPN")
-        assertTrue(ChannelFilter.inLiveNow("Anything vs Else", true, w))
-        assertTrue(ChannelFilter.inLiveNow("ESPN 2", false, w))
-        assertFalse(ChannelFilter.inLiveNow("ESPN vs Fox", false, w)) // two-sided and unmatched: not a channel
-        assertFalse(ChannelFilter.inLiveNow("Fox Footy", false, w))
+        assertTrue(ChannelFilter.inLiveNow("Anything vs Else", true))
+        assertTrue(ChannelFilter.inLiveNow("NFL RedZone", false))
+        assertFalse(ChannelFilter.inLiveNow("ESPN 2", false)) // channel words are gone
+        assertFalse(ChannelFilter.inLiveNow("Fox Footy", false))
     }
 }
