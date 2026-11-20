@@ -32,7 +32,6 @@ class ListActivity : Activity() {
     private lateinit var subtitle: TextView
     private lateinit var errorView: TextView
     private lateinit var refreshBtn: LinearLayout
-    private lateinit var preferredBtn: TextView
     private lateinit var panel: LinearLayout
     private lateinit var pBadgeHolder: FrameLayout
     private lateinit var pTitle: TextView
@@ -214,16 +213,11 @@ class ListActivity : Activity() {
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0)
         })
         top.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        // "Preferred" toggle: this list's streams come first wherever a game has several. Only one list can be preferred.
-        preferredBtn = text("", 12f, Ui.TEXT, bold = true).apply {
+        // The list's rank, read-only (ranks are set on the phone's Lists tab). Hidden when unranked.
+        if (list.rank != null) top.addView(text("Rank ${Ranking.label(list.rank)}", 12f, Ui.ACCENT, bold = true).apply {
             gravity = Gravity.CENTER
-            Ui.focusCard(this, Ui.CHIP, Ui.SURFACE_FOCUS, 10f)
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            isFocusable = true; isClickable = true
-            setOnClickListener { togglePreferred() }
-        }
-        showPreferred()
-        top.addView(preferredBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(12) })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(12) })
         // Right-aligned note; focusable so OK also refreshes now (Menu does the same).
         refreshBtn = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -291,19 +285,6 @@ class ListActivity : Activity() {
         }
         p.addView(siteBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         return p
-    }
-
-    private fun showPreferred() {
-        preferredBtn.text = if (list.preferred) "★ Preferred" else "☆ Preferred"
-        preferredBtn.setTextColor(if (list.preferred) Ui.ACCENT else Ui.TEXT_2)
-        preferredBtn.contentDescription = if (list.preferred) "Preferred list: on" else "Preferred list: off"
-    }
-
-    private fun togglePreferred() {
-        SavedLists.setPreferred(this, list.id, !list.preferred)
-        SavedLists.get(this, list.id)?.let { list = it }
-        showPreferred()
-        ListEvents.changed() // the home screen recomputes when it comes back (resume is a forced render)
     }
 
     private fun updateHeader() {

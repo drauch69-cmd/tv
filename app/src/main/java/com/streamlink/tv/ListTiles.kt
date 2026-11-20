@@ -55,7 +55,7 @@ object ListTiles {
         row.removeAllViews()
         val now = System.currentTimeMillis()
         var focusTarget: View? = null
-        for (l in lists) {
+        for (l in Ranking.sorted(lists)) { // best-ranked first, unranked after in saved order
             val c = cachedById[l.id]
             val tile = LinearLayout(a).apply {
                 orientation = LinearLayout.VERTICAL
@@ -71,7 +71,7 @@ object ListTiles {
                 maxLines = 1
                 ellipsize = TextUtils.TruncateAt.END
             })
-            if (l.preferred) tile.addView(Ui.text(a, "★ Preferred", 10.5f, Ui.ACCENT, bold = true).apply { setPadding(0, Ui.dp(a, 3), 0, 0) })
+            if (l.rank != null) tile.addView(Ui.text(a, "Rank ${Ranking.label(l.rank)}", 10.5f, Ui.ACCENT, bold = true).apply { setPadding(0, Ui.dp(a, 3), 0, 0) })
             val cn = counts[l.id]
             val line = SpannableStringBuilder()
             if (cn == null) {

@@ -9,15 +9,14 @@ import android.content.Context
 object Alternatives {
     const val MAX = 6
 
-    private fun preferredListId(ctx: Context): String? = SavedLists.preferredId(ctx)
 
     /**
-     * The other streams of the game whose folder holds the playing page, best first: the preferred list's streams,
-     * then the folder's own order. Excludes the playing page itself (by [GameFolders.urlKey] of [pageKeys]),
+     * The other streams of the game whose folder holds the playing page, best first: by list rank ([listOrder], best list
+     * first; unranked lists after), then the folder's own order. Excludes the playing page itself (by [GameFolders.urlKey] of [pageKeys]),
      * finished items ([isFinished]) and repeats; at most [max]. Empty when no folder holds the page.
      */
     fun pick(
-        folders: List<SportFolders>, pageKeys: Collection<String?>, preferredId: String?,
+        folders: List<SportFolders>, pageKeys: Collection<String?>, listOrder: List<String>?,
         max: Int = MAX, isFinished: (ListItem) -> Boolean = { false },
     ): List<GameStream> {
         val keys = pageKeys.filterNotNull().filter { it.isNotBlank() }.map { GameFolders.urlKey(it) }.toSet()
@@ -29,7 +28,7 @@ object Alternatives {
             val k = GameFolders.urlKey(s.item.url)
             (s.item.url.startsWith("http://") || s.item.url.startsWith("https://")) && !isFinished(s.item) && seen.add(k)
         }
-        val ordered = if (preferredId == null) others else others.filter { it.listId == preferredId } + others.filter { it.listId != preferredId }
+        val ordered = Ranking.sort(others, listOrder) { it.listId }
         return ordered.take(max)
     }
 
@@ -52,7 +51,7 @@ object Alternatives {
     fun forPage(ctx: Context, pageUrl: String, listItemUrl: String?): List<Source> = try {
         val now = System.currentTimeMillis()
         val games = ScoreFeed.latest()
-        toSources(pick(SportsData.both(ctx, now), listOf(listItemUrl, pageUrl), preferredListId(ctx),
+        toSources(pick(SportsData.both(ctx, now), listOf(listItemUrl, pageUrl), SavedLists.rankOrder(ctx),
             isFinished = { ListStatus.of(it, now, games) == ListStatus.FINISHED }))
     } catch (_: Exception) {
         emptyList()

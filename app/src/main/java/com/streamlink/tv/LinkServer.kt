@@ -32,8 +32,8 @@ class LinkServer(
     private val onListRemove: (String) -> Boolean = { false },
     /** POST /lists/sport (id, sport: comma-separated "nfl", "cfb", "nba" or empty for none; unknown values ignored): false if there is no such list. */
     private val onListSport: (String, Set<String>) -> Boolean = { _, _ -> false },
-    /** POST /lists/preferred (id, on = "1" or "0"): makes that list the one preferred list (on) or clears the mark; false if there is no such list. */
-    private val onListPreferred: (String, Boolean) -> Boolean = { _, _ -> false },
+    /** POST /lists/rank (id, rank = 1, 2, … or empty for unranked): ranks that list, others move down; false if there is no such list. */
+    private val onListRank: (String, Int?) -> Boolean = { _, _ -> false },
     /** POST /lists/rename (id, name): false if there is no such list or the name is empty. */
     private val onListRename: (String, String) -> Boolean = { _, _ -> false },
     /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
@@ -218,10 +218,10 @@ class LinkServer(
                 val name = (formValue(body, "name") ?: "").take(200)
                 if (!id.isNullOrEmpty() && onListRename(id, name)) respond(c, 200, text, "Renamed") else respond(c, 404, text, "No such list or empty name")
             }
-            method == "POST" && path == "/lists/preferred" -> {
+            method == "POST" && path == "/lists/rank" -> {
                 val id = formValue(body, "id")
-                val on = formValue(body, "on")?.trim() == "1"
-                if (!id.isNullOrEmpty() && onListPreferred(id, on)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
+                val rank = formValue(body, "rank")?.trim()?.take(4)?.toIntOrNull()?.takeIf { it >= 1 }
+                if (!id.isNullOrEmpty() && onListRank(id, rank)) respond(c, 200, text, "Saved") else respond(c, 404, text, "No such list")
             }
             method == "POST" && path == "/list/refresh" -> {
                 val id = formValue(body, "id")
@@ -254,7 +254,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/preferred", "/lists/rename", "/list/refresh", "/list/play")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

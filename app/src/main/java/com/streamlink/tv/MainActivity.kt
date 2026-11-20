@@ -189,7 +189,7 @@ class MainActivity : Activity() {
             state = { Session.stateJson() },
             report = { Report.text() },
             sample = { SampleRecorder.zip(Report.text(), BuildConfig.VERSION_NAME) },
-            lists = { ListJson.listsForPhone(SavedLists.all(this), { SavedLists.cached(this, it) }, { SavedLists.isBusy(it) }, { SavedLists.lastError(it) }, System.currentTimeMillis()) },
+            lists = { ListJson.listsForPhone(Ranking.sorted(SavedLists.all(this)), { SavedLists.cached(this, it) }, { SavedLists.isBusy(it) }, { SavedLists.lastError(it) }, System.currentTimeMillis()) },
             list = { id ->
                 SavedLists.get(this, id)?.let { l ->
                     ListJson.listForPhone(l, SavedLists.cached(this, id), SavedLists.isBusy(id), SavedLists.lastError(id), System.currentTimeMillis())
@@ -197,7 +197,7 @@ class MainActivity : Activity() {
             },
             onListAdd = { url, name, sports -> addList(url, name, sports) },
             onListSport = { id, sports -> SavedLists.setSports(this, id, sports) },
-            onListPreferred = { id, on -> SavedLists.setPreferred(this, id, on).also { ok -> if (ok) runOnUiThread { renderLists() } } },
+            onListRank = { id, rank -> SavedLists.setRank(this, id, rank).also { ok -> if (ok) runOnUiThread { renderLists() } } },
             onListRename = { id, name -> SavedLists.rename(this, id, name).also { ok -> if (ok) runOnUiThread { renderLists() } } },
             onListRemove = { id -> removeList(id) },
             onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id) }; true } ?: false },

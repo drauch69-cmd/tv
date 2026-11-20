@@ -13,7 +13,7 @@ object HomeFeed {
 
     /**
      * NFL RedZone for the front of the Live games row (user, 2026-11-19): the first RedZone channel in list order
-     * (preferred list first), only while at least [REDZONE_MIN_NFL] NFL games are live by ESPN. Its own status
+     * (best-ranked list first), only while at least [REDZONE_MIN_NFL] NFL games are live by ESPN. Its own status
      * must be live or unknown (an always-on channel, or no time given); one with a later start time waits.
      * One card even when several lists carry it. Null otherwise.
      */

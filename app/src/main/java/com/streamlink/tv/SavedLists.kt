@@ -7,38 +7,64 @@ import java.util.UUID
 
 /**
  * [sports] holds any of "nfl", "cfb", "nba" (empty = no sport); see [Sports]. One index page can mix leagues.
- * [preferred]: the user's one preferred list (at most one list has it, see [Preferred]); its streams come first.
+ * [rank]: the user's ranking of lists, 1 = best; null = unranked (see [Ranking]). Ranked lists' streams come first.
  */
 data class SavedList(
     val id: String, val name: String, val url: String, val sports: Set<String> = emptySet(),
-    val preferred: Boolean = false,
+    val rank: Int? = null,
 ) {
     fun has(league: String): Boolean = league in sports
 }
 
-/** The "one preferred list" rules. Pure, so it can be unit tested. */
-object Preferred {
-    /** The id of the preferred list, or null when none. */
-    fun idOf(lists: List<SavedList>): String? = lists.firstOrNull { it.preferred }?.id
+/**
+ * The list ranking rules. Pure, so it can be unit tested.
+ * Ranked lists come first, by rank (1 = best); unranked lists follow in saved order. Ranks are always 1..k with
+ * no gaps or ties ([normalize]); giving a list a taken rank moves the others down one ([set]).
+ */
+object Ranking {
+    /** [lists] with ranks renumbered 1..k in rank order (ties: saved order); unranked stay null. Same object if already clean. */
+    fun normalize(lists: List<SavedList>): List<SavedList> {
+        val ranked = lists.withIndex().filter { it.value.rank != null }
+            .sortedWith(compareBy({ it.value.rank }, { it.index })).map { it.value.id }
+        val want = ranked.withIndex().associate { it.value to it.index + 1 }
+        if (lists.all { it.rank == want[it.id] }) return lists
+        return lists.map { l -> if (l.rank == want[l.id]) l else l.copy(rank = want[l.id]) }
+    }
 
     /**
-     * The lists after setting or clearing the mark. [on] with an [id] that exists: only that list is preferred.
-     * Not [on]: that list's mark is cleared ([id] null clears all). An [id] that does not exist changes nothing.
+     * The lists after giving list [id] rank [rank] (null = unranked). The list is taken out of the ranking, then put
+     * in at [rank] (clamped to 1..ranked+1), and the ranks are renumbered. Saved order is never changed. An [id]
+     * that does not exist changes nothing (same object).
      */
-    fun set(lists: List<SavedList>, id: String?, on: Boolean): List<SavedList> {
-        if (id != null && lists.none { it.id == id }) return lists
-        return lists.map { l ->
-            val want = if (on && id != null) l.id == id else if (id == null || l.id == id) false else l.preferred
-            if (want == l.preferred) l else l.copy(preferred = want)
-        }
+    fun set(lists: List<SavedList>, id: String, rank: Int?): List<SavedList> {
+        if (lists.none { it.id == id }) return lists
+        val clean = normalize(lists)
+        val order = clean.filter { it.rank != null && it.id != id }.sortedBy { it.rank }.map { it.id }.toMutableList()
+        if (rank != null) order.add((rank - 1).coerceIn(0, order.size), id)
+        val want = order.withIndex().associate { it.value to it.index + 1 }
+        val next = clean.map { l -> if (l.rank == want[l.id]) l else l.copy(rank = want[l.id]) }
+        return if (next == lists) lists else next
     }
 
-    /** [items] with the one belonging to the preferred list [id] first, the rest in their order. [listIdOf] gives an item's list id. */
-    fun <T> first(items: List<T>, id: String?, listIdOf: (T) -> String): List<T> {
-        if (id == null || items.none { listIdOf(it) == id }) return items
-        val (pref, rest) = items.partition { listIdOf(it) == id }
-        return pref + rest
+    /** Every list id, best first: ranked by rank, then unranked in saved order. */
+    fun order(lists: List<SavedList>): List<String> = sorted(lists).map { it.id }
+
+    /** [lists] best first (see [order]). */
+    fun sorted(lists: List<SavedList>): List<SavedList> =
+        lists.withIndex().sortedWith(compareBy({ it.value.rank ?: Int.MAX_VALUE }, { it.index })).map { it.value }
+
+    /**
+     * [items] grouped by their list's place in [order] (best list first); items of the same list, and items whose
+     * list is not in [order], keep their order (the latter go last). [order] null or empty: [items] unchanged.
+     */
+    fun <T> sort(items: List<T>, order: List<String>?, listIdOf: (T) -> String): List<T> {
+        if (order.isNullOrEmpty() || items.size < 2) return items
+        val pos = order.withIndex().associate { it.value to it.index }
+        return items.withIndex().sortedWith(compareBy({ pos[listIdOf(it.value)] ?: Int.MAX_VALUE }, { it.index })).map { it.value }
     }
+
+    /** "#1", or "" when unranked. */
+    fun label(rank: Int?): String = if (rank == null) "" else "#$rank"
 }
 
 /** The sports a saved list can be tagged with. */
@@ -68,11 +94,17 @@ object SavedListsJson {
             a.optJSONObject(i)?.let { o ->
                 val id = o.optString("id"); val url = o.optString("url")
                 if (id.isEmpty() || url.isEmpty()) null
-                else SavedList(id, o.optString("name").ifEmpty { Report.host(url) }, url, readSports(o), o.optBoolean("preferred", false))
+                else SavedList(id, o.optString("name").ifEmpty { Report.host(url) }, url, readSports(o), readRank(o))
             }
-        }
+        }.let { Ranking.normalize(it) }
     } catch (_: Exception) {
         emptyList()
+    }
+
+    /** "rank" (1 or more) if present; else the older single "preferred" mark reads as rank 1; else unranked. */
+    private fun readRank(o: JSONObject): Int? {
+        if (o.has("rank") && !o.isNull("rank")) return o.optInt("rank", 0).takeIf { it >= 1 }
+        return if (o.optBoolean("preferred", false)) 1 else null
     }
 
     /** The "sports" array if present, else the older single "sport" string. */
@@ -85,7 +117,7 @@ object SavedListsJson {
     fun toJson(lists: List<SavedList>): String {
         val a = JSONArray()
         lists.forEach { l ->
-            a.put(JSONObject().put("id", l.id).put("name", l.name).put("url", l.url).put("sports", JSONArray(l.sports.toList())).put("preferred", l.preferred))
+            a.put(JSONObject().put("id", l.id).put("name", l.name).put("url", l.url).put("sports", JSONArray(l.sports.toList())).put("rank", l.rank ?: JSONObject.NULL))
         }
         return a.toString()
     }
@@ -191,15 +223,15 @@ object SavedLists {
         return true
     }
 
-    /** The id of the preferred list, or null when none. */
-    fun preferredId(ctx: Context): String? = Preferred.idOf(all(ctx))
+    /** Every list id, best first (see [Ranking.order]). */
+    fun rankOrder(ctx: Context): List<String> = Ranking.order(all(ctx))
 
-    /** Marks list [id] as the one preferred list (clearing every other), or clears it ([on] false; [id] null clears all). False if there is no such list. */
+    /** Gives list [id] rank [rank] (null = unranked); others move down to make room. False if there is no such list. */
     @Synchronized
-    fun setPreferred(ctx: Context, id: String?, on: Boolean): Boolean {
+    fun setRank(ctx: Context, id: String, rank: Int?): Boolean {
         val cur = all(ctx)
-        if (id != null && cur.none { it.id == id }) return false
-        val next = Preferred.set(cur, id, on)
+        if (cur.none { it.id == id }) return false
+        val next = Ranking.set(cur, id, rank)
         if (next != cur) save(ctx, next) // a new raw string: the parsed lists in memory are replaced on the next all()
         return true
     }

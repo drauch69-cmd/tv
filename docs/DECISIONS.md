@@ -72,7 +72,7 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   stream trying while backups are readied; first picture wins); learn per server how long saved addresses last (ntv codes
   die within minutes; skip the shortcut where they always fail); while watching, keep fresh addresses for the BACKUP
   sources of the same game (user, 08:16: the page's other sources and other sites' streams for that game, not the
-  playing one): light runs, one at a time, top 1-2 backups only (preferred list first, a different site/CDN preferred),
+  playing one): light runs, one at a time, top 1-2 backups only (best-ranked list first, a different site/CDN preferred),
   interval from the learned lifetime, only with a healthy buffer, auto-off for the watch if it ever causes a stall; on a
   drop, switch to the freshest backup in 1-2 s. No idle background refresh of other games.
 
@@ -91,6 +91,9 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   loaded at app start (small, safe); reusing one hidden browser (rejected: wrong-stream and stuck-browser risks for
   ~1 s); pre-finding only the single most likely game (big gain, memory cost); a PC-side finder (addresses may be
   tied to the browser/session that found them).
+
+- **Ranked lists** (2026-11-19, Sports): built, unit-tested in CI, phone picker checked in headless Chrome; NOT tested
+  on the TV. Check: the phone Lists tab "Rank" picker; tiles and game rows show "#N"; streams in rank order.
 
 - **Sources rework, show-more, preferred list** (user, 2026-11-19; built on `sports`, compiled and unit-tested in CI,
   page scripts checked in headless Chrome and against the live ntv.st page in the desktop browser; NOT tested on the TV).
@@ -237,8 +240,12 @@ Reminder: lay out options and get a "go" before starting any of these.
   panel = this page's playable sources, its own numbered addresses (`?source=N`-style, read from the page), and other
   sites' streams for the same game. A stream that goes down switches automatically (after reconnects fail, max 3 per
   watch, dead sources skipped for 5 min). No blind `?source=N` guessing on pages that don't show it.
-- **One preferred list** (2026-11-19): a single "Preferred" mark on a saved list (the user's ntv.st list), never a site
-  name in code; its streams come first everywhere. Single, not a ranking.
+- **Ranked lists** (user, 2026-11-19, replaces "one preferred list"): each saved list can have a rank (#1 best);
+  streams follow it everywhere (game screens, home rows, 24/7, phone Live now, the player's other-site sources and
+  automatic backup switching). Unranked lists come after all ranked ones, in saved order; new lists start unranked; a
+  taken rank pushes the others down. Ranks are set only on the phone (user: no TV control needed); the TV shows them.
+  The old preferred list became #1. The playing page's own numbered sources stay first in the Source panel. Never a
+  site name in code.
 - **"Show more" pressing on index pages** (2026-11-19): only on pages that have such a button, max 4 presses; category
   tabs are not pressed.
 

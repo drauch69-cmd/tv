@@ -38,7 +38,7 @@ class StreamsActivity : Activity() {
     private var drawnLook: String? = null
 
     /** [game] null for the 24/7 list; [missing] = the game left the schedule. [look] changes when anything shown would. */
-    private class Model(val game: Game?, val missing: Boolean, val streams: List<GameStream>, val emptyMsg: String, val now: Long, val look: String, val preferredId: String? = null)
+    private class Model(val game: Game?, val missing: Boolean, val streams: List<GameStream>, val emptyMsg: String, val now: Long, val look: String, val ranks: Map<String, Int> = emptyMap())
 
     private val handler: (String, String?) -> Unit = { c, _ ->
         if (c == "stop") finish()
@@ -182,7 +182,9 @@ class StreamsActivity : Activity() {
 
     private fun compute(ctx: Context, lg: String, gid: String?, now: Long): Model {
         val streams: List<GameStream>
-        val pref = SavedLists.preferredId(ctx)
+        val saved = SavedLists.all(ctx)
+        val order = Ranking.order(saved)
+        val ranks = saved.mapNotNull { l -> l.rank?.let { l.id to it } }.toMap()
         val game: Game?
         val emptyMsg: String
         if (gid != null) {
@@ -193,17 +195,17 @@ class StreamsActivity : Activity() {
             emptyMsg = SportsText.NO_STREAMS_FOR_GAME
         } else {
             game = null
-            streams = AlwaysOn.collect(SportsData.lists(ctx), now, pref)
+            streams = AlwaysOn.collect(SportsData.lists(ctx), now, order)
             emptyMsg = SportsText.NO_ALWAYS_ON
         }
         val sb = StringBuilder()
-        sb.append("p:").append(pref)
+        sb.append("r:").append(ranks.entries.sortedBy { it.value }.joinToString(",") { it.key })
         if (game != null) sb.append(SportsText.matchup(game)).append(game.state).append(ScoreText.cardLines(game).joinToString("/"))
         for (s in streams) {
             sb.append('|').append(GameFolders.urlKey(s.item.url)).append(ListText.displayTitle(s.item)).append(s.listName)
                 .append(ListSections.meta(s.item, now)).append(ListSections.badge(s.item, now).text)
         }
-        return Model(game, false, streams, emptyMsg, now, sb.toString(), pref)
+        return Model(game, false, streams, emptyMsg, now, sb.toString(), ranks)
     }
 
     private fun draw(m: Model) {
@@ -243,7 +245,7 @@ class StreamsActivity : Activity() {
             val row = SportsUi.streamRow(this, s, now,
                 onOpen = { startActivity(WaitingActivity.intent(this, item, s.listId, s.listName)) },
                 onFocus = { has -> if (has) prefetcher.focus(item) else prefetcher.blur() },
-                preferred = m.preferredId != null && s.listId == m.preferredId)
+                rank = m.ranks[s.listId])
             rows.addView(row, SportsUi.rowParams(this))
             if (firstRow == null) firstRow = row
             if (focusedTag != null && key == focusedTag && focusTarget == null) focusTarget = row

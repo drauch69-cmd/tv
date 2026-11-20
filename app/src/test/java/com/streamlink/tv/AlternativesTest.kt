@@ -32,9 +32,12 @@ class AlternativesTest {
         assertEquals(2, Alternatives.pick(folders(listOf(a1, b1, c1)), listOf("https://zzz.example/", "https://a.example/1/"), null).size)
     }
 
-    @Test fun preferredListFirst() {
-        val r = Alternatives.pick(folders(listOf(a1, b1, c1, d1)), listOf("https://a.example/1"), "d")
-        assertEquals(listOf("d", "b", "c"), r.map { it.listId })
+    @Test fun rankedListsFirstInRankOrderUnrankedAfter() {
+        // d ranked #1, c ranked #2, b unranked (not in the order list would also go last)
+        val r = Alternatives.pick(folders(listOf(a1, b1, c1, d1)), listOf("https://a.example/1"), listOf("d", "c", "a", "b"))
+        assertEquals(listOf("d", "c", "b"), r.map { it.listId })
+        val r2 = Alternatives.pick(folders(listOf(a1, b1, c1, d1)), listOf("https://a.example/1"), listOf("c"))
+        assertEquals(listOf("c", "b", "d"), r2.map { it.listId })
     }
 
     @Test fun finishedAndRepeatedAndNonWebItemsAreLeftOut() {

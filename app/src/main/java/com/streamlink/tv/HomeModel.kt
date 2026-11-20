@@ -24,21 +24,21 @@ class HomeModel(
         fun build(
             lists: List<SavedList>, cachedById: Map<String, CachedList>, games: List<Game>, now: Long, zone: ZoneId,
         ): HomeModel {
-            val pref = Preferred.idOf(lists)
-            // The preferred list first: same game, same start time -> its event leads in the rows.
-            val cached = Preferred.first(lists, pref) { it.id }.mapNotNull { l -> cachedById[l.id]?.let { l to it } }
+            val order = Ranking.order(lists)
+            // Best-ranked list first: same game, same start time -> its event leads in the rows.
+            val cached = Ranking.sort(lists, order) { it.id }.mapNotNull { l -> cachedById[l.id]?.let { l to it } }
             val pairs = lists.map { l -> l to (cachedById[l.id]?.result?.items ?: emptyList()) }
             val folders = Sports.ALL.map { lg ->
-                try { GameFolders.build(lg, games, pairs, now, zone, pref) } catch (_: Exception) { SportFolders(lg, emptyList(), emptyList()) }
+                try { GameFolders.build(lg, games, pairs, now, zone, order) } catch (_: Exception) { SportFolders(lg, emptyList(), emptyList()) }
             }
             val redZone = HomeFeed.redZone(cached.map { it.first to it.second.result.items }, now, games)
             val counts = LinkedHashMap<String, HomeFeed.Counts>()
             for ((l, c) in cached) counts[l.id] = HomeFeed.counts(c.result.items, now, games)
             val tagged = Sports.ALL.associateWith { lg -> lists.count { it.has(lg) } }
-            val alwaysOn = AlwaysOn.collect(pairs, now, pref).size
+            val alwaysOn = AlwaysOn.collect(pairs, now, order).size
 
             val sb = StringBuilder()
-            sb.append("p:").append(pref).append('#')
+            sb.append("r:").append(order.joinToString(",")).append('|').append(lists.joinToString(",") { it.rank?.toString() ?: "-" }).append('#')
             // The RedZone card and the tile counts...
             sb.append("rz:").append(redZone?.item?.url ?: "").append('|').append(redZone?.list?.name ?: "").append('#')
             for ((l, _) in cached) sb.append(HomeFeed.countsText(counts.getValue(l.id))).append(';')

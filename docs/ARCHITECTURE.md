@@ -51,7 +51,7 @@ Playback pipeline:
    max 3 presses; pinned players count), or links differing by one small-integer query value; with no pick-list near
    the player it answers at once, else within 3 s; report line "Page sources: N numbered address(es) on this page");
    and other sites' streams for the same game ("<list name> · other site", `Alternatives.forPage`: the sports folder
-   holding this page, finished items skipped, preferred list first, max 6, loaded on a background thread). Numbered and
+   holding this page, finished items skipped, by list rank, max 6, loaded on a background thread). Numbered and
    other-site entries are `Source.openPage` entries: choosing one runs `PlayerActivity.openLinkPage` ->
    `WaitingActivity.linkPageIntent` (full search, clean player, else site player). Numbered entries send the page as
    referer, other-site entries send none. The first player stays in the back stack; Back resumes at live.
@@ -252,7 +252,7 @@ Remote tabs; prefetch toggle).
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Live games rules** (user, 2026-11-19; `LiveGames.sample`, `HomeFeed.redZone`, `ChannelFilter`, `HomeModel`). The home
   "Live now" row and the user's channel-word list (`LiveWords`, `/livenow/words`, the phone editor) were removed. Home shows
-  one "Live games" row: (1) an NFL RedZone card first, while it airs: the first list item (list order, preferred list first)
+  one "Live games" row: (1) an NFL RedZone card first, while it airs: the first list item (best-ranked list first)
   whose title is a channel (`ChannelFilter.isMatchup` false) holding "RedZone"/"Red Zone" (`ChannelFilter.isRedZone`), shown
   only while at least 2 NFL games are live by ESPN (`HomeFeed.REDZONE_MIN_NFL`, RedZone only airs in multi-game windows) and
   the item's own status is live or unknown; one card even when several lists carry it; it plays the list item (head start on
@@ -274,16 +274,19 @@ Remote tabs; prefetch toggle).
   Tomorrow / weekday / Final sections (`withStreamsOnly` hides games without streams); `AlwaysOn.collect` gathers
   24/7 channels from all lists; `LiveGames.sample` feeds the home Live games row (`matchedUrls` is kept for tests); `GameFolders.summary` is
   the quiet "Sports:" report line.
-  **Preferred list.** At most one saved list is preferred (`SavedList.preferred`, JSON "preferred", old JSON reads
-  false; `Preferred` in SavedLists.kt enforces "only one"). Set with the "★ Preferred" chip on each list on the phone
-  page's Lists tab (`POST /lists/preferred` id + on=1/0; `GET /lists` returns "preferred") or the "☆/★ Preferred" chip
-  at the top of the TV list screen; "Your lists" tiles show "★ Preferred". **Rename:** "✎ Rename" chip per list on the phone's Lists tab ->
-  `POST /lists/rename` (id, name) -> `SavedLists.rename` (cleaned, max 60 chars; false = 404) -> home `renderLists()`. Code asks `SavedLists.preferredId(ctx)`; no
-  site is ever named in code. Wherever a game has several streams the preferred list's come first, the rest keep their
-  order: `GameFolders.build(..., preferredListId)` (handled first, so it also wins a duplicate address and leads
-  "Other"), `AlwaysOn.collect`, `HomeModel` (RedZone card), the phone's "Live now", the Source panel's other-site
-  entries and automatic switching. On the game screen the first (focused) row is the preferred one, meta "★ Preferred".
-  `HomeModel.look` and the `StreamsActivity` look include the preferred id. Not yet tested on the TV.
+  **List ranking.** Each saved list has an optional rank (`SavedList.rank`, 1 = best, null = unranked; JSON "rank";
+  old JSON's "preferred": true reads as rank 1). `Ranking` in SavedLists.kt: ranks are always 1..k with no gaps or ties
+  (`normalize`, also on every read); giving a list a taken rank moves the others down (`set`); `order` = ranked by rank,
+  then unranked in saved order; `sort` groups any items by that order. Set only on the phone page's Lists tab (a
+  "Rank" picker per list: Unranked, Rank #1..; `POST /lists/rank` id + rank, empty = unranked); `GET /lists` returns
+  "rank" and lists best first. The TV list screen shows "Rank #N" read-only; "Your lists" tiles are drawn best first
+  with "Rank #N". **Rename:** "✎ Rename" chip per list on the phone's Lists tab ->
+  `POST /lists/rename` (id, name) -> `SavedLists.rename` (cleaned, max 60 chars; false = 404) -> home `renderLists()`. Code asks
+  `SavedLists.rankOrder(ctx)`; no site is ever named in code. Wherever a game has several streams they follow the ranking:
+  `GameFolders.build(..., listOrder)` (lists handled in rank order, so a better rank also wins a duplicate address and
+  leads "Other"), `AlwaysOn.collect`, `HomeModel` (RedZone card), the phone's "Live now", the Source panel's other-site
+  entries (`Alternatives.pick`) and automatic switching. Game-screen rows show "#N" in their meta line. `HomeModel.look`
+  and the `StreamsActivity` look include the ranking. Not yet tested on the TV.
   Screens: home "Live games" row (`LiveGames.sample`, cards open the game) and "Sports" row (tiles open `SportActivity` /
   the 24/7 `StreamsActivity`); both are rebuilt (focus kept) on every list render and by `ScoreFeed.refreshIfDue` on resume
   and the 60 s tick. `SportActivity` works out folders/sections on one background thread (`sport-calc`, generation counter, stale results dropped), draws on the main thread only when the computed look (sections, games, scores, stream counts, statuses) changed or the "All games" chip toggled, and shows a quiet "Loading games…" row first; its 1 s beat only checks the read watchdog (score refresh check every 5 s, re-render every 30 s). `StreamsActivity` does the same (`streams-calc`). `SportActivity` shows cached lists at once, then re-reads
