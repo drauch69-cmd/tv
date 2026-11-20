@@ -67,6 +67,11 @@ object Report {
         pinned.forEach { sb.append(it).append('\n') }
         if (pinned.isNotEmpty()) sb.append('\n')
         lines.forEach { sb.append(it).append('\n') }
+        val scoreTimes = ScoreFeed.timingLines()
+        if (scoreTimes.isNotEmpty()) {
+            sb.append("\nScores timing (ESPN, latest last):\n")
+            scoreTimes.forEach { sb.append("  ").append(it).append('\n') }
+        }
         if (blockedHosts.isNotEmpty()) {
             sb.append("\nBlocked ").append(blockedHosts.values.sum()).append(" requests to ")
                 .append(blockedHosts.size).append(" ad/popup networks:\n")

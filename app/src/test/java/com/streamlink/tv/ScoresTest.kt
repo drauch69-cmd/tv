@@ -349,4 +349,14 @@ class ScoresTest {
         // football unchanged
         assertEquals("OT 4:10", ScoreText.rowLine(live().copy(period = 5, clock = "4:10"))!!.substringAfter("· "))
     }
+
+    @Test
+    fun timingLineNamesEachLeagueAndFailures() {
+        val took = mapOf("nfl" to (800L to true), "cfb" to (1400L to false), "nba" to (600L to true))
+        assertEquals(
+            "today: NFL 0.8s, college 1.4s (failed), NBA 0.6s; all done in 1.4s (first load since app start)",
+            ScoreFeed.timingLine("today", listOf("nfl", "cfb", "nba"), took, 1400L, true),
+        )
+        assertEquals("next 2 days: NBA 2.0s; all done in 2.1s", ScoreFeed.timingLine("next 2 days", listOf("nba"), mapOf("nba" to (2000L to true)), 2100L, false))
+    }
 }

@@ -367,6 +367,7 @@ object ScoreText {
 /**
  * Cached scores and schedule for all leagues, refreshed in the background: today (and yesterday before 5 am,
  * New York time) on the live timing, plus the next two days at most every 30 minutes, cached separately.
+ * Today's leagues are fetched at once and each draws as it lands; the next two days follow. Timings go to the report.
  */
 object ScoreFeed {
     private const val LIVE_MS = 30_000L
@@ -449,11 +450,30 @@ object ScoreFeed {
             d
         }
         val t = Thread {
-            val before = latest()
+            val first = synchronized(lock) { firstRun.also { firstRun = false } }
+            var shown = latest()
+            val showLock = Any()
+            // Draw as soon as any league's answer changes what's on screen.
+            fun showIfChanged() {
+                val now2 = latest()
+                val changed = synchronized(showLock) { (now2 != shown).also { if (it) shown = now2 } }
+                if (changed) Handler(Looper.getMainLooper()).post(onUpdate)
+            }
+            val before = shown
             try {
-                for ((league, today, future) in due) {
-                    if (today) fetchToday(league)
-                    if (future) fetchFuture(league)
+                // 1) Today, all due leagues at once; each draws when it lands.
+                val todayDue = due.filter { it.second }.map { it.first }
+                if (todayDue.isNotEmpty()) {
+                    val t0 = System.currentTimeMillis()
+                    val took = runParallel(todayDue) { lg -> fetchToday(lg).also { showIfChanged() } }
+                    recordTiming("today", todayDue, took, System.currentTimeMillis() - t0, first)
+                }
+                // 2) Then the next two days.
+                val futureDue = due.filter { it.third }.map { it.first }
+                if (futureDue.isNotEmpty()) {
+                    val t0 = System.currentTimeMillis()
+                    val took = runParallel(futureDue) { lg -> fetchFuture(lg).also { showIfChanged() } }
+                    recordTiming("next 2 days", futureDue, took, System.currentTimeMillis() - t0, first)
                 }
             } finally {
                 synchronized(lock) { running = false }
@@ -464,7 +484,6 @@ object ScoreFeed {
                 val c = after.count { it.league == "cfb" }
                 val b = after.count { it.league == "nba" }
                 Report.logOnce("scores-count-$n-$c-$b", "Scores: $n NFL, $c college and $b NBA games over 3 days")
-                Handler(Looper.getMainLooper()).post(onUpdate)
             }
         }
         t.isDaemon = true
@@ -472,8 +491,50 @@ object ScoreFeed {
         t.start()
     }
 
-    private fun fetchToday(league: String) {
-        try {
+    private var firstRun = true
+
+    /** Runs [work] for each league on its own thread, waits for all; returns league -> (ms taken, ok). */
+    private fun runParallel(leagues: List<String>, work: (String) -> Boolean): Map<String, Pair<Long, Boolean>> {
+        val out = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, Boolean>>()
+        val threads = leagues.map { lg ->
+            Thread {
+                val s = System.currentTimeMillis()
+                val ok = try { work(lg) } catch (_: Exception) { false }
+                out[lg] = (System.currentTimeMillis() - s) to ok
+            }.apply { isDaemon = true; name = "scores-$lg"; start() }
+        }
+        for (th in threads) th.join()
+        return out
+    }
+
+    private val LABEL = mapOf("nfl" to "NFL", "cfb" to "college", "nba" to "NBA")
+    private val CLOCK = DateTimeFormatter.ofPattern("h:mm:ss a")
+    private val timings = ArrayDeque<String>()
+
+    /** Pure: one timing line, e.g. "today: NFL 0.8s, college 1.4s, NBA 0.6s; all done in 1.4s". */
+    internal fun timingLine(part: String, leagues: List<String>, took: Map<String, Pair<Long, Boolean>>, totalMs: Long, first: Boolean): String {
+        fun sec(ms: Long) = String.format(java.util.Locale.US, "%.1fs", ms / 1000.0)
+        val each = leagues.joinToString(", ") { lg ->
+            val (ms, ok) = took[lg] ?: (0L to false)
+            "${LABEL[lg] ?: lg} ${sec(ms)}" + if (ok) "" else " (failed)"
+        }
+        return "$part: $each; all done in ${sec(totalMs)}" + if (first) " (first load since app start)" else ""
+    }
+
+    private fun recordTiming(part: String, leagues: List<String>, took: Map<String, Pair<Long, Boolean>>, totalMs: Long, first: Boolean) {
+        val line = "${ZonedDateTime.now().format(CLOCK)}  ${timingLine(part, leagues, took, totalMs, first)}"
+        android.util.Log.i("StreamLink", "Scores timing $line")
+        synchronized(timings) {
+            timings.addLast(line)
+            while (timings.size > 8) timings.removeFirst()
+        }
+    }
+
+    /** The last few score-fetch timings (oldest first), for the "What happened?" report. Survives a new play. */
+    fun timingLines(): List<String> = synchronized(timings) { timings.toList() }
+
+    private fun fetchToday(league: String): Boolean {
+        return try {
             val now = ZonedDateTime.now(NY)
             val days = arrayListOf(now)
             if (now.hour < 5) days.add(now.minusDays(1))
@@ -492,16 +553,18 @@ object ScoreFeed {
                 lastOk[league] = System.currentTimeMillis()
                 lastFail.remove(league)
             }
+            true
         } catch (e: Exception) {
             synchronized(lock) { lastFail[league] = System.currentTimeMillis() }
             val why = e.javaClass.simpleName
             Report.logOnce("scores-fail-$league-$why", "Scores: couldn't reach ESPN ($why${e.message?.let { ": " + it.take(60) } ?: ""})")
+            false
         }
     }
 
     /** The next two days. A failure here keeps what was known and never touches today's data. */
-    private fun fetchFuture(league: String) {
-        try {
+    private fun fetchFuture(league: String): Boolean {
+        return try {
             val now = ZonedDateTime.now(NY)
             val merged = LinkedHashMap<String, Game>()
             for (k in 1L..2L) {
@@ -513,10 +576,12 @@ object ScoreFeed {
                 futureOk[league] = System.currentTimeMillis()
                 futureFail.remove(league)
             }
+            true
         } catch (e: Exception) {
             synchronized(lock) { futureFail[league] = System.currentTimeMillis() }
             val why = e.javaClass.simpleName
             Report.logOnce("scores-fail-future-$league-$why", "Scores: couldn't get the coming days from ESPN ($why${e.message?.let { ": " + it.take(60) } ?: ""})")
+            false
         }
     }
 

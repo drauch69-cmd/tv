@@ -223,6 +223,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **Scores load today first, in parallel** (user, 2026-11-19, option A, `sports` branch): today's NFL, college and
+  NBA are fetched at once and each draws as it lands; the next two days follow. Each refresh writes a "Scores
+  timing" line (per league and total) to the What happened? report, kept across plays. Untested on the TV.
 - **Lead works directly; helpers only for big split jobs** (user, 2026-11-19, to save tokens). Replaces "brief a
   smaller-model helper per task".
 - **CLAUDE.md kept short to save tokens** (user, 2026-11-19 21:17): it loads on every step, so mechanism detail moved
