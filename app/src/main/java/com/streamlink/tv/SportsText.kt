@@ -10,13 +10,9 @@ object SportsText {
     private val TIME = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
     private fun fullName(s: TeamSide) = s.shortName.ifBlank { s.displayName }.ifBlank { s.abbr }
-    private fun tag(s: TeamSide) = s.abbr.ifBlank { s.shortName }.ifBlank { s.displayName }
 
     /** "Bills at Chiefs". */
     fun matchup(g: Game): String = "${fullName(g.away)} at ${fullName(g.home)}"
-
-    /** "BUF at KC" (for the small home cards). */
-    fun matchupShort(g: Game): String = "${tag(g.away)} at ${tag(g.home)}"
 
     /** "1 stream" / "4 streams" / "No streams". */
     fun streamsText(n: Int): String = when {

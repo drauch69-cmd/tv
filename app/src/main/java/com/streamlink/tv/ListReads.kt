@@ -129,8 +129,6 @@ object ListReads {
     fun lastAttempt(ctx: Context, id: String): Long =
         maxOf(SavedLists.cached(ctx, id)?.readAt ?: 0L, lastDone[id] ?: 0L)
 
-    fun isReading(id: String): Boolean = current == id
-
     private fun pump() {
         if (current != null) return
         if (queue.isEmpty()) return

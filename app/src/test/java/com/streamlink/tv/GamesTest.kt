@@ -158,9 +158,6 @@ class GamesTest {
         // NFL first, then the rest by start time
         assertEquals(listOf("nfl-same", "c-early", "cfb-same"), LiveGames.sample(listOf(cfb, nfl)).map { it.game.id })
         assertEquals(2, LiveGames.sample(listOf(cfb, nfl), 2).size)
-        val urls = LiveGames.matchedUrls(listOf(nfl, cfb))
-        assertTrue("https://x/2/" in urls && "https://x/2" in urls && "https://x/1" in urls && "https://x/3" in urls)
-        assertTrue("https://x/pre" !in urls)
     }
 
     @Test fun summaryLine() {

@@ -141,9 +141,6 @@ object SiteHabits {
 
     internal fun usable(h: Habit?, now: Long): Boolean = h != null && now - h.at < EXPIRE_MS && (h.hasTap || h.hasSource)
 
-    /** The remembered source button may be pressed only when the page shows the same number of buttons as when it was learned. */
-    internal fun sameCount(h: Habit, foundCount: Int): Boolean = h.hasSource && h.srcCount == foundCount
-
     /** Milliseconds after the page loaded by which the stream must be seen, or the habit counts as missed. */
     internal fun deadlineMs(h: Habit): Long = (h.secs * 1000).toLong() + EXTRA_WAIT_MS
 

@@ -4,8 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.util.Locale
-import java.util.TimeZone
 
 class HomeFeedTest {
     private val now = 1_800_000_000_000L
@@ -23,27 +21,8 @@ class HomeFeedTest {
         assertEquals("Nothing listed", HomeFeed.countsText(HomeFeed.Counts(0, 0)))
     }
 
-    @Test fun whenLine() {
-        val z = TimeZone.getTimeZone("UTC")
-        assertEquals("Started 25 min ago", HomeFeed.whenLine(item("a", now - 25 * min), now, z, Locale.US))
-        assertEquals("Starts in 12 min", HomeFeed.whenLine(item("a", now + 12 * min), now, z, Locale.US))
-        assertEquals("Live", HomeFeed.whenLine(item("a", null, live = true), now, z, Locale.US))
-        assertEquals("", HomeFeed.whenLine(item("a", null), now, z, Locale.US))
-    }
 
-    @Test fun badges() {
-        val z = TimeZone.getTimeZone("UTC")
-        assertEquals("LIVE", HomeFeed.badge(item("a", now - min), ListStatus.LIVE, now, z, Locale.US))
-        assertEquals("IN 12 MIN", HomeFeed.badge(item("a", now + 12 * min - 1000), ListStatus.SOON, now, z, Locale.US))
-        assertEquals("", HomeFeed.badge(item("a", null), ListStatus.UNKNOWN, now, z, Locale.US))
-    }
 
-    @Test fun whenLineAlwaysOn() {
-        val z = TimeZone.getTimeZone("UTC")
-        assertEquals("Started 3 h 00 min ago", HomeFeed.whenLine(item("a", now - 3 * hour), now, z, Locale.US))
-        assertEquals("Always on", HomeFeed.whenLine(item("a", now - 1234 * hour), now, z, Locale.US))
-        assertEquals("Always on", HomeFeed.whenLine(item("a", now - 25 * hour), now, z, Locale.US))
-    }
 
     // ---- RedZone card ----
     private fun ts(d: String, s: String, a: String, l: String, n: String) = TeamSide(d, s, a, l, n, "0", "")

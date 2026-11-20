@@ -22,10 +22,8 @@ class SportsTextTest {
 
     @Test fun matchupNames() {
         assertEquals("Bills at Chiefs", SportsText.matchup(game()))
-        assertEquals("BUF at KC", SportsText.matchupShort(game()))
         val bare = ts("Ohio State Buckeyes", "", "")
         assertEquals("Ohio State Buckeyes at Chiefs", SportsText.matchup(game(away = bare)))
-        assertEquals("Ohio State Buckeyes at KC", SportsText.matchupShort(game(away = bare)))
     }
 
     @Test fun streamsWording() {

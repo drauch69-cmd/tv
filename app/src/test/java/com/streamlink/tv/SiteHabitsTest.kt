@@ -78,13 +78,6 @@ class SiteHabitsTest {
         assertEquals(0f, SiteHabits.fromRun(1, SiteHabits.KIND_PAGE, 5f, 5f, 10, 10, -1, 0, -4f, 0L)!!.secs, 0f)
     }
 
-    @Test fun sameButtonCountOnly() {
-        val h = habit(si = 1, sc = 3)
-        assertTrue(SiteHabits.sameCount(h, 3))
-        assertFalse(SiteHabits.sameCount(h, 2))
-        assertFalse(SiteHabits.sameCount(h, 4))
-        assertFalse(SiteHabits.sameCount(habit(), 3)) // no source in the habit
-    }
 
     @Test fun deadlineIsUsualSecondsPlusFive() {
         assertEquals(8_000L, SiteHabits.deadlineMs(habit(secs = 3f)))

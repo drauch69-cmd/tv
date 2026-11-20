@@ -166,17 +166,6 @@ object LiveGames {
     /** NFL games live right now (any streams or not). RedZone only airs when several are on at once. */
     fun nflLiveCount(games: List<Game>): Int = games.count { it.league == "nfl" && it.state == "in" }
 
-    /**
-     * Addresses of the streams placed in any live game, both as written and as [GameFolders.urlKey], so the
-     * phone and tests can tell placed streams apart.
-     */
-    fun matchedUrls(folders: List<SportFolders>): Set<String> {
-        val out = HashSet<String>()
-        for (f in folders) for (g in f.games) if (g.game.state == "in") for (s in g.streams) {
-            out.add(s.item.url); out.add(GameFolders.urlKey(s.item.url))
-        }
-        return out
-    }
 }
 
 /**

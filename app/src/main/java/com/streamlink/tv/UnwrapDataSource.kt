@@ -399,30 +399,6 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         private const val SYNC = 0x47.toByte()
         private const val TS = 188
 
-        /** How many junk bytes come before the real video, or 0 if it already looks normal. */
-        fun junkPrefix(b: ByteArray, n: Int): Int {
-            if (n < 8) return 0
-            if (b[0] == SYNC && (n <= TS || b[TS] == SYNC)) return 0 // already MPEG-TS
-            if (isBox(b, 4)) return 0 // already fragmented MP4
-            if (b[0] == 'I'.code.toByte() && b[1] == 'D'.code.toByte() && b[2] == '3'.code.toByte()) return 0
-
-            // MPEG-TS: five sync bytes exactly one packet apart.
-            var i = 1
-            while (i + TS * 4 < n) {
-                if (b[i] == SYNC && b[i + TS] == SYNC && b[i + TS * 2] == SYNC &&
-                    b[i + TS * 3] == SYNC && b[i + TS * 4] == SYNC
-                ) return i
-                i++
-            }
-            // Fragmented MP4: a box header (size + type) further in.
-            i = 8
-            while (i + 4 <= n) {
-                if (isBox(b, i, listOf("ftyp", "styp", "moof"))) return i - 4
-                i++
-            }
-            return 0
-        }
-
         /**
          * End of the run of MPEG-TS packets starting at [at] (each 188 bytes, starting 0x47).
          * For anything that isn't MPEG-TS, the whole buffer.
