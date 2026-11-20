@@ -1,5 +1,6 @@
 package com.streamlink.tv
 
+import android.annotation.SuppressLint
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
@@ -205,6 +206,8 @@ object LastAddress {
  * least recently used dropped first. Hosts and referers only; never logged in full.
  * Call [init] once at app start; before that (unit tests) it only works on what is passed in.
  */
+// Lint: holds only the application context, not a leak.
+@SuppressLint("StaticFieldLeak")
 object ServerMemory {
     const val EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
     const val MAX_HOSTS = 100

@@ -333,3 +333,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 - **Tunneling:** auto-detect and switch off, not a manual setting only.
 - **Agent docs:** `CLAUDE.md` + this file in the repo are the source of truth (2026-11-17). The user's Claude Doc
   "StreamLink — Agent Onboarding Guide" is a summary for the user only, not maintained by agents.
+- **Lint (2026-11-20, sports):** Android lint stays non-blocking. Fixed the real items (obsolete version checks,
+  unused files, library bumps: Cronet 18.1.1, ZXing 3.5.4, WebKit 1.18.0, test org.json), turned off the
+  translation-text checks (SetTextI18n, HardcodedText), and marked the 9 StaticFieldLeak warnings as reviewed
+  (application context only; screens detach in onDestroy). Left as-is: fixed landscape orientation, target 34,
+  small layout warnings. ktlint (~7,900 formatting-only items) was not mass-applied on purpose, to keep Sports/Test
+  diffs readable. The manual Lint workflow now reads the right report file. Untested on the TV.

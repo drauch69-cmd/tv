@@ -1,5 +1,6 @@
 package com.streamlink.tv
 
+import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.ApplicationExitInfo
 import android.content.Context
@@ -34,6 +35,8 @@ object CrashRecorder {
     }
 
     /** Called once at start: pins the lines about the last exit into the report. */
+    // commit() on purpose: the "last reported" mark must be on disk before anything else can crash.
+    @SuppressLint("ApplySharedPref")
     fun reportLast(ctx: Context) {
         try {
             val app = ctx.applicationContext

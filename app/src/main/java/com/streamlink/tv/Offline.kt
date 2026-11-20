@@ -1,5 +1,6 @@
 package com.streamlink.tv
 
+import android.annotation.SuppressLint
 import android.content.Context
 
 /**
@@ -8,6 +9,8 @@ import android.content.Context
  * picked again; opening it anyway still runs the normal search, and a stream that plays clears the mark.
  * Keyed by [GameFolders.urlKey]; kept in preferences so an app restart doesn't forget it.
  */
+// Lint: holds only the application context (and, for screens, entries removed in onDestroy), not a leak.
+@SuppressLint("StaticFieldLeak")
 object OfflineMarks {
     const val MARK_MS = 15 * 60_000L
     const val BADGE = "Offline"

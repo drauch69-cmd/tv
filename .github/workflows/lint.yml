@@ -19,7 +19,7 @@ jobs:
           gradle-version: "8.10.2"
 
       - name: Android lint
-        run: gradle lintRelease --no-daemon -q || true
+        run: gradle :app:lintDebug --no-daemon -q || true
 
       - name: Kotlin style (ktlint)
         run: |
@@ -30,7 +30,7 @@ jobs:
       - name: Print reports
         run: |
           echo "===== ANDROID LINT ====="
-          cat app/build/reports/lint.txt || echo "(no android lint report)"
+          cat app/build/reports/lint-results.txt || echo "(no android lint report)"
           echo "===== KTLINT ====="
           cat ktlint.txt
           echo "===== END ====="

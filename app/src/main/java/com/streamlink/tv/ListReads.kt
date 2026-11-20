@@ -1,5 +1,6 @@
 package com.streamlink.tv
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.os.Handler
@@ -13,6 +14,8 @@ import android.view.ViewGroup
  * a list read a moment ago are skipped (B2, [ListReadLogic.skipFresh]). [ListReadGate] still holds new reads while
  * a video is being found or plays. Main thread only.
  */
+// Lint: holds only the application context (and, for screens, entries removed in onDestroy), not a leak.
+@SuppressLint("StaticFieldLeak")
 object ListReads {
     const val WATCHDOG_MS = 90_000L
     private const val TICK_MS = 5_000L

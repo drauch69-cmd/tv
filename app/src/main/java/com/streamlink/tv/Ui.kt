@@ -80,20 +80,20 @@ object Ui {
         val ctx = v.context
         v.background = focusable(ctx, normal, focused, radiusDp)
         v.foreground = ringForeground(ctx, ACCENT, radiusDp)
-        if (android.os.Build.VERSION.SDK_INT >= 26) v.defaultFocusHighlightEnabled = false
+        v.defaultFocusHighlightEnabled = false
     }
 
     /** Primary button: accent fill with dark text; focused draws a white ring on top. */
     fun focusRing(v: View, radiusDp: Float, ring: Int = ACCENT) {
         v.foreground = ringForeground(v.context, ring, radiusDp)
-        if (android.os.Build.VERSION.SDK_INT >= 26) v.defaultFocusHighlightEnabled = false
+        v.defaultFocusHighlightEnabled = false
     }
 
     fun primaryCard(v: View, radiusDp: Float = 8f) {
         val ctx = v.context
         v.background = rounded(ctx, ACCENT, radiusDp)
         v.foreground = ringForeground(ctx, Color.WHITE, radiusDp)
-        if (android.os.Build.VERSION.SDK_INT >= 26) v.defaultFocusHighlightEnabled = false
+        v.defaultFocusHighlightEnabled = false
     }
 
     fun text(ctx: Context, s: CharSequence, sp: Float, color: Int = TEXT, bold: Boolean = false): TextView =

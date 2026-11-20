@@ -61,6 +61,8 @@ android {
     lint {
         checkReleaseBuilds = false
         abortOnError = false
+        // One-person English app: on-screen text is never translated, so these checks are noise.
+        disable += setOf("SetTextI18n", "HardcodedText")
         xmlReport = true
         htmlReport = true
         textReport = true
@@ -81,10 +83,10 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-dash:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-datasource-cronet:$media3")
-    implementation("com.google.android.gms:play-services-cronet:18.0.1")
-    implementation("com.google.zxing:core:3.5.3")
-    implementation("androidx.webkit:webkit:1.12.1")
+    implementation("com.google.android.gms:play-services-cronet:18.1.1")
+    implementation("com.google.zxing:core:3.5.4")
+    implementation("androidx.webkit:webkit:1.18.0")
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM tests (the Android stubs are not usable there).
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
 }

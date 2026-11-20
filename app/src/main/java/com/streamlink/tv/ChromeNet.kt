@@ -1,5 +1,6 @@
 package com.streamlink.tv
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -18,6 +19,8 @@ import kotlin.concurrent.thread
  * like a real browser. Fetching through Chrome's engine makes the app's requests look like the
  * browser's. If it isn't available, everything falls back to Android's standard networking.
  */
+// Lint: holds only the application context (and, for screens, entries removed in onDestroy), not a leak.
+@SuppressLint("StaticFieldLeak")
 @OptIn(UnstableApi::class)
 object ChromeNet {
     @Volatile var engine: CronetEngine? = null
