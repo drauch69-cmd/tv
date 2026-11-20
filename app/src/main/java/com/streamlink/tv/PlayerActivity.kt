@@ -38,7 +38,6 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
@@ -108,8 +107,11 @@ class PlayerActivity : Activity() {
     private lateinit var ovTrack: FrameLayout
     private lateinit var ovFill: View
     private lateinit var ovStatus: TextView
-    /** Connection line: download speed vs what the stream needs, dropped frames (PlayerStats). */
+    /** Connection line: ping, what the stream needs, dropped frames (PlayerStats). */
     private lateinit var ovNet: TextView
+    /** Ping every few seconds while the player is open: is it the connection or the stream? */
+    private val pings = PingStats()
+    private val pinger = Pinger { ms -> pings.add(ms) }
     private lateinit var btnLive: TextView
     private lateinit var btnOptions: TextView
     private lateinit var btnOther: TextView
@@ -215,6 +217,7 @@ class PlayerActivity : Activity() {
 
     override fun onStart() {
         super.onStart()
+        pinger.start()
         if (!awayOnLinkPage) return
         // Back from a link's page: take the session back and resume this stream at live.
         awayOnLinkPage = false
@@ -251,6 +254,8 @@ class PlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
+        pinger.stop()
+        pings.clear()
         noteAddressAge(true)
         cancelRecovery()
         release()
@@ -260,6 +265,7 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        pinger.stop()
         main.removeCallbacksAndMessages(null)
         keeper?.stop()
         sniffer.cancel()
@@ -1032,12 +1038,11 @@ class PlayerActivity : Activity() {
         val again = fromCheck && stallLogged
         if (!again) stalls++
         stallLogged = true
-        val have = DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate
         val need = player?.videoFormat?.bitrate ?: -1
         val mbps = { b: Long -> String.format(java.util.Locale.US, "%.1f Mbps", b / 1_000_000.0) }
         val ahead = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
         Report.log(
-            (if (again) "Still buffering (stall #$stalls)" else "Buffering (stall #$stalls)") + ": connection ≈ ${mbps(have)}" +
+            (if (again) "Still buffering (stall #$stalls)" else "Buffering (stall #$stalls)") + ": ${pings.summary()}" +
                 (if (need > 0) ", this quality needs ≈ ${mbps(need.toLong())}" else "") +
                 String.format(java.util.Locale.US, ", %.1fs of video was buffered", ahead)
         )
@@ -2163,7 +2168,7 @@ class PlayerActivity : Activity() {
             // What the stream needs: what it announces if it does, else what its pieces measure.
             val announced = (p.videoFormat?.bitrate ?: -1).toLong()
             val line = PlayerStats.line(
-                DefaultBandwidthMeter.getSingletonInstance(this).bitrateEstimate,
+                pings.reading(),
                 if (announced > 0) announced else streamRate.bps(),
                 p.videoDecoderCounters?.droppedBufferCount ?: -1,
             )

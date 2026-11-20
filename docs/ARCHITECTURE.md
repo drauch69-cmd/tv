@@ -373,10 +373,15 @@ Remote tabs; prefetch toggle).
     `POST /photo/upload?league=` (raw bytes, 3 MB max, same-origin), `POST /photo/focus`, `POST /photo/remove`.
     Report line: "Photos: saved a N KB photo for <sport>". No photo: the card shows without one.
 - **Player connection pill** (overlay, right end of the button row, refreshed every 0.5 s; same shape, padding and text
-  size as the buttons, not focusable; user 2026-11-20): "↓ 18.4   ▸ 6.2" in Mbps without the unit, "  N dropped" added
-  only when frames were dropped, "…" for an unknown number; button-dark fill with a hint of the level color. Speed = the player's bandwidth estimate. Needs = the playing quality's announced bit rate, else
-  `StreamRate` (measured from finished media pieces: bytes over media seconds, last 8 per track kind, kinds added).
-  Colors (`PlayerStats.Level`): green at 1.5x or more, yellow from 1x, red under, grey while measuring.
+  size as the buttons, not focusable; user 2026-11-20): "⇄ 24 ms   ▸ 6.2", "  N dropped" added only when frames were
+  dropped, "…" for an unknown number; button-dark fill with a hint of the level color. Purpose: is it the connection or
+  the stream? ⇄ = ping: `Pinger` times a TCP handshake to 1.1.1.1:443 (8.8.8.8 if no answer, 2 s timeout) every 3 s
+  while the player is open (stopped in onStop); `PingStats` keeps the last 5, shows the median of replies, "lost" when
+  the newest got no reply. Needs (▸, Mbps) = the playing quality's announced bit rate, else `StreamRate` (measured from
+  finished media pieces: bytes over media seconds, last 8 per track kind, kinds added); reference only.
+  Colors (`PlayerStats.Level`, from the ping alone): green ≤100 ms and none lost, yellow over 100 ms or 1 lost, red over
+  300 ms, 2+ lost or the last two lost, grey while measuring. Stall report line: "Buffering (stall #N): ping 24 ms
+  (0 of 5 lost), this quality needs ≈ X Mbps, Ys of video was buffered".
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.

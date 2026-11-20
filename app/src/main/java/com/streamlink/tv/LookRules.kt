@@ -4,7 +4,7 @@ import java.net.URLEncoder
 import java.util.Locale
 
 /**
- * Pure rules behind the polished look (team logos, sport photos, the player's speed line). No Android APIs, so they
+ * Pure rules behind the polished look (team logos, sport photos, the player's ping line). No Android APIs, so they
  * are unit tested; the loaders and screens that use them are in Logos.kt, SportPhotos.kt and the activities.
  */
 
@@ -89,22 +89,73 @@ object PlayerStats {
     private fun mbps(bps: Long) = String.format(Locale.US, "%.1f", bps / 1_000_000.0)
 
     /**
-     * Compact pill text, numbers in Mbps without the unit: "↓ 18.4   ▸ 6.2", plus "  3 dropped" only when frames were
-     * dropped. ↓ is the connection estimate [haveBps], ▸ what the stream needs [needBps] (unknown when 0 or less: "…"),
-     * [dropped] the dropped-frame count (unknown when negative). Level: GOOD at 1.5x what the stream needs or more,
-     * TIGHT from 1x, SLOW under it; MEASURING while either number is unknown.
+     * Compact pill text: "⇄ 24 ms   ▸ 6.2", plus "  3 dropped" only when frames were dropped. ⇄ is the ping
+     * [ping] (is it me or the site?), ▸ what the stream needs in Mbps [needBps] (unknown when 0 or less: "…"),
+     * [dropped] the dropped-frame count (unknown when negative). The level (pill color) comes from the ping alone:
+     * ▸ is shown for reference, it says nothing about the connection.
      */
-    fun line(haveBps: Long, needBps: Long, dropped: Int): Line {
-        val have = if (haveBps > 0) mbps(haveBps) else "…"
+    fun line(ping: PingStats.Reading, needBps: Long, dropped: Int): Line {
         val need = if (needBps > 0) mbps(needBps) else "…"
-        val text = "\u2193 $have   \u25B8 $need" + if (dropped > 0) "   $dropped dropped" else ""
+        val text = "\u21C4 ${ping.text}   \u25B8 $need" + if (dropped > 0) "   $dropped dropped" else ""
+        return Line(text, ping.level)
+    }
+}
+
+/**
+ * Recent ping results (a quick connection to a fast public server every few seconds), newest last; null = no reply.
+ * Answers "is it my connection or the stream?": steady and low means the connection is fine.
+ * Not thread-safe: use from one thread.
+ */
+class PingStats {
+    companion object {
+        const val WINDOW = 5
+        const val GOOD_MS = 100L   // median at or under: GOOD
+        const val SLOW_MS = 300L   // median over: SLOW
+    }
+    data class Reading(val text: String, val level: PlayerStats.Level)
+
+    private val samples = ArrayDeque<Long?>()
+
+    fun clear() = samples.clear()
+
+    /** One result: the round trip in ms, or null when there was no reply. */
+    fun add(ms: Long?) {
+        samples.addLast(ms)
+        while (samples.size > WINDOW) samples.removeFirst()
+    }
+
+    /** Median of the replies in the window, or null if there were none. */
+    fun medianMs(): Long? {
+        val ok = samples.filterNotNull().sorted()
+        return if (ok.isEmpty()) null else ok[ok.size / 2]
+    }
+
+    fun lost(): Int = samples.count { it == null }
+
+    /**
+     * Text and level. The number is the median of recent replies (one slow reply doesn't flash the pill).
+     * SLOW: the last two got no reply, 2+ lost in the window, or median over [SLOW_MS]. TIGHT: one lost or median over
+     * [GOOD_MS]. MEASURING: nothing yet. The newest result failing shows "lost" so a dead connection shows at once.
+     */
+    fun reading(): Reading {
+        if (samples.isEmpty()) return Reading("…", PlayerStats.Level.MEASURING)
+        val med = medianMs()
+        val lost = lost()
+        val lastTwoLost = samples.size >= 2 && samples.last() == null && samples.elementAt(samples.size - 2) == null
         val level = when {
-            haveBps <= 0 || needBps <= 0 -> Level.MEASURING
-            haveBps >= needBps * 1.5 -> Level.GOOD
-            haveBps >= needBps -> Level.TIGHT
-            else -> Level.SLOW
+            med == null || lastTwoLost || lost >= 2 || med > SLOW_MS -> PlayerStats.Level.SLOW
+            lost == 1 || med > GOOD_MS -> PlayerStats.Level.TIGHT
+            else -> PlayerStats.Level.GOOD
         }
-        return Line(text, level)
+        val text = if (samples.last() == null || med == null) "lost" else "$med ms"
+        return Reading(text, level)
+    }
+
+    /** For the report: "ping 24 ms (0 of 5 lost)" or "ping: no replies (5 of 5 lost)". */
+    fun summary(): String {
+        if (samples.isEmpty()) return "ping not measured yet"
+        val med = medianMs()
+        return (if (med == null) "ping: no replies" else "ping $med ms") + " (${lost()} of ${samples.size} lost)"
     }
 }
 

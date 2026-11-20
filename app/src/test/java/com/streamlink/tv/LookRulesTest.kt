@@ -70,16 +70,42 @@ class LookRulesTest {
         assertNull(SportPhotoRules.focus(null))
     }
 
-    @Test fun playerSpeedPill() {
-        val ok = PlayerStats.line(18_400_000, 6_200_000, 0)
-        assertEquals("\u2193 18.4   \u25B8 6.2", ok.text)
+    private fun pingOf(vararg ms: Long?) = PingStats().apply { ms.forEach { add(it) } }
+
+    @Test fun playerPingPill() {
+        val ok = PlayerStats.line(pingOf(20, 24, 30).reading(), 6_200_000, 0)
+        assertEquals("\u21C4 24 ms   \u25B8 6.2", ok.text)
         assertEquals(PlayerStats.Level.GOOD, ok.level)
-        assertEquals(PlayerStats.Level.TIGHT, PlayerStats.line(7_000_000, 6_200_000, 1).level)
-        assertEquals(PlayerStats.Level.SLOW, PlayerStats.line(5_000_000, 6_200_000, 1).level)
-        val unknown = PlayerStats.line(9_000_000, 0, 2)
-        assertEquals("\u2193 9.0   \u25B8 …   2 dropped", unknown.text)
+        val unknown = PlayerStats.line(PingStats().reading(), 0, 2)
+        assertEquals("\u21C4 …   \u25B8 …   2 dropped", unknown.text)
         assertEquals(PlayerStats.Level.MEASURING, unknown.level)
-        assertEquals("\u2193 …   \u25B8 …", PlayerStats.line(0, -1, -1).text)
+        assertEquals("\u21C4 …   \u25B8 …", PlayerStats.line(PingStats().reading(), -1, -1).text)
+    }
+
+    @Test fun pingLevels() {
+        assertEquals(PlayerStats.Level.TIGHT, pingOf(150, 160, 170).reading().level)
+        assertEquals(PlayerStats.Level.SLOW, pingOf(400, 350, 500).reading().level)
+        // One lost reply: tight, and the number still shows.
+        val one = pingOf(20, null, 25).reading()
+        assertEquals(PlayerStats.Level.TIGHT, one.level)
+        assertEquals("25 ms", one.text)
+        // Newest lost: shows "lost" at once.
+        assertEquals("lost", pingOf(20, 25, null).reading().text)
+        // Two lost in a row, or two in the window: slow.
+        assertEquals(PlayerStats.Level.SLOW, pingOf(20, null, null).reading().level)
+        assertEquals(PlayerStats.Level.SLOW, pingOf(null, 20, null, 22).reading().level)
+        assertEquals(PlayerStats.Level.SLOW, pingOf(null).reading().level)
+        // One slow spike doesn't change the median.
+        assertEquals(PlayerStats.Level.GOOD, pingOf(20, 900, 22).reading().level)
+    }
+
+    @Test fun pingWindowAndSummary() {
+        val p = pingOf(null, null, null, 10, 12, 14, 16, 18) // the three losses fall out of the 5-wide window
+        assertEquals(0, p.lost())
+        assertEquals(14L, p.medianMs())
+        assertEquals("ping 14 ms (0 of 5 lost)", p.summary())
+        assertEquals("ping: no replies (2 of 2 lost)", pingOf(null, null).summary())
+        assertEquals("ping not measured yet", PingStats().summary())
     }
 
     @Test fun streamRateMeasuresFromPieces() {

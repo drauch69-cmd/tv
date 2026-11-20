@@ -5,6 +5,13 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 
 ## Open items
 
+- **Player pill: ping instead of download speed** (user's go, 2026-11-20 03:58; on `sports`, CI only, NOT tested on the TV).
+  The old ↓ number (ExoPlayer's bandwidth estimate) froze when the stream dropped and only measured this stream's server.
+  The pill's only job is "is it me or the stream?", so ↓ became ⇄ ping (quick handshake to Cloudflare/Google every 3 s,
+  a few KB/hour); ▸ needs and dropped frames unchanged; color now from the ping alone. Stall report lines show the ping.
+  Rejected: speed tests (data use), Wi‑Fi link speed (only the TV↔router hop), timing ESPN calls (too small to measure
+  speed). Check on the TV: pill reads a sensible ping (~10–60 ms) and turns yellow/red when the connection struggles.
+
 - **Referer order + habit taps** (user's go, 2026-11-20 03:08; on `sports`, CI only, NOT tested on the TV). Trigger: CrackStreams
   NFL Network report (build 248): video pieces 403 on every referer, but every referer tried was an ad/tracker frame
   (crwdcntrl, yieldz); the page itself never fit in the 5 tries. Stream was also dead in desktop Chrome, so this may
