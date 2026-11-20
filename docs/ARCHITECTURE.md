@@ -364,7 +364,7 @@ Remote tabs; prefetch toggle).
     keeps 4 MB in memory; until it arrives the circle shows the team abbreviation. Failures aren't retried until restart.
   - Featured card (home, top): `LiveGames.featured` = the live game with the most streams (tie: sport order, then
     earliest start); it is left out of the Live games row. Sport-screen rows: both teams read logo, then name and
-    record left-aligned; the second team in a fixed 200 dp block at the right end; no TV channel. Watch (accent pill, first focus) plays the game's first stream;
+    record left-aligned; the second team in a fixed 168 dp block at the right end (fits a 13-letter name); no TV channel. Watch (accent pill, first focus) plays the game's first stream;
     the stream chip opens the game's stream list. Photo box 510x196 dp on the right (2.6:1), dark scrim on the left.
   - Sport photos (`SportPhotos`): uploaded per sport from the phone page's Lists tab ("Home photos"; the phone shrinks
     to 1600 px JPEG), stored only on the TV (`filesDir/sport-photos`, never in the repo). The user taps the spot to keep

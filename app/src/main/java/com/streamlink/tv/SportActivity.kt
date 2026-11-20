@@ -359,11 +359,11 @@ class SportActivity : Activity() {
         }
         row.addView(mid, LinearLayout.LayoutParams(dp(150), ViewGroup.LayoutParams.WRAP_CONTENT))
         val homeSlot = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
-        homeSlot.addView(side(g.home), LinearLayout.LayoutParams(dp(200), ViewGroup.LayoutParams.WRAP_CONTENT))
+        homeSlot.addView(side(g.home), LinearLayout.LayoutParams(dp(168), ViewGroup.LayoutParams.WRAP_CONTENT))
         row.addView(homeSlot, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val chip = LinearLayout(this).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL }
         chip.addView(Ui.streamChip(this, gf.streams.size, 12f))
-        row.addView(chip, LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT))
+        row.addView(chip, LinearLayout.LayoutParams(dp(56), ViewGroup.LayoutParams.WRAP_CONTENT))
         return row
     }
 
