@@ -20,6 +20,8 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   habit now fires when the player shows (was waiting ~4 s for ads to finish loading, so a normal tap went first) and its
   taps are counted (the saved count was off). Check on the TV: a report's 403 line lists the site's own host first.
 
+- **App logo** (user's go, 2026-11-20 04:48): the user's interlocking-S mark, traced to a vector, blue (#4DA3FF) on
+  dark: TV home tile (mark + "StreamLink"), app icon, home top bar, phone page title and tab icon. Untested on the TV.
 - **Polished look** (user's go, 2026-11-20 02:27; mockups on the "StreamLink UI mockups" canvas). Built on `sports`,
   unit-tested in CI only, NOT tested on the TV: team logos from ESPN, dark-fade cards, stream count chip ("0" greyed),
   featured live game over a per-sport photo with a blue Watch button, roomier home spacing, sport-screen rows with logos

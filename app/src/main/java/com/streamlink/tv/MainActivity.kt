@@ -711,7 +711,9 @@ class MainActivity : Activity() {
         val qrIcon = GradientDrawable().apply { setColor(0); setStroke(dp(2), Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(14)) }
         sendLink.setCompoundDrawablesRelativeWithIntrinsicBounds(qrIcon, null, null, null)
         val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Ui.ACCENT); setSize(dp(12), dp(12)) }
-        findViewById<TextView>(R.id.brand).setCompoundDrawablesRelativeWithIntrinsicBounds(dot, null, null, null)
+        // The StreamLink mark (user's logo, 2026-11-20) in blue before the name.
+        val mark = getDrawable(R.drawable.logo_mark)?.apply { setBounds(0, 0, dp(26), dp(22)) }
+        findViewById<TextView>(R.id.brand).setCompoundDrawablesRelative(mark ?: dot, null, null, null)
         findViewById<View>(R.id.qrCard).background = Ui.rounded(this, Ui.SURFACE, 16f, Ui.BORDER, 1f)
         Ui.focusCard(checkUpdate, normal = Ui.CHIP, radiusDp = 8f)
         Ui.focusCard(prefetchToggle, normal = Ui.CHIP, radiusDp = 8f)
