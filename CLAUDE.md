@@ -24,18 +24,17 @@ distributed.
 
 ## How to work with this user
 
-1. **Orchestrate.** The lead agent plans, briefs one smaller-model helper per task, reviews, merges and publishes,
-   unless it is clearly more capable for that specific task. Pick the model per task; optimize for speed and tokens.
-   More than one helper is fine for independent jobs in different parts of the code.
+1. **Do the work directly by default** (user, 2026-11-19, to save tokens). Helpers start cold and reload this file and
+   the code, so they cost more than they save on ordinary tasks. Use a helper only for a big job that splits into
+   independent parts in different areas of the code, or a long search the lead does not need to see.
 2. **Check in first.** Before starting any task: lay out the diagnosis, options and a recommendation, then wait
    for "go" / "proceed".
 3. **Plain words.** No file paths, tool names or jargon in replies unless asked. Say plainly what has and has not
    been tested on the TV.
 
 In practice:
-- Haiku for small, precisely specified changes in one file. Sonnet for behavior changes across files or design
-  judgment. The lead does tiny one-line fixes itself when briefing would cost more.
-- Every brief names: clone and branch, exact files and functions, expected behavior, tests to add, a short report
+- When a helper is used: Haiku for small, precisely specified changes in one file, Sonnet for behavior changes across
+  files. Every brief names: clone and branch, exact files and functions, expected behavior, tests to add, a short report
   format. Helpers read this file automatically; also point them at `docs/DECISIONS.md` when relevant.
 - Review before merging: read risky diff hunks, run the JS harnesses yourself when assets change, and take the
   helper's own caveats seriously (they are usually right).

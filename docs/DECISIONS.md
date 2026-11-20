@@ -223,6 +223,8 @@ Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
 
+- **Lead works directly; helpers only for big split jobs** (user, 2026-11-19, to save tokens). Replaces "brief a
+  smaller-model helper per task".
 - **CLAUDE.md kept short to save tokens** (user, 2026-11-19 21:17): it loads on every step, so mechanism detail moved
   to `docs/ARCHITECTURE.md` (read by section on demand). New detail goes there, not into CLAUDE.md.
 - **Home "Live now" row removed; one "Live games" row** (user, 2026-11-19 ~20:05; replaces the build 224 "Live now
