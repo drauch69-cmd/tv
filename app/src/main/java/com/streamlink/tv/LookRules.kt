@@ -89,22 +89,22 @@ object PlayerStats {
     private fun mbps(bps: Long) = String.format(Locale.US, "%.1f", bps / 1_000_000.0)
 
     /**
-     * "18.4 Mbps · needs 6.2 · 0 dropped". [haveBps] is the connection estimate, [needBps] what the stream needs
-     * (unknown when 0 or less), [dropped] the dropped-frame count (unknown when negative). Level: GOOD at 1.5x what the
-     * stream needs or more, TIGHT from 1x, SLOW under it; MEASURING while either number is unknown.
+     * Compact pill text, numbers in Mbps without the unit: "↓ 18.4   ▸ 6.2", plus "  3 dropped" only when frames were
+     * dropped. ↓ is the connection estimate [haveBps], ▸ what the stream needs [needBps] (unknown when 0 or less: "…"),
+     * [dropped] the dropped-frame count (unknown when negative). Level: GOOD at 1.5x what the stream needs or more,
+     * TIGHT from 1x, SLOW under it; MEASURING while either number is unknown.
      */
     fun line(haveBps: Long, needBps: Long, dropped: Int): Line {
-        val parts = ArrayList<String>()
-        parts.add(if (haveBps > 0) "${mbps(haveBps)} Mbps" else "Measuring speed…")
-        if (needBps > 0) parts.add("needs ${mbps(needBps)}")
-        if (dropped >= 0) parts.add("$dropped dropped")
+        val have = if (haveBps > 0) mbps(haveBps) else "…"
+        val need = if (needBps > 0) mbps(needBps) else "…"
+        val text = "\u2193 $have   \u25B8 $need" + if (dropped > 0) "   $dropped dropped" else ""
         val level = when {
             haveBps <= 0 || needBps <= 0 -> Level.MEASURING
             haveBps >= needBps * 1.5 -> Level.GOOD
             haveBps >= needBps -> Level.TIGHT
             else -> Level.SLOW
         }
-        return Line(parts.joinToString(" · "), level)
+        return Line(text, level)
     }
 }
 

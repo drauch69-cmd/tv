@@ -1943,11 +1943,13 @@ class PlayerActivity : Activity() {
         }
         // Connection pill, bottom right: speed vs what the stream needs, colored by how much room there is.
         row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        ovNet = Ui.text(this, "", 13f, Ui.TEXT, bold = true).apply {
+        // Same shape, padding and text size as the buttons beside it, so it lines up with them; not focusable.
+        ovNet = Ui.text(this, "", 11f, Ui.TEXT, bold = true).apply {
             maxLines = 1
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14f), dp(8f), dp(16f), dp(8f))
+            gravity = Gravity.CENTER
+            setPadding(dp(12f), dp(8f), dp(12f), dp(8f))
             visibility = View.GONE
+            contentDescription = "Connection speed and what the stream needs"
         }
         row.addView(ovNet)
         col.addView(meta)
@@ -2166,14 +2168,15 @@ class PlayerActivity : Activity() {
                 p.videoDecoderCounters?.droppedBufferCount ?: -1,
             )
             val (fill, ink) = when (line.level) {
-                PlayerStats.Level.GOOD -> 0xE6163A28.toInt() to 0xFF8EE3B5.toInt()
-                PlayerStats.Level.TIGHT -> 0xE63D3115.toInt() to Ui.WARN
-                PlayerStats.Level.SLOW -> 0xE6461A1E.toInt() to Ui.LIVE_TEXT
-                PlayerStats.Level.MEASURING -> 0xE6232A35.toInt() to Ui.TEXT_2
+                // Button-dark fills with only a hint of the level's color; the numbers carry the color.
+                PlayerStats.Level.GOOD -> 0xFF1E2E28.toInt() to 0xFF8EE3B5.toInt()
+                PlayerStats.Level.TIGHT -> 0xFF302B1E.toInt() to Ui.WARN
+                PlayerStats.Level.SLOW -> 0xFF33212A.toInt() to Ui.LIVE_TEXT
+                PlayerStats.Level.MEASURING -> Ui.CHIP to Ui.TEXT_2
             }
-            ovNet.text = "\u25CF  " + line.text
+            ovNet.text = line.text
             ovNet.setTextColor(ink)
-            ovNet.background = Ui.rounded(this, fill, 99f, ink and 0x66FFFFFF, 1f)
+            ovNet.background = Ui.rounded(this, fill, 8f)
             ovNet.visibility = View.VISIBLE
         }
         val w = ovTrack.width

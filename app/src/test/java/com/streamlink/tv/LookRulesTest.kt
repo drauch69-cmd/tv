@@ -72,14 +72,14 @@ class LookRulesTest {
 
     @Test fun playerSpeedPill() {
         val ok = PlayerStats.line(18_400_000, 6_200_000, 0)
-        assertEquals("18.4 Mbps · needs 6.2 · 0 dropped", ok.text)
+        assertEquals("\u2193 18.4   \u25B8 6.2", ok.text)
         assertEquals(PlayerStats.Level.GOOD, ok.level)
         assertEquals(PlayerStats.Level.TIGHT, PlayerStats.line(7_000_000, 6_200_000, 1).level)
         assertEquals(PlayerStats.Level.SLOW, PlayerStats.line(5_000_000, 6_200_000, 1).level)
         val unknown = PlayerStats.line(9_000_000, 0, 2)
-        assertEquals("9.0 Mbps · 2 dropped", unknown.text)
+        assertEquals("\u2193 9.0   \u25B8 …   2 dropped", unknown.text)
         assertEquals(PlayerStats.Level.MEASURING, unknown.level)
-        assertEquals("Measuring speed…", PlayerStats.line(0, -1, -1).text)
+        assertEquals("\u2193 …   \u25B8 …", PlayerStats.line(0, -1, -1).text)
     }
 
     @Test fun streamRateMeasuresFromPieces() {

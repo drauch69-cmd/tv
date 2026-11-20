@@ -372,8 +372,9 @@ Remote tabs; prefetch toggle).
     allow, and the phone draws the same crop as a dashed box. Routes: `GET /photos`, `GET /photo?league=`,
     `POST /photo/upload?league=` (raw bytes, 3 MB max, same-origin), `POST /photo/focus`, `POST /photo/remove`.
     Report line: "Photos: saved a N KB photo for <sport>". No photo: the card shows without one.
-- **Player connection pill** (overlay, right end of the button row, refreshed every 0.5 s): "● 18.4 Mbps · needs 6.2 · 0
-  dropped". Speed = the player's bandwidth estimate. Needs = the playing quality's announced bit rate, else
+- **Player connection pill** (overlay, right end of the button row, refreshed every 0.5 s; same shape, padding and text
+  size as the buttons, not focusable; user 2026-11-20): "↓ 18.4   ▸ 6.2" in Mbps without the unit, "  N dropped" added
+  only when frames were dropped, "…" for an unknown number; button-dark fill with a hint of the level color. Speed = the player's bandwidth estimate. Needs = the playing quality's announced bit rate, else
   `StreamRate` (measured from finished media pieces: bytes over media seconds, last 8 per track kind, kinds added).
   Colors (`PlayerStats.Level`): green at 1.5x or more, yellow from 1x, red under, grey while measuring.
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
