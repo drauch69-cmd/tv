@@ -47,6 +47,9 @@ file's git history (commit 3680843 and earlier).
   up to 15 min old, coming days 3 h); "Loading games…" screen on a fresh start until first scores or 3 s (not on first
   run with no lists); Left/Right stops at row ends on home (no wrap); sport-screen side card lined up with the first
   game card; featured cards: live NFL/college football always beat NBA/college basketball. Check all on the TV.
+- **Home opens on the featured card** (2026-11-20, user): focus went to the Sports row because the card was drawn
+  after the first focus pick. Until the user presses a key, focus jumps to the featured card when it appears; keys
+  are ignored while the loading screen shows. Loading logo doubled in size. Check on TV.
 - **Loading screen waits for games** (2026-11-20, user's choice): it used to hide on the first scores answer (or 3 s),
   but the home redo after that takes ~3-4 s on the Onn, so an empty home showed. Now it hides once the home rows are
   drawn from non-empty scores, at most 15 s; logo + spinner, no text. Check on TV: no empty home on start.

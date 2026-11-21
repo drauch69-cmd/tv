@@ -48,6 +48,12 @@ class MainActivity : Activity() {
     private var shownLink: String? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     private var resumed = false
+    /**
+     * The user has pressed a key on this screen. Until then, focus is the app's own pick and moves to the featured
+     * card as soon as it appears (user, 2026-11-20: home opened with the Sports row focused because the card was not
+     * drawn yet).
+     */
+    private var userMoved = false
     private lateinit var updateBanner: TextView
     private lateinit var updatePerm: TextView
     private lateinit var updateSettings: TextView
@@ -278,11 +284,11 @@ class MainActivity : Activity() {
             isClickable = true // nothing underneath takes touches while it shows
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         }
-        box.addView(ImageView(this).apply { setImageResource(R.drawable.logo_mark) }, LinearLayout.LayoutParams(dp(78), dp(66)))
+        box.addView(ImageView(this).apply { setImageResource(R.drawable.logo_mark) }, LinearLayout.LayoutParams(dp(156), dp(132))) // bigger logo (user, 2026-11-20)
         box.addView(android.widget.ProgressBar(this).apply {
             isIndeterminate = true
             indeterminateTintList = android.content.res.ColorStateList.valueOf(Ui.ACCENT)
-        }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { topMargin = dp(24) })
+        }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { topMargin = dp(32) })
         root.addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         loading = box
         main.postDelayed(loadingTimeout, LOADING_MAX_MS)
@@ -292,6 +298,7 @@ class MainActivity : Activity() {
         val v = loading ?: return
         loading = null
         main.removeCallbacks(loadingTimeout)
+        if (!userMoved && qrPanel.visibility != View.VISIBLE) focusFirst()
         v.animate().alpha(0f).setDuration(250).withEndAction { (v.parent as? ViewGroup)?.removeView(v) }.start()
     }
 
@@ -334,6 +341,9 @@ class MainActivity : Activity() {
      * Rows: the top bar, the featured card, Live games, Sports and recents.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // While the loading screen shows, keys must not move focus underneath it (Back still works).
+        if (loading != null && event.keyCode != KeyEvent.KEYCODE_BACK) return true
+        if (event.action == KeyEvent.ACTION_DOWN) userMoved = true
         val left = event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
         if ((left || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) && qrPanel.visibility != View.VISIBLE && atRowEnd(left)) return true
         return super.dispatchKeyEvent(event)
@@ -614,7 +624,9 @@ class MainActivity : Activity() {
             if (hadFocus) focusFirst()
             return
         }
+        val appeared = featured.visibility != View.VISIBLE
         featured.visibility = View.VISIBLE
+        if (appeared && !userMoved && qrPanel.visibility != View.VISIBLE) featWatch.post { if (!userMoved) featWatch.requestFocus() }
         val g = gf.game
         featSport.text = Sports.label(g.league) + if (g.broadcast.isBlank()) "" else "  ·  ${g.broadcast.trim()}"
         val away = g.away.score.toIntOrNull() ?: 0
