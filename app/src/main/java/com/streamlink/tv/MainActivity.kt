@@ -83,7 +83,9 @@ class MainActivity : Activity() {
     // ---- Home data: worked out on one background thread, drawn on the main thread ----
     private val homeCalc = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "home-calc").apply { isDaemon = true } }
     /** Bumped on every request; a result that is not from the latest request is dropped. Main thread only. */
-    private var homeGen = 0
+    @Volatile private var homeGen = 0
+    /** The first home calculations since start are logged, and any slow one after that. */
+    private var homeTimed = 0
     /** What the home screen showed last, so a score update only redraws when it changes something. */
     private var homeLook = ""
     /** The scores the last request was made for (same instance until the data changes). */
@@ -96,6 +98,19 @@ class MainActivity : Activity() {
         val byId = HashMap<String, CachedList>()
         for (l in lists) SavedLists.cached(ctx, l.id)?.let { byId[l.id] = it }
         return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault())
+    }
+
+    /** [computeHome] with a report line for the first 3 calculations and any one over 1.5 s. */
+    private fun timedHome(ctx: android.content.Context, games: List<Game>, now: Long): HomeModel {
+        val t0 = System.currentTimeMillis()
+        val m = computeHome(ctx, games, now)
+        val ms = System.currentTimeMillis() - t0
+        val n = synchronized(this) { ++homeTimed }
+        if (n <= 3 || ms > 1500) {
+            val events = m.cached.sumOf { it.second.result.items.size }
+            Report.log(String.format(java.util.Locale.US, "Home: worked out in %.1f s (%d games, %d list events)", ms / 1000.0, games.size, events))
+        }
+        return m
     }
 
     /**
@@ -112,7 +127,8 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val app = applicationContext
         homeCalc.execute {
-            val m = try { computeHome(app, games, now) } catch (_: Exception) { return@execute }
+            if (gen != homeGen) return@execute // a newer request is queued: this one would be thrown away anyway
+            val m = try { timedHome(app, games, now) } catch (_: Exception) { return@execute }
             main.post { if (gen == homeGen && !isFinishing && !isDestroyed) applyHome(m) }
         }
     }
@@ -123,7 +139,7 @@ class MainActivity : Activity() {
         homeGames = games
         homeForce = true
         homeGen++
-        applyHome(computeHome(this, games, System.currentTimeMillis()))
+        applyHome(timedHome(this, games, System.currentTimeMillis()))
     }
 
     private fun applyHome(m: HomeModel) {

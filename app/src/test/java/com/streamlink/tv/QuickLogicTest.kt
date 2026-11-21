@@ -32,6 +32,14 @@ class QuickLogicTest {
     }
 
     @Test
+    fun espnGamesNeedOnlyTheirLinks() {
+        val noTimes = full.map { it.copy(startMillis = null) }
+        assertTrue(QuickLogic.matches(full, noTimes) { true }) // all ESPN games: times come from ESPN
+        assertFalse(QuickLogic.matches(full, noTimes) { it.title == "Event 1" }) // 9 non-ESPN events lost their times
+        assertFalse(QuickLogic.matches(full, full.drop(2)) { true }) // links still have to be there
+    }
+
+    @Test
     fun modeFollowsTheSavedVerdict() {
         assertEquals(QuickLogic.Mode.TEST, QuickLogic.mode(null, now))
         assertEquals(QuickLogic.Mode.QUICK, QuickLogic.mode(QuickLogic.Verdict(true, now - 60_000L), now))

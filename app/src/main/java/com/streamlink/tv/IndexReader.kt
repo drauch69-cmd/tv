@@ -185,12 +185,21 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
     /** After a full read with events: saves whether the quick way works for this site, from the test or a fallback. */
     private fun learnQuick(full: List<ListItem>) {
-        if (full.isEmpty()) return
         val host = Uri.parse(requestUrl).host
         val h = Report.host(requestUrl)
+        if (full.isEmpty()) {
+            // Nothing either way: don't test this site on every read; the browser it is, tested again in a week.
+            val q = quickItems
+            if (mode == QuickLogic.Mode.TEST && q != null && q.none { !ClickRef.isClickUrl(it.url) }) {
+                QuickReads.set(context, host, false)
+                Report.log("List: nothing found either way on $h; using the browser (tested again in a week)")
+            }
+            return
+        }
         if (mode == QuickLogic.Mode.TEST) {
             val q = quickItems ?: return
-            val ok = QuickLogic.matches(full, q)
+            val games = ScoreFeed.latest()
+            val ok = QuickLogic.matches(full, q) { f -> try { ScoreMatch.find(f.title, f.startMillis, games) != null } catch (_: Exception) { false } }
             QuickReads.set(context, host, ok)
             Report.log(if (ok) "List: the quick way finds the same events on $h (${q.size} vs ${full.size}); using it from now on"
                 else "List: the quick way misses events on $h (${q.size} vs ${full.size}); this site keeps the browser")
@@ -541,7 +550,11 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
                 restartFull()
                 return
             }
-            if (items.isNullOrEmpty()) { quickFailed("found nothing"); return }
+            // Rows without links of their own (section headings) are not a real find on a quick read.
+            if (items.isNullOrEmpty() || items.all { ClickRef.isClickUrl(it.url) }) {
+                quickFailed(if (items.isNullOrEmpty()) "found nothing" else "found only headings")
+                return
+            }
         }
         run {
             val parsed = ex?.result

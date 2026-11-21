@@ -255,6 +255,14 @@ Home featured card: photo box 636x212 dp (phone frames photos at 3:1), `Ui.photo
   (`QUICK_MS`) = full read and the site goes back to the browser. Quick halves never follow frames, press "show more",
   scroll or snapshot. Report lines: "List: loading <host> the quick way", "read N events … (automatic, quick way)",
   "the quick way finds the same events on <host>…" / "misses events…" / "didn't work (…)".
+  Quick-read test is ESPN-aware (2026-11-20): events `ScoreMatch.find` matches only need their link; other events also
+  need the same time and Live mark. A quick read with only click rows (section headings) counts as nothing. A test where
+  both halves find nothing saves "browser" (no re-test on every read).
+  **Which reads happen** (`ListReads.request`, 2026-11-20): non-manual requests skip a list on back-off (`ListBackoff`,
+  file `list_backoff`: bad reads in a row = failed or no events; `ListReadLogic.backoffMs`: 30 min after 3, then 2 h;
+  line "List: holding <host> …"). TIMER requests also skip a list with nothing on (`ListReadLogic.worthReading`: none
+  of its saved events live/soon or starting within 2 h, and no game of its sport tags live or starting within 2 h by
+  ESPN; still re-read every 2 h; line "List: skipped <host> (nothing on now or soon …)"). MANUAL always reads.
   **One reader for the app** (`ListReads.kt`, pure rules in `ListReadLogic.kt`, unit tested in `ListReadLogicTest`;
   2026-11-19, not yet tested on the TV): one queue, one read at a time, run in the hidden holder of the newest attached
   screen (home, `ListActivity`, `SportActivity` attach in onResume, detach in onDestroy; a read in a screen that goes away

@@ -9,6 +9,14 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **List and home batch** (2026-11-20, user's go on all 5): home skips out-of-date redos + "Home: worked out in X s"
+  line (featured card took ~20 s after scores); headings-only quick reads fall back to the browser (thetvapp's empty
+  page showed 3 junk rows); lists failing/empty 3x in a row wait 30 min then 2 h; timer re-reads only when the list or
+  its sport has something live or within 2 h (else every 2 h); quick-read test ignores time/Live for ESPN games (user:
+  ESPN drives those), so roxiestreams should pass. Check: featured card time, "Home: worked out" lines, roxie passes,
+  reedstreams/streameast "holding" lines, thetvapp empty page has no junk rows.
+- **Quick reads, first TV results** (build 271 report): crackstreams 0.4–0.6 s, thetvapp 0.5–0.7 s, buffstreams pass;
+  ntv needs the browser (list built by scripts, ~16 s).
 - **Quick list reads** (2026-11-20, user's go on "plain download first"): each site is tested once (quick read + full
   read, compared); sites that match are read from their downloaded HTML only, with the browser as fallback. Check:
   "the quick way finds the same events" lines per site, quick reads well under 2 s, events and Live marks unchanged,

@@ -50,18 +50,20 @@ object QuickLogic {
     fun stripScripts(html: String): String = html.replace(SCRIPT, "").replace(SCRIPT_OPEN, "").replace(REFRESH, "")
 
     /**
-     * Does the quick read give the same events as the full one? At least 90% of the full read's events must appear
-     * with the same start time and, where the full read saw a live marker, the same marker; and the quick read may
-     * not add many extra rows (junk). An empty full read proves nothing (false).
+     * Does the quick read give the same events as the full one? At least 90% of the full read's events must appear;
+     * events that are not ESPN games ([espn] false) must also have the same start time and, where the full read saw
+     * a live marker, the same marker (the site's own time and Live drive those); and the quick read may not add many
+     * extra rows (junk). An empty full read proves nothing (false).
      */
-    fun matches(full: List<ListItem>, quick: List<ListItem>): Boolean {
+    fun matches(full: List<ListItem>, quick: List<ListItem>, espn: (ListItem) -> Boolean = { false }): Boolean {
         if (full.isEmpty() || quick.isEmpty()) return false
         if (quick.size > full.size + maxOf(2, full.size / 2)) return false
         val byUrl = HashMap<String, ListItem>()
         for (q in quick) byUrl.putIfAbsent(q.url, q)
         val agree = full.count { f ->
             val q = byUrl[f.url]
-            q != null && q.startMillis == f.startMillis && (!f.liveHint || q.liveHint)
+            // A game ESPN knows: Live/Final and timing come from ESPN, so only the link has to be there.
+            q != null && (espn(f) || (q.startMillis == f.startMillis && (!f.liveHint || q.liveHint)))
         }
         return agree * 10 >= full.size * 9
     }

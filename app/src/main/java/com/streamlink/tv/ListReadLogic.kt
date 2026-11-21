@@ -84,6 +84,45 @@ object ListReadLogic {
         return (if (near) NEAR_DELAY_MS else NORMAL_DELAY_MS).coerceAtLeast(MIN_READ_GAP_MS)
     }
 
+    // ---- Back-off for lists that keep failing or finding nothing (user, 2026-11-20) ----
+
+    /** A read that failed or found no events. */
+    fun isBad(result: ListResult): Boolean = result.error != null || result.items.isEmpty()
+
+    /** After [streak] bad reads in a row: no wait under 3, 30 min at 3, then 2 h. Manual reads always go. */
+    fun backoffMs(streak: Int): Long = when {
+        streak < 3 -> 0L
+        streak == 3 -> 30 * 60_000L
+        else -> 2 * 60 * 60_000L
+    }
+
+    // ---- Read only when it can matter (user, 2026-11-20) ----
+
+    /** A list with nothing on now or soon is still re-read this often, to catch newly posted games. */
+    const val QUIET_REREAD_MS = 2 * 60 * 60_000L
+    /** "Soon" for this rule: a game or event starting within this. */
+    const val MATTERS_WINDOW_MS = 2 * 60 * 60_000L
+
+    /**
+     * Should a timer re-read happen? Yes when never read or read [QUIET_REREAD_MS] ago; when one of its saved events is
+     * live or starts within [MATTERS_WINDOW_MS] ([statusOf] gives ESPN-aware statuses); or when one of its sports
+     * ([sports], ESPN leagues) has a game live or starting within that window. Otherwise the saved copy is enough.
+     */
+    fun worthReading(
+        sports: Set<String>, items: List<ListItem>, statusOf: (ListItem) -> String, games: List<Game>, lastOkAt: Long?, now: Long,
+    ): Boolean {
+        if (lastOkAt == null || lastOkAt <= 0L || now - lastOkAt >= QUIET_REREAD_MS) return true
+        for (it in items) {
+            val st = statusOf(it)
+            if (st == ListStatus.LIVE || st == ListStatus.SOON) return true
+            val s = it.startMillis
+            if (s != null && s >= now && s - now <= MATTERS_WINDOW_MS) return true
+        }
+        return games.any { g ->
+            g.league in sports && (g.state == "in" || (g.state == "pre" && g.startMillis >= now - 15 * 60_000L && g.startMillis - now <= MATTERS_WINDOW_MS))
+        }
+    }
+
     // ---- C2: finish when the events stop changing ----
 
     const val MAX_LOOKS = 4

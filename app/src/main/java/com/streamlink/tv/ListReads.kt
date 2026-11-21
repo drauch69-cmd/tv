@@ -14,6 +14,25 @@ import android.view.ViewGroup
  * a list read a moment ago are skipped (B2, [ListReadLogic.skipFresh]). [ListReadGate] still holds new reads while
  * a video is being found or plays. Main thread only.
  */
+/** Bad reads in a row per list (failed or no events) and when the last one was, kept in a small settings file. */
+object ListBackoff {
+    private const val PREFS = "list_backoff"
+
+    fun get(ctx: Context, id: String): Pair<Int, Long> {
+        val v = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(id, null) ?: return 0 to 0L
+        val n = v.substringBefore(':').toIntOrNull() ?: 0
+        val at = v.substringAfter(':', "").toLongOrNull() ?: 0L
+        return n to at
+    }
+
+    fun record(ctx: Context, id: String, bad: Boolean, now: Long) {
+        val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!bad) { if (p.contains(id)) p.edit().remove(id).apply(); return }
+        val n = get(ctx, id).first + 1
+        p.edit().putString(id, "$n:$now").apply()
+    }
+}
+
 // Lint: holds only the application context (and, for screens, entries removed in onDestroy), not a leak.
 @SuppressLint("StaticFieldLeak")
 object ListReads {
@@ -116,6 +135,33 @@ object ListReads {
                 }
                 return false
             }
+            if (reason != ListReadLogic.Reason.MANUAL) {
+                // Failing or empty again and again: wait before trying (30 min after 3 in a row, then 2 h).
+                val (streak, lastBad) = ListBackoff.get(ctx, id)
+                val wait = ListReadLogic.backoffMs(streak)
+                if (wait > 0 && now - lastBad < wait) {
+                    if (skipLogged[id] != -lastBad) {
+                        skipLogged[id] = -lastBad
+                        Report.log("List: holding ${Report.host(l.url)} (failed or empty $streak times in a row; next try in ${(wait - (now - lastBad)) / 60_000 + 1} min)")
+                    }
+                    return false
+                }
+            }
+            if (reason == ListReadLogic.Reason.TIMER) {
+                // Nothing on now or soon for this list: its saved copy is enough (re-read every 2 h anyway).
+                val items = SavedLists.cached(ctx, id)?.result?.items ?: emptyList()
+                val games = ScoreFeed.latest()
+                val worth = try {
+                    ListReadLogic.worthReading(l.sports, items, { ListStatus.of(it, now, games) }, games, readAt, now)
+                } catch (_: Exception) { true }
+                if (!worth) {
+                    if (readAt != null && skipLogged[id] != readAt) {
+                        skipLogged[id] = readAt
+                        Report.log("List: skipped ${Report.host(l.url)} (nothing on now or soon; read ${(now - readAt) / 60_000} min ago)")
+                    }
+                    return false
+                }
+            }
         }
         if (ListReadLogic.merge(queue, current, id, reason == ListReadLogic.Reason.MANUAL)) {
             SavedLists.setBusy(id, true)
@@ -165,6 +211,7 @@ object ListReads {
         lastDone[l.id] = now
         SavedLists.setBusy(l.id, false)
         app?.let { ctx ->
+            ListBackoff.record(ctx, l.id, ListReadLogic.isBad(result), now)
             SavedLists.applyResult(ctx, l, result, now)
             val items = SavedLists.cached(ctx, l.id)?.result?.items ?: emptyList()
             Report.log("List: next read in ${ListReadLogic.nextReadDelay(items, now) / 1000} s (while its list or sport screen is open)")
