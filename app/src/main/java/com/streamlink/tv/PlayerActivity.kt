@@ -273,6 +273,7 @@ class PlayerActivity : Activity() {
         smoothThisRun = false
         signs.resetLowDelay()
         mainRefetches = 0
+        signs.resetBehind()
         sourceIndex = 0
         refererIndex = 0
         reconnects = 0
@@ -1108,6 +1109,15 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         if (fastChecking) return // a ready backup is being checked; it decides
         if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
+            // 2026-11-21 (Tennessee–LSU): 10 s pieces kept it falling behind; jumping back to live looped 3x until the
+            // viewer picked NTV by hand. On the 2nd jump in 2 min: a ready backup, else another source.
+            if (playingSince != 0L && signs.behindLiveRepeated(System.currentTimeMillis())) {
+                val why = "keeps falling behind the live point"
+                Report.log("Keeps falling behind the live point; trying another stream")
+                if (fastBackup(why) { if (!tryAutoSwitch(why)) player?.let { it.seekToDefaultPosition(); it.prepare() } }) return
+                if (tryAutoSwitch(why)) return
+                Report.log("No other stream to try; staying on this one")
+            }
             Report.log("Fell behind the live point; jumping back to live")
             p.seekToDefaultPosition()
             p.prepare()

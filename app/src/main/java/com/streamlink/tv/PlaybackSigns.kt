@@ -10,7 +10,21 @@ import androidx.media3.exoplayer.ExoPlayer
  */
 @OptIn(UnstableApi::class)
 class PlaybackSigns {
-    companion object { const val DRY_WINDOW_MS = 180_000L }
+    companion object {
+        const val DRY_WINDOW_MS = 180_000L
+        /** 2 jumps back to live within this time = the stream can't keep up; try another one (2026-11-21). */
+        const val BEHIND_WINDOW_MS = 120_000L
+    }
+    private val behindTimes = ArrayList<Long>()
+
+    /** Records a fall behind the live point; true (and forgets them) on the 2nd within [BEHIND_WINDOW_MS]. */
+    fun behindLiveRepeated(now: Long): Boolean {
+        behindTimes.add(now)
+        behindTimes.removeAll { now - it > BEHIND_WINDOW_MS }
+        if (behindTimes.size >= 2) { behindTimes.clear(); return true }
+        return false
+    }
+    fun resetBehind() = behindTimes.clear()
     private val emptyStallTimes = ArrayList<Long>()
     private val bufferedStallTimes = ArrayList<Long>()
     private val starveSamples = ArrayList<LongArray>()

@@ -20,8 +20,10 @@ file's git history (commit 3680843 and earlier).
   on every reopen). (E) Game matches are saved and reused after a restart, and the home thread runs at higher priority
   (first home took 10–14 s, past the 15 s loading cap; later ones ~0.5 s). The home line now says how many matches were
   new and how long they took: if the first home is still slow with few new matches, the cause is elsewhere. Check on TV.
-  Still offered: C (smooth delay falling behind live in a loop -> next source), D (0-byte chunks count as failures, log
-  labels).
+- **Falling behind live moves on; empty pieces fail** (2026-11-21, user's go on C+D). (C) The 2nd jump back to live within
+  2 min tries a ready backup, else another source ("Keeps falling behind the live point; trying another stream"; Tennessee–
+  LSU looped 3x on 10 s pieces). (D) A 0-byte video piece counts as a failed load (retried); an inner playlist with no
+  ".m3u8" in its address logs "Inner playlist without .m3u8…" instead of taking the "First video chunk" line. Check on TV.
 - **Willow: video in the picture's own section** (2026-11-21, user's go; build 287 report: 1x1 PNG + 3 MB "tsDa"
   chunk). Build 285's diagnostics ("Picture layout:" / "Picture unpacked ..." lines) found it; the unpacker now reads
   non-standard PNG sections (as is, or unzipped) before trying pixels. Check on TV: Willow plays in the app; report says

@@ -110,6 +110,9 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
         // (If the playlist check above already read some bytes, keep them and read on.)
         if (n == 0) head = ByteArray(PEEK)
         fill(PEEK)
+        // An empty video piece "succeeded" once and the player then stalled (2026-11-21, after two 404s): count it as a
+        // failed load, so the player retries it like any other failure.
+        if (n == 0 && eof) throw java.io.IOException("empty video piece (0 bytes)")
 
         var skip = 0
         val image = imageEnd()
@@ -222,7 +225,9 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             undecodable.incrementAndGet()
         }
 
-        Report.logOnce("chunk-head", describeChunk(dataSpec, head, n, skip))
+        // An inner playlist whose address has no ".m3u8" also comes through here: keep the "First video chunk" line for real video.
+        if (looksLikePlaylist(head, n)) Report.logOnce("inner-playlist", "Inner playlist without .m3u8 in its address: ${Report.short(dataSpec.uri.toString())}")
+        else Report.logOnce("chunk-head", describeChunk(dataSpec, head, n, skip))
         if (skip > 0) {
             if (looksLikeMedia(head, n, skip)) {
                 Report.logOnce("unwrap", "Unwrapped disguised video chunks ($skip junk bytes removed)")

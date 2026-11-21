@@ -488,6 +488,9 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   video on this server recently; starting on the smooth delay"). A broken secure connection on a server named inside the
   main playlist (not the main playlist's own) re-asks the main playlist up to 2 times per play before the page reload
   (`BrokenTls.refetchMain`; "asking <host> again for another server").
+  Falling behind the live point twice in 2 min (`PlaybackSigns.behindLiveRepeated`) tries a ready backup, else
+  `tryAutoSwitch`, else jumps back to live as before. `UnwrapDataSource` throws on a 0-byte video piece (retried as a
+  failed load).
 - **Other games tiles** (`GameTiles`, PlayerActivity "Overlay: other live games"): when the menu opens, live games of the
   sport being watched (the game whose folder holds the playing item; else a title naming both teams; RedZone = NFL)
   show top right, 2 columns of up to 6 larger tiles (+ a "+N more" tile past 6). Streams first, then most exciting
