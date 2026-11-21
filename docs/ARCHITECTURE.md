@@ -536,6 +536,11 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   piece host and switches source; `recoverSlow` stops reloading when the same dead server comes back after a reload ("Not reloading
   the page again…") and auto-switches. Hosts seen in checks in the last 30 min (max 30) get one HEAD handshake when `MainActivity`
   opens (`DeadHosts.recheckOnStart`; "Start-up server check: N down, M back up").
+  When every candidate in a `Verifier.rank` is on a remembered-down server (`DeadHostText.allRemembered`), the memory is
+  ignored for that run (prechecked results dropped, playlist + probes fetched for real): "Every stream here is on a server
+  remembered as down; trying them once anyway" (2026-11-21, not yet tested on the TV). Failure lines carry
+  `DeadHostText.sslReason`: "the TV doesn't trust its certificate [ERR_CERT_…]", "no security version the TV and server
+  share", or "the secure handshake failed [code]".
   **Refused pieces (403)** (`Refusal.kt`, `RefusalTest`; not yet tested on the TV). A refusal (401/403/451) is a server decision, not a
   timeout: `PieceWatch` counts refused and HTTP-answered failures per piece host (`pieceFailed(h, start, status)`, `pieceRefused`,
   `pieceAnswered`). The finder's check (`Verifier.check`) records a host in `RefusedHosts` (memory, 10 min) when EVERY referer got an HTTP

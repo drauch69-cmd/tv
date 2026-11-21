@@ -85,6 +85,10 @@ file's git history (commit 3680843 and earlier).
   servers with a broken secure connection are remembered 5 min across sites and re-checked when the app opens; the player
   doesn't retry them and stops reloading a page that hands back the same dead server. Not done (held): trying the other
   network engine first on SSL errors (both engines failed on the same server in the 2026-11-20 report).
+- **Dead-server memory can't sink a page alone** (2026-11-21, user's go on 1+2; build 283 crackstreams report: both
+  servers skipped from memory, yet the stream plays on the phone): when every stream is on a remembered-down server they
+  are tried once anyway; secure-connection failures now say why (certificate not trusted by the TV / no shared security
+  version / handshake failed). Next: read the reason in the next report, then decide on the other-engine retry.
 - **UI + playing batch** (2026-11-20, user's go): home featured card (small dark area, soft photo fade, clock moved up,
   no stream pill, scores next to names); sport screen centered scores + side card (that sport's featured game, else
   next up); OK on a game plays the best stream, hold OK = all streams; failures move to the next stream (max 3

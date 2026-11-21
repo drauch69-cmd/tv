@@ -164,6 +164,39 @@ object DeadHostText {
         return false
     }
 
+    /**
+     * Why a secure connection failed, in plain words plus the raw code (for reports): the TV not trusting the server's
+     * certificate is the TV's side (the same server can work on a phone), the others are the handshake itself.
+     * Null when [t] is not a secure-connection failure.
+     */
+    fun sslReason(t: Throwable?): String? {
+        var e = t
+        var depth = 0
+        var ssl: Throwable? = null
+        while (e != null && depth < 10) {
+            val m = e.message.orEmpty()
+            val code = Regex("net::(ERR_(?:SSL|CERT)_[A-Z_]+)").find(m)?.groupValues?.get(1)
+            if (code != null) return when {
+                code.startsWith("ERR_CERT_") -> "the TV doesn't trust its certificate [$code]"
+                code == "ERR_SSL_VERSION_OR_CIPHER_MISMATCH" -> "no security version the TV and server share [$code]"
+                else -> "the secure handshake failed [$code]"
+            }
+            if (e is java.security.cert.CertificateException || e is java.security.cert.CertPathValidatorException ||
+                e is javax.net.ssl.SSLPeerUnverifiedException || m.contains("Trust anchor", true)
+            ) return "the TV doesn't trust its certificate [${e.javaClass.simpleName}]"
+            if (e is javax.net.ssl.SSLException && ssl == null) ssl = e
+            e = e.cause
+            depth++
+        }
+        val s = ssl ?: return null
+        val detail = s.message?.take(60)?.let { ": $it" }.orEmpty()
+        return "the secure handshake failed [${s.javaClass.simpleName}$detail]"
+    }
+
+    /** At least one host, and every one of them remembered as down: then the memory alone must not give up on the page. */
+    fun allRemembered(hosts: List<String?>, isDead: (String?) -> Boolean): Boolean =
+        hosts.isNotEmpty() && hosts.all { isDead(it) }
+
     fun format(map: Map<String, Long>): String = map.entries.joinToString("\n") { "${it.key}\t${it.value}" }
 
     /** Entries still inside [ttl] at [now]; bad lines are skipped. */

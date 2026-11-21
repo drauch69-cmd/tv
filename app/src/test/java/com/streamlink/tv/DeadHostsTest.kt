@@ -27,6 +27,24 @@ class DeadHostsTest {
         assertFalse(DeadHostText.brokenSecureLink(null))
     }
 
+    @Test fun sslReasonInPlainWords() {
+        val cert = IOException("net::ERR_CERT_AUTHORITY_INVALID, ErrorCode=11")
+        assertEquals("the TV doesn't trust its certificate [ERR_CERT_AUTHORITY_INVALID]", DeadHostText.sslReason(RuntimeException("w", cert)))
+        assertTrue(DeadHostText.sslReason(IOException("net::ERR_SSL_PROTOCOL_ERROR"))!!.contains("handshake failed [ERR_SSL_PROTOCOL_ERROR]"))
+        assertTrue(DeadHostText.sslReason(IOException("net::ERR_SSL_VERSION_OR_CIPHER_MISMATCH"))!!.startsWith("no security version"))
+        val trust = javax.net.ssl.SSLHandshakeException("x").apply { initCause(java.security.cert.CertPathValidatorException("Trust anchor for certification path not found.")) }
+        assertTrue(DeadHostText.sslReason(trust)!!.startsWith("the TV doesn't trust its certificate"))
+        assertTrue(DeadHostText.sslReason(SSLException("Unable to parse TLS packet header"))!!.startsWith("the secure handshake failed [SSLException: Unable"))
+        assertNull(DeadHostText.sslReason(SocketTimeoutException("timeout")))
+    }
+
+    @Test fun allRememberedNeedsEveryHost() {
+        val dead = setOf("a", "b")
+        assertTrue(DeadHostText.allRemembered(listOf("a", "b")) { it in dead })
+        assertFalse(DeadHostText.allRemembered(listOf("a", "c")) { it in dead })
+        assertFalse(DeadHostText.allRemembered(emptyList()) { it in dead })
+    }
+
     @Test fun storedFormRoundTripsAndExpires() {
         val map = mapOf("a.example" to now - 1000, "old.example" to now - DeadHosts.DEAD_MS - 1)
         val back = DeadHostText.parse(DeadHostText.format(map) + "\nbad line", now, DeadHosts.DEAD_MS)

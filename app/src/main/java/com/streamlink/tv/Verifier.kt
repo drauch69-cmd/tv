@@ -166,8 +166,12 @@ object Verifier {
         val answers = cands.map { java.util.Collections.synchronizedList(ArrayList<Int>()) }
         val over = java.util.concurrent.atomic.AtomicBoolean(false)
         val quietLog: (String) -> Unit = { m -> if (!over.get()) log(m) }
+        // Every stream here is on a server remembered as down: the memory alone must not sink the page (the server may be
+        // back), so each is tried once for real. A fresh failure is remembered again.
+        val retryDead = DeadHostText.allRemembered(cands.map { Report.host(it.url) }) { DeadHosts.isDead(it) }
+        if (retryDead) log("Every stream here is on a server remembered as down; trying them once anyway")
         val futures = try {
-            pool.invokeAll(cands.mapIndexed { i, c -> Callable { (if (fresh) { pre.remove(c.url); null } else takePre(c)) ?: check(c, quietLog, answers[i], over) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
+            pool.invokeAll(cands.mapIndexed { i, c -> Callable { (if (fresh || retryDead) { pre.remove(c.url); null } else takePre(c)) ?: check(c, quietLog, answers[i], over, retryDead) } }, TOTAL_LIMIT_MS, TimeUnit.MILLISECONDS)
         } finally {
             pool.shutdownNow()
         }
@@ -253,6 +257,8 @@ object Verifier {
         /** Filled with the answer of each try as it comes (see [rank]); [over] says the caller stopped waiting. */
         answers: MutableList<Int> = java.util.Collections.synchronizedList(ArrayList<Int>()),
         over: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false),
+        /** Try servers remembered as down anyway (every candidate on the page is on one; see [rank]). */
+        ignoreDead: Boolean = false,
     ): Checked {
         // Up to 5 real referers (the finder already caps each list), then the no-referer attempt last.
         // The referer this stream server accepted last time goes first (see [ServerMemory]).
@@ -261,7 +267,7 @@ object Verifier {
         val remembered = ServerMemory.refererFor(host)?.takeUnless { AdBlock.isBlockedHost(Report.host(it)) }
         val refs = ServerMemory.refererOrder(c.referers, remembered)
         if (remembered != null && refs.firstOrNull() == remembered) log("Trying the referer this server accepted last time")
-        if (DeadHosts.isDead(host)) {
+        if (!ignoreDead && DeadHosts.isDead(host)) {
             answers.add(0)
             log("✗ ${Report.short(c.url)}: ${DeadNotes.SERVER_DOWN}")
             return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), DeadNotes.SERVER_DOWN)
@@ -269,17 +275,18 @@ object Verifier {
         var note = "no response"
         val tried = ArrayList<String>()
         var broken = false
+        var why: String? = null
         // Every try answered 404/410: the address is gone (the stream is offline), not refused (see [DeadStream]).
         // The answer of each try: the HTTP status, or 0 when the fetch threw (no answer at all; see [DeadStream.goneVerdict]).
         for (ref in refs) {
             if (over.get() || DeadStream.enough(synchronized(answers) { answers.toList() })) break
             tried.add(Headers.describeReferer(ref))
-            val r = fetch(c.url, c.headers, ref, log) { e -> if (DeadHostText.brokenSecureLink(e)) broken = true }
+            val r = fetch(c.url, c.headers, ref, log) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
             if (r == null) {
                 answers.add(0)
                 // A broken secure connection is the server, not the referer: the other referers would fail the same way.
                 if (broken) {
-                    if (DeadHosts.record(host)) log("$host's secure connection is broken; remembering it as down for a few minutes")
+                    if (DeadHosts.record(host) || ignoreDead) log("$host's secure connection is broken ($why); remembering it as down for a few minutes")
                     note = DeadNotes.SERVER_DOWN
                     break
                 }
@@ -323,7 +330,7 @@ object Verifier {
             // share piece servers, and a broken one fails every source behind it). Only a broken secure connection fails
             // the check; a slow or refused answer leaves it to the player.
             if (live && !adLike && isHls && !over.get()) {
-                val down = probeDown(text, r.finalUrl, master, variants, c.headers, ref, log)
+                val down = probeDown(text, r.finalUrl, master, variants, c.headers, ref, log, ignoreDead)
                 if (down != null) {
                     log("✗ ${Report.short(c.url)}: $down")
                     return Checked(c, false, master, false, live, adLike, null, variants, down)
@@ -381,13 +388,13 @@ object Verifier {
      */
     private fun probeDown(
         text: String, base: String, master: Boolean, variants: List<String>,
-        headers: Map<String, String>, ref: String, log: (String) -> Unit,
+        headers: Map<String, String>, ref: String, log: (String) -> Unit, ignoreDead: Boolean = false,
     ): String? {
         var mediaText = text
         var mediaBase = base
         if (master) {
             val v = variants.firstOrNull() ?: return null
-            when (val p = probe(v, headers, ref, PROBE_PLAYLIST_BYTES, log)) {
+            when (val p = probe(v, headers, ref, PROBE_PLAYLIST_BYTES, log, ignoreDead)) {
                 is Probe.Down -> return p.note
                 is Probe.Got -> {
                     val t = String(p.resp.body, Charsets.UTF_8).trimStart('\uFEFF', ' ', '\r', '\n', '\t')
@@ -399,7 +406,7 @@ object Verifier {
             }
         }
         val piece = DeadNotes.firstPiece(mediaText, mediaBase) ?: return null
-        return (probe(piece, headers, ref, PROBE_PIECE_BYTES, log) as? Probe.Down)?.note
+        return (probe(piece, headers, ref, PROBE_PIECE_BYTES, log, ignoreDead) as? Probe.Down)?.note
     }
 
     private sealed class Probe {
@@ -408,14 +415,15 @@ object Verifier {
         object NoVerdict : Probe()
     }
 
-    private fun probe(url: String, headers: Map<String, String>, ref: String, max: Int, log: (String) -> Unit): Probe {
+    private fun probe(url: String, headers: Map<String, String>, ref: String, max: Int, log: (String) -> Unit, ignoreDead: Boolean = false): Probe {
         val h = Report.host(url)
-        if (DeadHosts.isDead(h)) return Probe.Down(DeadNotes.downstreamDown(h))
+        if (!ignoreDead && DeadHosts.isDead(h)) return Probe.Down(DeadNotes.downstreamDown(h))
         var broken = false
-        val r = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS) { e -> if (DeadHostText.brokenSecureLink(e)) broken = true }
+        var why: String? = null
+        val r = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
         if (r == null) {
             if (!broken) return Probe.NoVerdict
-            if (DeadHosts.record(h)) log("$h's secure connection is broken; remembering it as down for a few minutes")
+            if (DeadHosts.record(h) || ignoreDead) log("$h's secure connection is broken ($why); remembering it as down for a few minutes")
             return Probe.Down(DeadNotes.downstreamDown(h))
         }
         if (r.code !in 200..299) return Probe.NoVerdict
@@ -447,7 +455,7 @@ object Verifier {
             val body = stream?.use { readUpTo(it, max) } ?: ByteArray(0)
             Resp(code, body, conn.url.toString())
         } catch (e: Exception) {
-            log("  ${Report.short(url)}: ${e.javaClass.simpleName}")
+            log("  ${Report.short(url)}: ${DeadHostText.sslReason(e) ?: e.javaClass.simpleName}")
             onError?.invoke(e)
             null
         } finally {
