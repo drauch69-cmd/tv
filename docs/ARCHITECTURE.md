@@ -539,7 +539,7 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   the page again…") and auto-switches. Hosts seen in checks in the last 30 min (max 30) get one HEAD handshake when `MainActivity`
   opens (`DeadHosts.recheckOnStart`; "Start-up server check: N down, M back up").
   **Standard-networking retry** (2026-11-21): when Chrome's engine hits a broken handshake in `Verifier` (playlist fetch or
-  `probe`), it retries once with `URL.openConnection()`; success records `FastStart.STANDARD` for that host and clears it
+  `probe`), it retries once with `URL.openConnection()`; success records `ServerMemory.STANDARD` for that host and clears it
   from `DeadHosts`. `NetDiag.once` logs engine/WebView versions (once per run) and the host's system DNS answer (once per host).
   PNG private sections (`PngPixels.privateSections`, e.g. "tsDa") are tried by `UnwrapDataSource` before pixel decoding.
   When every candidate in a `Verifier.rank` is on a remembered-down server (`DeadHostText.allRemembered`), the memory is

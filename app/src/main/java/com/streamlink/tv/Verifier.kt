@@ -289,7 +289,7 @@ object Verifier {
                 val s = fetch(c.url, c.headers, ref, log, standard = true)
                 if (s != null) {
                     log("$host refused Chrome's network engine but answered standard networking; the player will use that")
-                    FastStart.recordEngine(host, FastStart.STANDARD)
+                    ServerMemory.recordEngine(host, ServerMemory.STANDARD)
                     DeadHosts.clear(host)
                     broken = false
                     r = s
@@ -441,7 +441,7 @@ object Verifier {
             val s = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS, standard = true)
             if (s != null) {
                 log("$h refused Chrome's network engine but answered standard networking; the player will use that")
-                FastStart.recordEngine(h, FastStart.STANDARD)
+                ServerMemory.recordEngine(h, ServerMemory.STANDARD)
                 broken = false
                 r = s
             } else {
@@ -461,8 +461,8 @@ object Verifier {
 
     private fun fetch(
         url: String, headers: Map<String, String>, referer: String, log: (String) -> Unit,
-        max: Int = 512 * 1024, timeoutMs: Int = 4000, onError: ((Exception) -> Unit)? = null,
-        standard: Boolean = false,
+        max: Int = 512 * 1024, timeoutMs: Int = 4000, standard: Boolean = false,
+        onError: ((Exception) -> Unit)? = null,
     ): Resp? {
         var conn: HttpURLConnection? = null
         return try {
