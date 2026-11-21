@@ -128,6 +128,19 @@ object Ui {
     private fun fade(ctx: Context, top: Int, bottom: Int, radiusDp: Float) =
         GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(top, bottom)).apply { cornerRadius = dp(ctx, radiusDp).toFloat() }
 
+    /**
+     * Laid over a featured card's photo: the card colour at the photo's left edge, fading out at once and gone by
+     * about 55% of the way across, so only a thin edge is dark and the photo has no hard line (user, 2026-11-20).
+     */
+    fun photoFade(): GradientDrawable = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(
+        FADE_BOTTOM, 0xC014181E.toInt(), 0x8014181E.toInt(), 0x4814181E, 0x1C14181E, 0x0614181E, 0x0014181E, 0x0014181E, 0x0014181E,
+    ))
+
+    /** Same fade, top to bottom, for a photo that sits above the text (the sport screen's side card). */
+    fun photoFadeDown(): GradientDrawable = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(
+        FADE_BOTTOM, 0xB014181E.toInt(), 0x5014181E, 0x1814181E, 0x0014181E, 0x0014181E,
+    ))
+
     /** Card look: a subtle dark-to-less-dark fade, a shade lighter when focused, with the accent ring on top. */
     fun fadeCard(v: View, radiusDp: Float = 12f) {
         val ctx = v.context

@@ -63,5 +63,17 @@ object AutoSwitch {
         null
     }
 
+    /** The next remembered candidate that is not dead, without taking it (the loading screen warms it up). */
+    fun peekNext(now: Long): Source? = synchronized(lock) {
+        if (used >= MAX_SWITCHES) return null
+        pending.firstOrNull { c -> dead[key(c.url)].let { it == null || now - it >= DEAD_MS } }
+    }
+
+    /** For the loading screen: "stream n of m" (this try's number, and how many tries this watch can make). */
+    fun progress(): Pair<Int, Int> = synchronized(lock) {
+        val n = used + 1
+        n to minOf(MAX_SWITCHES + 1, n + pending.size).coerceAtLeast(n)
+    }
+
     internal fun resetAllForTest() = synchronized(lock) { used = 0; dead.clear(); pending = emptyList() }
 }

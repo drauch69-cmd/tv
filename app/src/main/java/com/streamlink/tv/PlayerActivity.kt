@@ -1466,7 +1466,7 @@ class PlayerActivity : Activity() {
         episode.end()
         reloadPending?.let { main.removeCallbacks(it) }
         if (!src.openPage) {
-            Report.log("Stream went down; switching to ${src.label} (${Report.host(src.url)})")
+            Report.log("Stream failed ($why); switching to ${src.label} (${Report.host(src.url)})")
             sourceIndex = first
             refererIndex = 0
             reconnects = 0
@@ -1476,8 +1476,8 @@ class PlayerActivity : Activity() {
         }
         AutoSwitch.markDead(s.pageUrl, now)
         val target = src.playerUrl.ifEmpty { src.url }
-        Report.log("Stream went down; switching to ${src.label} (${Report.host(target)})")
-        showCover("Stream went down, trying another source…")
+        Report.log("Stream failed ($why); switching to ${src.label} (${Report.host(target)})")
+        showCover("That stream didn't work, trying the next one…")
         release()
         startActivity(WaitingActivity.linkPageIntent(this, target, src.label, src.referers.firstOrNull { it.isNotBlank() }, auto = true))
         finish()
@@ -1568,7 +1568,7 @@ class PlayerActivity : Activity() {
             sniffer.timed = false
             if (found.sources.isEmpty()) {
                 Timing.emit(Timing.PATH_SITE_PLAYER)
-                openSitePlayer(if (found.offline) "the site's stream is offline" else "no direct stream found", found.pageUrl)
+                openSitePlayer(if (found.offline) "the site's stream is offline" else "no direct stream found", found.pageUrl, tryNext = false)
             } else {
                 Session.current = found
                 loadSession()
@@ -1587,8 +1587,24 @@ class PlayerActivity : Activity() {
         finish()
     }
 
-    private fun openSitePlayer(why: String, pageUrl: String? = null) {
+    /**
+     * This stream can't play here. Never the site's player by itself (user, 2026-11-20): first the next stream
+     * ([tryAutoSwitch]); with none left, the loading screen tries the game's other streams and else offers the site's
+     * player as a button. [tryNext] false: a new direct link failed, so the old stream's sources are not used.
+     */
+    private fun openSitePlayer(why: String, pageUrl: String? = null, tryNext: Boolean = true) {
+        if (tryNext && tryAutoSwitch(why)) return
         val page = pageUrl ?: set?.pageUrl ?: return finish()
+        Report.log("Stream failed ($why): looking for another stream")
+        episode.end()
+        release()
+        startActivity(WaitingActivity.failedIntent(this, page, Session.title, why, Session.listItemUrl))
+        finish()
+    }
+
+    /** Only when asked for (phone page): the site's own player. */
+    private fun forceSitePlayer(why: String) {
+        val page = set?.pageUrl ?: return finish()
         Report.log("Switching to the site's own player ($why)")
         episode.end()
         release()
@@ -1628,7 +1644,7 @@ class PlayerActivity : Activity() {
             "stop" -> finish()
             "quality" -> setQuality(v?.toIntOrNull() ?: -1)
             "source" -> v?.toIntOrNull()?.let { switchSource(it) }
-            "site" -> openSitePlayer("requested from phone")
+            "site" -> forceSitePlayer("requested from phone")
             "clean" -> openCleanPlayer("requested from phone")
             "open" -> v?.let { openLink(it) }
             "tunnel" -> setTunneling(v == "on")

@@ -9,6 +9,13 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **UI + playing batch** (2026-11-20, user's go): home featured card (small dark area, soft photo fade, clock moved up,
+  no stream pill, scores next to names); sport screen centered scores + side card (that sport's featured game, else
+  next up); OK on a game plays the best stream, hold OK = all streams; failures move to the next stream (max 3
+  switches, "Trying stream n of m"), never the site player by itself ("No working stream" screen with "Use site's
+  player"; that button is also on the loading screen); next stream prewarmed 4 s into the first search; running log
+  with "Download all logs" / "Clear saved logs" on the phone. Check: prewarm doesn't slow the first stream on the Onn,
+  how many "Next stream warmed up" lines appear, photo crop at the new 3:1 shape (re-crop on the phone if off).
 - **Featured card + Live games order by excitement, flame on games heating up** (2026-11-20): switch count on a busy
   Sunday/Saturday, focus never jumps, ESPN's live win probability actually arrives, basketball weights untested.
 - **Player ping pill** (2026-11-20): reads ~10–60 ms, turns yellow/red when the connection struggles.
@@ -88,6 +95,9 @@ Reminder: lay out options and get a "go" before starting any of these.
 - **Home "Live now" row removed; one "Live games" row** (user, 2026-11-19 ~20:05; replaces the build 224 "Live now
   narrowing" and the channel-word list). RedZone is the only channel that gets a Live games card (first, while live);
   other always-on channels live in the 24/7 tile. NFL games come before other sports in Live games.
+- **Never open the site's player by itself** (user, 2026-11-20): a failure moves to the next stream of the game,
+  else a "No working stream" screen with a "Use site's player" button. **Picking a game plays its best stream**
+  (user, 2026-11-20); hold OK for the stream list. The home Live games small cards keep their layout (user said fine).
 - **Sources come from the app, not from pressing buttons** (2026-11-19): the background link run is retired. The Source
   panel = this page's playable sources, its own numbered addresses (`?source=N`-style, read from the page), and other
   sites' streams for the same game. A stream that goes down switches automatically (after reconnects fail, max 3 per

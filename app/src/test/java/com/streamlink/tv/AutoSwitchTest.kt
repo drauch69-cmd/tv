@@ -47,4 +47,12 @@ class AutoSwitchTest {
         assertEquals("https://o/2", AutoSwitch.takeNext(t0 + 10)!!.url)
         assertNull(AutoSwitch.takeNext(t0 + 10))
     }
+
+    @Test fun peekNextDoesNotTakeAndProgressCountsTries() {
+        AutoSwitch.begin(listOf(page("https://a/1"), page("https://b/2")))
+        assertEquals(2 to 4, AutoSwitch.progress()) // 2nd try, 1 + 1 + 2 pending = 4
+        AutoSwitch.markDead("https://a/1", 1000L)
+        assertEquals("https://b/2", AutoSwitch.peekNext(2000L)?.url)
+        assertEquals("https://b/2", AutoSwitch.peekNext(2000L)?.url) // still there
+    }
 }

@@ -229,8 +229,9 @@ class CleanPlayerActivity : Activity() {
         main.removeCallbacksAndMessages(null)
         val pageUrl = Session.current?.pageUrl ?: set?.pageUrl
         if (pageUrl == null) return finish()
-        Report.log("Switching to the site's own player ($why)")
-        startActivity(SitePlayerActivity.intent(this, pageUrl))
+        // Never the site's player by itself (user, 2026-11-20): the next stream, else a Use site's player button.
+        Report.log("Clean player gave up ($why): looking for another stream")
+        startActivity(WaitingActivity.failedIntent(this, pageUrl, Session.title, why, Session.listItemUrl))
         finish()
     }
 

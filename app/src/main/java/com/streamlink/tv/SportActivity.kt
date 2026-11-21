@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -42,8 +43,18 @@ class SportActivity : Activity() {
     /** Everything one draw needs, worked out off the main thread. [look] changes when anything shown would change. */
     private class Model(
         val f: SportFolders, val sections: List<GameSections.Section>, val tagged: Int, val showAll: Boolean,
-        val now: Long, val look: String,
+        val now: Long, val look: String, val side: GameFolder?, val sideLive: Boolean, val sideLook: String,
     )
+
+    // ---- Side card: this sport's featured game (FeaturedPick, its own state per sport), else the next game up ----
+    private lateinit var side: LinearLayout
+    private lateinit var sidePhoto: ImageView
+    private lateinit var sideBadges: LinearLayout
+    private lateinit var sideTeams: LinearLayout
+    private lateinit var sideWatch: TextView
+    private var sideGame: GameFolder? = null
+    private var drawnSideLook: String? = null
+    private var sidePhotoKey = ""
 
     private val handler: (String, String?) -> Unit = { c, _ ->
         if (c == "stop") finish()
@@ -227,8 +238,13 @@ class SportActivity : Activity() {
         rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         rows.addView(Ui.text(this, "Loading games…", 15f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, dp(6)) })
         scroll.addView(rows, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        content.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
-        content.addView(Ui.text(this, "OK  Open   ·   Menu  Refresh now", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
+        // Games on the left, this sport's featured game on the right (user, 2026-11-20: narrower rows).
+        val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        body.addView(scroll, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        buildSide()
+        body.addView(side, LinearLayout.LayoutParams(dp(SIDE_W), ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(20); topMargin = dp(3) })
+        content.addView(body, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(14) })
+        content.addView(Ui.text(this, "OK  Play best stream   ·   Hold OK  All streams   ·   Menu  Refresh now", 11f, Ui.TEXT_3).apply { setPadding(0, dp(10), 0, 0) })
         root.addView(content, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
     }
@@ -288,13 +304,19 @@ class SportActivity : Activity() {
             sb.append(']')
         }
         for (s in f.other) sb.append("|o").append(streamLook(s, now))
-        return Model(f, sections, tagged, showAll, now, sb.toString())
+        val pick = FeaturedPick.choose(listOf(f), now, sideFocused, sideState(lg))?.folder
+        val sideGf = pick ?: GamePick.nextUp(f.games, now)
+        val sideLook = sideGf?.game?.let { g ->
+            g.id + g.state + g.away.score + g.home.score + (ScoreText.status(g) ?: "") + SportsText.kickoff(g.startMillis, zone) + sideGf.streams.size
+        } ?: ""
+        return Model(f, sections, tagged, showAll, now, sb.toString(), sideGf, pick != null, sideLook)
     }
 
     private fun streamLook(s: GameStream, now: Long): String =
         GameFolders.urlKey(s.item.url) + ListText.displayTitle(s.item) + s.listName + ListSections.meta(s.item, now) + ListSections.badge(s.item, now).text
 
     private fun draw(m: Model) {
+        drawSide(m)
         if (!forceDraw && m.look == drawnLook) return
         forceDraw = false
         drawnLook = m.look
@@ -349,7 +371,9 @@ class SportActivity : Activity() {
             isFocusable = true; isClickable = true
             tag = "g:" + g.id
             contentDescription = SportsText.matchup(g)
-            setOnClickListener { startActivity(StreamsActivity.gameIntent(this@SportActivity, league, g.id)) }
+            // OK plays the best stream; holding OK opens the game's full stream list (user, 2026-11-20).
+            setOnClickListener { if (!playBest(gf)) openGame(g) }
+            setOnLongClickListener { openGame(g); true }
         }
         // Mirrored around the time or score (user's mockup, 2026-11-20): "Cardinals [logo] 7:00 PM [logo] Steelers".
         // Each name hugs its own logo; the first team's text is right-aligned, the second's left-aligned. A spacer as
@@ -381,10 +405,11 @@ class SportActivity : Activity() {
         row.addView(side(g.away, mirrored = true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val mid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
         if (started && ScoreStatus.cancelLabel(g) == null) {
-            mid.addView(Ui.text(this, "${ScoreText.points(g.away)} – ${ScoreText.points(g.home)}", 21f, Ui.TEXT, bold = true))
+            // A vertical LinearLayout stretches its children, so the text itself is centered (it sat left of middle).
+            mid.addView(Ui.text(this, "${ScoreText.points(g.away)} – ${ScoreText.points(g.home)}", 21f, Ui.TEXT, bold = true).apply { gravity = Gravity.CENTER_HORIZONTAL })
             val hot = gf.streams.isNotEmpty() && FeaturedPick.heating(FeaturedPick.shared.rateNow(gf, System.currentTimeMillis()))
             mid.addView(Ui.text(this, (if (hot) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: ""), 11f, if (g.state == "in") Ui.LIVE_TEXT else Ui.TEXT_2, bold = g.state == "in").apply {
-                setPadding(0, dp(3), 0, 0)
+                setPadding(0, dp(3), 0, 0); gravity = Gravity.CENTER_HORIZONTAL
             })
         } else {
             mid.addView(Ui.badge(this, ScoreStatus.cancelLabel(g) ?: SportsText.kickoff(g.startMillis, zone), false),
@@ -402,6 +427,125 @@ class SportActivity : Activity() {
         startActivity(WaitingActivity.intent(this, s.item, s.listId, s.listName))
     }
 
+    /** Plays [gf]'s best stream (best-ranked list first, skipping ones marked Offline or just failed); false with none. */
+    private fun playBest(gf: GameFolder): Boolean {
+        val now = System.currentTimeMillis()
+        val s = GamePick.best(gf.streams) { OfflineMarks.isOffline(it.item.url, now) || AutoSwitch.isDead(it.item.url, now) } ?: return false
+        play(s)
+        return true
+    }
+
+    private fun openGame(g: Game) = startActivity(StreamsActivity.gameIntent(this, league, g.id))
+
+    @Volatile private var sideFocused = false
+
+    private fun buildSide() {
+        side = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = Ui.rounded(this@SportActivity, Ui.FADE_BOTTOM, 16f)
+            clipToOutline = true
+            visibility = View.GONE
+        }
+        val photoBox = FrameLayout(this)
+        sidePhoto = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
+        photoBox.addView(sidePhoto, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        photoBox.addView(View(this).apply { background = Ui.photoFadeDown() }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        side.addView(photoBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(SIDE_PHOTO_H)))
+        sidePhoto.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeSidePhoto() }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), dp(18)) }
+        sideBadges = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        col.addView(sideBadges)
+        sideTeams = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(sideTeams, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+        sideWatch = Ui.text(this, "▶  Watch", 14f, Ui.ON_ACCENT, bold = true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(18), dp(9), dp(18), dp(9))
+            Ui.primaryCard(this, 99f)
+            isFocusable = true; isClickable = true
+            setOnClickListener { sideGame?.let { if (!playBest(it)) openGame(it.game) } }
+            setOnLongClickListener { sideGame?.let { openGame(it.game) }; true }
+            setOnFocusChangeListener { _, has -> sideFocused = has }
+        }
+        col.addView(sideWatch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) })
+        side.addView(col)
+    }
+
+    private fun drawSide(m: Model) {
+        val gf = m.side
+        if (gf == null) {
+            val hadFocus = sideWatch.hasFocus()
+            side.visibility = View.GONE
+            sideGame = null; drawnSideLook = null
+            if (hadFocus) rows.getChildAt(0)?.requestFocus()
+            return
+        }
+        sideGame = gf
+        side.visibility = View.VISIBLE
+        loadSidePhoto()
+        if (m.sideLook == drawnSideLook) return
+        drawnSideLook = m.sideLook
+        val g = gf.game
+        val zone = ZoneId.systemDefault()
+        sideBadges.removeAllViews()
+        if (m.sideLive) {
+            sideBadges.addView(Ui.badge(this, "LIVE", true, 10.5f))
+            val hot = FeaturedPick.heating(sideState(league).ratings[g.id])
+            sideBadges.addView(Ui.text(this, (if (hot) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: ""), 12f, Ui.LIVE_TEXT, bold = true).apply { maxLines = 1 },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
+        } else {
+            sideBadges.addView(Ui.text(this, "NEXT UP", 10.5f, Ui.TEXT_2, bold = true).apply { letterSpacing = 0.08f })
+            sideBadges.addView(Ui.text(this, SportsText.kickoff(g.startMillis, zone), 12f, Ui.TEXT, bold = true).apply { maxLines = 1 },
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
+        }
+        sideTeams.removeAllViews()
+        val away = g.away.score.toIntOrNull() ?: 0
+        val home = g.home.score.toIntOrNull() ?: 0
+        sideTeams.addView(sideTeam(g.away, !m.sideLive || away >= home, m.sideLive))
+        sideTeams.addView(sideTeam(g.home, !m.sideLive || home >= away, m.sideLive),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        sideWatch.contentDescription = "Watch ${SportsText.matchup(g)}"
+    }
+
+    /** Logo, name, and the score just after the name (not pushed to the far edge). */
+    private fun sideTeam(t: TeamSide, leading: Boolean, showScore: Boolean): View {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        row.addView(Logos.view(this, t, 28))
+        val c = if (leading) Ui.TEXT else 0xFFC4CAD3.toInt()
+        row.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 17f, c, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
+        if (showScore) row.addView(Ui.text(this, ScoreText.points(t), 19f, c, bold = true),
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
+        return row
+    }
+
+    private fun loadSidePhoto() {
+        val key = league + "|" + getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString()
+        if (key == sidePhotoKey) return
+        sidePhotoKey = key
+        val w = dp(SIDE_W)
+        val h = dp(SIDE_PHOTO_H)
+        val app = applicationContext
+        val lg = league
+        try {
+            calc.execute {
+                val b = try { SportPhotos.bitmap(app, lg, w, h) } catch (_: Exception) { null }
+                main.post {
+                    if (isFinishing || isDestroyed || sidePhotoKey != key) return@post
+                    sidePhoto.setImageBitmap(b)
+                    placeSidePhoto()
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+        }
+    }
+
+    private fun placeSidePhoto() {
+        val d = sidePhoto.drawable ?: return
+        val (fx, fy) = SportPhotos.focus(this, league)
+        val p = PhotoFrame.place(d.intrinsicWidth, d.intrinsicHeight, sidePhoto.width, sidePhoto.height, fx, fy)
+        sidePhoto.imageMatrix = android.graphics.Matrix().apply { setScale(p.scale, p.scale); postTranslate(p.dx, p.dy) }
+    }
+
     private fun showAll(): Boolean = prefs().getBoolean(PREF_PREFIX + league, false)
     private fun setShowAll(on: Boolean) { prefs().edit().putBoolean(PREF_PREFIX + league, on).apply() }
     private fun prefs() = getSharedPreferences("streamlink", Context.MODE_PRIVATE)
@@ -409,6 +553,11 @@ class SportActivity : Activity() {
 
     companion object {
         private const val CHIP_W = 56
+        private const val SIDE_W = 300
+        private const val SIDE_PHOTO_H = 130
+        /** Each sport screen picks its own featured game; kept app-wide so the pick holds steady between visits. */
+        private val sideStates = HashMap<String, FeaturedPick.State>()
+        @Synchronized private fun sideState(league: String) = sideStates.getOrPut(league) { FeaturedPick.State() }
         private const val EXTRA_LEAGUE = "league"
         private const val PREF_PREFIX = "sport_all_games_"
         /** How often (beats = seconds) the tagged lists are checked for a due re-read. */

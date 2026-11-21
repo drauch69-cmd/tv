@@ -153,6 +153,24 @@ Remote tabs; prefetch toggle).
 
 ## Key mechanisms
 
+**No automatic site player (2026-11-20; overrides every "else the site player" below).** Every place that used to open
+`SitePlayerActivity` by itself now calls `PlayerActivity.openSitePlayer` (= `tryAutoSwitch`, else
+`WaitingActivity.failedIntent`), `CleanPlayerActivity.openSite` (= `failedIntent`) or `WaitingActivity.tryAlternatives`
+(other streams of the same game via `Alternatives.forPage`, max `AutoSwitch.MAX_SWITCHES`). With nothing left,
+`WaitingActivity.showFailed` shows "No working stream" with a focused "Use site's player" button (also on the loading
+screen at all times). The site player opens only from that button, the phone's "site" command or the list's own button.
+A list event that has started and has no stream on the first check moves to the next stream at once instead of waiting.
+Loading screen shows "Trying stream n of m" (`AutoSwitch.progress`). **Prewarm:** 4 s into the first search
+(`PREWARM_AFTER_MS`) a second quiet sniffer searches the next candidate (`AutoSwitch.peekNext` or the first alternative)
+in `warmHolder`; a stream it finds goes to `PreFound`, so the switch to it starts instantly. Lost if this screen ends first.
+**Game pick:** OK on a game (home Live games tiles, featured Watch, sport rows, sport side card) plays `GamePick.best`
+(first stream not Offline / not dead); hold OK opens `StreamsActivity`. **Running log:** `ReportLog` keeps each play's
+report (`Report.start` archives the previous one; the current one is saved every 10 s) in `report-history.txt`, last 25
+plays / 1.5 MB (`ReportHistory`); GET `/reports` downloads all, POST `/reports/clear` empties it.
+**Sport screen side card:** `FeaturedPick.choose` on that sport only, its own `State` per sport; else `GamePick.nextUp`.
+Home featured card: photo box 636x212 dp (phone frames photos at 3:1), `Ui.photoFade` over the photo only.
+
+
 - **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s; the count is cleared
   when the site player shows the page loaded a playlist the app can see. The early give-up on a
   player frame from another site (8 s after the first tap) was removed (f396b92): those players often need 10-15 s.

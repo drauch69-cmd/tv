@@ -182,6 +182,9 @@
     <button type="button" id="refresh">Refresh</button>
     <button type="button" id="copy">Copy report</button>
   </div>
+  <p style="margin:10px 0 0"><a href="/reports" download style="font-weight:600;display:inline-block;min-height:44px;line-height:44px">Download all logs</a>
+    &nbsp;·&nbsp; <a href="#" id="clearlogs" style="display:inline-block;min-height:44px;line-height:44px">Clear saved logs</a></p>
+  <p class="small" style="margin:0">One text file with the last 25 plays' reports, oldest first, then the current one.</p>
   <p style="margin:10px 0 0"><a href="/sample" download style="font-weight:600;display:inline-block;min-height:44px;line-height:44px">Save sample</a></p>
   <p class="small" style="margin:0">Saves the playlist and first video chunks, plus a snapshot of the last list page read and of the last stream page searched for other links, so a developer can see exactly what the site sends. Contains those pages' addresses — only share it with people you trust.</p>
 </section>
@@ -573,6 +576,13 @@
     if (open) { loadReport(); $('reportbox').scrollIntoView({block: 'nearest'}); }
   };
   $('refresh').onclick = loadReport;
+  $('clearlogs').onclick = function(e){
+    e.preventDefault();
+    if (!confirm('Clear the saved logs on the TV? The current report stays.')) return;
+    var a = $('clearlogs');
+    fetch('/reports/clear', {method:'POST'}).then(function(){ a.textContent = 'Cleared ✓'; setTimeout(function(){ a.textContent = 'Clear saved logs'; }, 1500); })
+      .catch(function(){ a.textContent = 'Could not reach the TV'; });
+  };
   $('copy').onclick = function(){
     var t = $('report').textContent;
     var btn = $('copy');
@@ -604,7 +614,7 @@
   setInterval(function(){ if (tab === 'live' && document.visibilityState !== 'hidden') loadLive(); }, 30000);
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && tab === 'live') loadLive(); });
   // Home photos (one per sport; tap to set the spot that stays in view)
-  var PHOTO_ASPECT = 2.6; // the featured card's photo area, width / height
+  var PHOTO_ASPECT = 3.0; // the featured card's photo area, width / height
   function drawFrame(box, img, x, y){
     var fr = box.querySelector('.frame'), dot = box.querySelector('.dot');
     var w = img.clientWidth, h = img.clientHeight;

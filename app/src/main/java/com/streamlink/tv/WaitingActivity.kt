@@ -57,6 +57,17 @@ class WaitingActivity : Activity() {
     private var waiting = false          // the first check found nothing and we decided to keep waiting
     private var waitStartedAt = 0L
     private var gaveUp = false
+    /** No working stream was found (all tries used): set to the last reason; the screen offers the site's player. */
+    private var failedWhy: String? = null
+    private var failedPage: String? = null
+    /** Opened by the player or clean player after a failure: move on to the next stream, or show the choice screen. */
+    private var failMode = false
+    /** The list item the watch started from (finds the game's other streams), when the opener knew it. */
+    private var altKey: String? = null
+    private lateinit var siteBtn: TextView
+    /** Warms up the next stream in a second hidden page while this one is still being searched (see [prewarm]). */
+    private var warm: StreamSniffer? = null
+    private lateinit var warmHolder: FrameLayout
     private var handedOff = false
     private var keepForLate = false
     private var loggedResult = ""
@@ -92,9 +103,13 @@ class WaitingActivity : Activity() {
         linkPage = i.getBooleanExtra(EXTRA_LINK_PAGE, false)
         referer = i.getStringExtra(EXTRA_REFERER)
         auto = linkPage && i.getBooleanExtra(EXTRA_AUTO, false)
+        failMode = i.getStringExtra(EXTRA_FAILED) != null
+        altKey = i.getStringExtra(EXTRA_ITEM_KEY)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         buildUi()
-        if (linkPage) {
+        if (failMode) {
+            // nothing to log yet: the player already wrote why it stopped
+        } else if (linkPage) {
             Report.log("Opening ${ListText.displayTitle(item)} as its own page (${Report.host(item.url)})")
         } else {
             AutoSwitch.reset() // the user started something: a new watch
@@ -111,6 +126,13 @@ class WaitingActivity : Activity() {
         assertSession()
         main.removeCallbacks(beat)
         main.post(beat)
+        if (failMode) {
+            failMode = false
+            val why = intent.getStringExtra(EXTRA_FAILED) ?: "no stream"
+            if (auto && tryNextAuto()) return
+            tryAlternatives(item.url, why) { showFailed(item.url, why) }
+            return
+        }
         if (!checking && !waiting && !gaveUp) check() // very first check, or back from another screen
     }
 
@@ -125,6 +147,7 @@ class WaitingActivity : Activity() {
     override fun onDestroy() {
         main.removeCallbacksAndMessages(null)
         if (::sniffer.isInitialized) sniffer.cancel()
+        warm?.cancel(); warm = null
         releaseSession()
         super.onDestroy()
     }
@@ -149,6 +172,7 @@ class WaitingActivity : Activity() {
         checking = true
         checkStartedAt = System.currentTimeMillis()
         checkCount++
+        if (checkCount == 1) main.postDelayed({ prewarm() }, PREWARM_AFTER_MS)
         update(checkStartedAt)
         sniffer.sniff(item.url, referer = referer, lateExtras = true) { set ->
             if (!checking || handedOff) return@sniff
@@ -161,6 +185,7 @@ class WaitingActivity : Activity() {
     }
 
     private fun found(set: StreamSet) {
+        warm?.cancel(); warm = null
         handedOff = true
         main.removeCallbacksAndMessages(null)
         Report.log("Check #$checkCount: stream found, starting the player")
@@ -190,15 +215,20 @@ class WaitingActivity : Activity() {
         // An offline verdict on an item with no start time (a channel) is final: no second search.
         val noTimeGiveUp = linkPage || (item.startMillis == null && (checkCount >= NO_TIME_TRIES || offline))
         if (!waiting || noTimeGiveUp) {
+            val started = item.startMillis?.let { it <= now } == true
             if (!noTimeGiveUp && ListText.shouldWait(item.startMillis, now)) {
-                waiting = true
-                waitStartedAt = now
+                // An event that has already started: another stream of the same game is tried at once (user,
+                // 2026-11-20); only when there is none does this screen keep re-checking this page.
+                if (started && checkCount == 1) {
+                    tryAlternatives(pageUrl, why) { startWaiting(System.currentTimeMillis()) }
+                    return
+                }
+                startWaiting(now)
             } else {
                 if (auto && tryNextAuto()) return
-                if (offline && tryOfflineAlternatives(pageUrl)) return
-                // Started a while ago (or no time and still nothing): same as a link sent directly.
-                if (noTimeGiveUp && !linkPage && !offline) Report.log("No start time and no stream after $checkCount checks: opening the site's own player")
-                openSite(pageUrl)
+                // Started a while ago (or no time and still nothing): the next stream, else the choice screen.
+                if (noTimeGiveUp && !linkPage && !offline) Report.log("No start time and no stream after $checkCount checks")
+                tryAlternatives(pageUrl, why) { showFailed(pageUrl, why) }
                 return
             }
         }
@@ -206,42 +236,110 @@ class WaitingActivity : Activity() {
         update(now)
     }
 
+    private fun startWaiting(now: Long) {
+        if (handedOff || gaveUp || isFinishing) return
+        waiting = true
+        waitStartedAt = now
+        nextCheckAt = now + CHECK_EVERY_MS
+        update(now)
+    }
+
+    /** Only when the user asks (the button): the site's own page and player. */
     private fun openSite(pageUrl: String) {
         handedOff = true
         main.removeCallbacksAndMessages(null)
+        warm?.cancel(); warm = null
         Timing.emit(Timing.PATH_SITE_PLAYER)
-        AppStatus.text = "No direct stream on ${Report.host(item.url)}, showing the site's own player"
+        Report.log("Opening the site's own player (chosen by you)")
+        AppStatus.text = "Showing the site's own player for ${Report.host(pageUrl)}"
         startActivity(SitePlayerActivity.intent(this, pageUrl, referer, itemUrl = item.url))
         finish()
     }
 
     /**
-     * The page's stream is offline (every check said 404/410): try the other streams of the same game (other sites, from the
-     * sports folders) through the automatic switch; false when no switch is left (the caller opens the site player). When it
-     * returns true this screen is handed off and ends in a new page or, with no alternative found, the site player.
+     * Every try failed (user, 2026-11-20: never jump to the site's player by itself): stop here and offer the site's
+     * player as a button, focused, with Back to leave.
      */
-    private fun tryOfflineAlternatives(pageUrl: String): Boolean {
-        AutoSwitch.markDead(item.url, System.currentTimeMillis())
-        if (!AutoSwitch.canSwitch()) return false
+    private fun showFailed(pageUrl: String, why: String) {
+        if (isFinishing || isDestroyed) return
+        handedOff = false
+        main.removeCallbacksAndMessages(null)
+        sniffer.cancel(); warm?.cancel(); warm = null
+        checking = false; waiting = false
+        gaveUp = true
+        failedWhy = why
+        failedPage = pageUrl
+        val tries = AutoSwitch.switchesUsed() + 1
+        Report.log("No working stream after $tries ${if (tries == 1) "try" else "tries"} (last: $why); offering the site's player")
+        AppStatus.text = "No working stream for ${ListText.displayTitle(item)}"
+        update(System.currentTimeMillis())
+        siteBtn.requestFocus()
+    }
+
+    /**
+     * This page has no working stream: try the other streams of the same game (other sites, from the sports folders)
+     * through the automatic switch, best-ranked first. [onNone] runs (on the main thread) when there is none or no
+     * switch is left. This screen is handed off while the alternatives are looked up.
+     */
+    private fun tryAlternatives(pageUrl: String, why: String, onNone: () -> Unit) {
+        val now0 = System.currentTimeMillis()
+        AutoSwitch.markDead(item.url, now0)
+        if (!AutoSwitch.canSwitch()) { onNone(); return }
         handedOff = true
         main.removeCallbacksAndMessages(null)
-        if (::usually.isInitialized) { usually.text = "The site's stream is offline. Trying other sources…"; usually.visibility = View.VISIBLE }
+        if (::usually.isInitialized) { usually.text = "No stream there. Trying the next one…"; usually.visibility = View.VISIBLE }
         val app = applicationContext
-        kotlin.concurrent.thread(isDaemon = true, name = "offline-alternatives") {
-            val alts = try { Alternatives.forPage(app, pageUrl, item.url) } catch (_: Exception) { emptyList() }
+        val key = altKey ?: item.url
+        kotlin.concurrent.thread(isDaemon = true, name = "alternatives") {
+            val alts = try { Alternatives.forPage(app, pageUrl, key) } catch (_: Exception) { emptyList() }
             main.post {
                 if (isFinishing || isDestroyed) return@post
                 val now = System.currentTimeMillis()
-                val live = alts.filter { !AutoSwitch.isDead(it.url, now) }
+                val live = alts.filter { !AutoSwitch.isDead(it.url, now) && !OfflineMarks.isOffline(it.url, now) }
                 val first = live.firstOrNull()
-                if (first == null || !AutoSwitch.canSwitch()) { openSite(pageUrl); return@post }
+                if (first == null || !AutoSwitch.canSwitch()) {
+                    handedOff = false
+                    if (!isFinishing) { main.removeCallbacks(beat); main.post(beat) }
+                    onNone()
+                    return@post
+                }
                 AutoSwitch.begin(live.drop(1))
-                Report.log("Stream offline; switching to ${first.label} (${Report.host(first.url)})")
+                Report.log("No stream ($why); switching to ${first.label} (${Report.host(first.url)})")
                 startActivity(linkPageIntent(this, first.playerUrl.ifEmpty { first.url }, first.label, null, auto = true))
                 finish()
             }
         }
-        return true
+    }
+
+    /**
+     * Speed: a few seconds into the first search, the next stream in line (same game, best-ranked) is searched in a
+     * second hidden page. A stream it finds is kept ready (PreFound), so if this one fails the switch starts at once.
+     * Only for events that have started (or automatic tries); quiet in the report except one line when it is ready.
+     */
+    private fun prewarm() {
+        if (handedOff || !checking || isFinishing || isDestroyed || warm != null) return
+        val now0 = System.currentTimeMillis()
+        if (!linkPage && (item.startMillis ?: Long.MAX_VALUE) > now0) return
+        if (linkPage && !auto) return
+        val app = applicationContext
+        val key = altKey ?: item.url
+        kotlin.concurrent.thread(isDaemon = true, name = "prewarm") {
+            val target = if (auto) AutoSwitch.peekNext(System.currentTimeMillis())
+            else try { Alternatives.forPage(app, item.url, key).firstOrNull { val t = System.currentTimeMillis(); !AutoSwitch.isDead(it.url, t) && !OfflineMarks.isOffline(it.url, t) } } catch (_: Exception) { null }
+            target ?: return@thread
+            val url = target.playerUrl.ifEmpty { target.url }
+            main.post {
+                if (handedOff || !checking || isFinishing || isDestroyed || warm != null) return@post
+                val w = StreamSniffer(this, warmHolder).also { it.timed = false; it.quiet = true }
+                warm = w
+                w.sniff(url, referer = target.referers.firstOrNull { it.isNotBlank() }) { set ->
+                    if (set.sources.isNotEmpty()) {
+                        PreFound.put(url, set)
+                        Report.log("Next stream warmed up and ready: ${target.label} (${Report.host(url)})")
+                    }
+                }
+            }
+        }
     }
 
     /** An automatic page had no stream: continue with the next remembered candidate (this screen is replaced). */
@@ -330,13 +428,20 @@ class WaitingActivity : Activity() {
         stepsRow.visibility = if (waitMode) View.GONE else View.VISIBLE
         usually.visibility = if (waitMode) View.GONE else View.VISIBLE
         waitBox.visibility = if (waitMode) View.VISIBLE else View.GONE
+        if (!waitMode && auto) {
+            val (n, m) = AutoSwitch.progress()
+            usually.text = "Trying stream $n of $m  ·  usually ready in under 10 seconds"
+        }
         if (!waitMode) {
             val states = WaitingText.steps(if (checking) sniffer.stage else 0, handedOff)
             for (i in 0..2) styleStep(i, states[i])
             for (i in 0..1) stepLines[i].setBackgroundColor(if (states[i] == WaitingText.DONE) Ui.ACCENT else Ui.NEUTRAL_BADGE)
         }
-        whenView.text = if (gaveUp) "Gave up waiting" else WaitingText.headline(st, now, zone, locale)
+        val fw = failedWhy
+        val tries = AutoSwitch.switchesUsed() + 1
+        whenView.text = when { fw != null -> "No working stream"; gaveUp -> "Gave up waiting"; else -> WaitingText.headline(st, now, zone, locale) }
         nextView.text = when {
+            fw != null -> "Tried $tries ${if (tries == 1) "stream" else "streams"} (last: $fw). Use the site's player, or Back to return."
             gaveUp -> "No stream appeared within 3 hours of the start. Press Back to return."
             checking -> "Checking now…"
             lastCheckAt == 0L -> "Looking for the video…"
@@ -348,6 +453,7 @@ class WaitingActivity : Activity() {
         val whenFull = if (st == null) "No start time on the page"
         else ListText.whenText(st, now, zone, locale) + "  ·  " + ListText.countdown(st, now)
         val check = when {
+            fw != null -> "No working stream: $fw"
             gaveUp -> "Gave up: no stream appeared within 3 hours of the start. Press Back to return."
             checking -> if (waiting) "Checking now…" else "Looking for the video…"
             lastCheckAt == 0L -> "Looking for the video…"
@@ -382,6 +488,8 @@ class WaitingActivity : Activity() {
         val holder = FrameLayout(this)
         root.addView(holder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         sniffer = StreamSniffer(this, holder)
+        warmHolder = FrameLayout(this)
+        root.addView(warmHolder, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         val wrap = ViewGroup.LayoutParams.WRAP_CONTENT
         val col = LinearLayout(this).apply {
@@ -443,11 +551,12 @@ class WaitingActivity : Activity() {
         buttons.addView(detailsBtn, LinearLayout.LayoutParams(wrap, wrap).apply { marginEnd = dp(10) })
         checkNowBtn = button("Check now") { if (waiting && !checking && !gaveUp) check() }
         buttons.addView(checkNowBtn, LinearLayout.LayoutParams(wrap, wrap).apply { marginEnd = dp(10) })
-        val site = button("Open the page's own player") {
-            val u = Uri.parse(item.url)
-            if (u.scheme == "http" || u.scheme == "https") startActivity(SitePlayerActivity.intent(this, item.url, referer))
+        siteBtn = button("Use site's player") {
+            val page = failedPage ?: item.url
+            val u = Uri.parse(page)
+            if (u.scheme == "http" || u.scheme == "https") openSite(page)
         }
-        buttons.addView(site)
+        buttons.addView(siteBtn)
         col.addView(buttons, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(28) })
         root.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)
@@ -482,6 +591,18 @@ class WaitingActivity : Activity() {
         private const val EXTRA_LINK_PAGE = "linkPage"
         private const val EXTRA_REFERER = "referer"
         private const val EXTRA_AUTO = "auto"
+        private const val EXTRA_FAILED = "failed"
+        private const val EXTRA_ITEM_KEY = "itemKey"
+        /** How long the first search runs alone before the next stream is warmed up beside it. */
+        private const val PREWARM_AFTER_MS = 4_000L
+
+        /**
+         * The player (or clean player) gave up on [pageUrl] for [why]: this screen moves on to the next stream of the
+         * same game, or shows "No working stream" with a Use site's player button. Never opens the site player by itself.
+         */
+        fun failedIntent(ctx: Context, pageUrl: String, title: String, why: String, itemKey: String?) =
+            linkPageIntent(ctx, pageUrl, title, null, auto = true).putExtra(EXTRA_FAILED, why)
+                .apply { if (!itemKey.isNullOrBlank()) putExtra(EXTRA_ITEM_KEY, itemKey) }
 
         fun intent(ctx: Context, item: ListItem, listId: String, listName: String) =
             Intent(ctx, WaitingActivity::class.java)

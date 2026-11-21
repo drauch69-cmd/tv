@@ -18,6 +18,7 @@ object Report {
 
     @Synchronized
     fun start(url: String) {
+        if (lines.isNotEmpty()) ReportLog.archive(text()) // the running log keeps every play (user, 2026-11-20)
         muted = false
         lines.clear()
         once.clear()
@@ -42,6 +43,7 @@ object Report {
         val s = (System.currentTimeMillis() - t0) / 1000.0
         lines.add(String.format(java.util.Locale.US, "%6.1fs  %s", s, msg))
         if (lines.size > 500) lines.removeAt(0)
+        ReportLog.touch { text() }
     }
 
     @Synchronized

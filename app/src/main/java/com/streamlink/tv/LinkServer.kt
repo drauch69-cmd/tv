@@ -20,6 +20,10 @@ class LinkServer(
     private val status: () -> String = { "" },
     private val state: () -> String = { "{}" },
     private val report: () -> String = { "" },
+    /** GET /reports: every saved play's report plus the current one (the running log), as a download. */
+    private val allReports: () -> String = { "" },
+    /** POST /reports/clear: empties the running log. */
+    private val onReportsClear: () -> Unit = {},
     /** The saved-sample zip for GET /sample, or null if no stream has been loaded yet. */
     private val sample: () -> ByteArray? = { null },
     /** GET /lists: JSON of the saved stream lists. */
@@ -169,6 +173,11 @@ class LinkServer(
             method == "GET" && path == "/status" -> respond(c, 200, text, status())
             method == "GET" && path == "/state" -> respond(c, 200, "application/json; charset=utf-8", state())
             method == "GET" && path == "/report" -> respond(c, 200, text, report())
+            method == "GET" && path == "/reports" -> {
+                val name = "streamlink-logs-" + java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date()) + ".txt"
+                respondBytes(c, 200, text, allReports().toByteArray(Charsets.UTF_8), "Content-Disposition: attachment; filename=$name\r\n")
+            }
+            method == "POST" && path == "/reports/clear" -> { onReportsClear(); respond(c, 200, text, "Cleared") }
             method == "GET" && path == "/sample" -> {
                 val zip = try { sample() } catch (_: Exception) { null }
                 if (zip == null) {
