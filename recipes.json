@@ -27,6 +27,19 @@
         "end": "ends",
         "live": "live"
       }
+    },
+    {
+      "host": "streamfree.top",
+      "feed": {
+        "url": "https://streamfree.top/streams",
+        "items": "streams",
+        "link": "/player/{category}/{id}",
+        "title": "name",
+        "subtitle": "league",
+        "section": "category",
+        "start": "match_timestamp",
+        "startUnit": "s"
+      }
     }
   ],
   "_example": {

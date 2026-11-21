@@ -250,13 +250,14 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   stragglers.
   **Data-file recipes** (`FeedRecipe.kt`, `FeedRecipeTest`; user, 2026-11-20): a recipe with "feed" (no "item" needed)
   makes `IndexReader.read` download the site's own JSON (`QuickFetch.download(json = true, referer = list page)`, 8 s
-  limit `FEED_MS`) and map it to events: `items` (dotted path to the array), `filter` (field = value), `link`/`title`/
+  limit `FEED_MS`) and map it to events: `items` (dotted path to the array; an object of arrays, events grouped per sport, is joined), `filter` (field = value), `link`/`title`/
   `subtitle`/`section`/`start`/`end`/`live` fields; templates `{path:N}` (list address part, -1 last), `{field}`,
   `{x|fallback}`; a filter value `*` matches every event (reedstreams uses `{path:-1|*}`: the home page gets all
   sports, a sport page only its own). Live = the live field or now between start and end. Failure / no events = the normal (quick or full)
   read, logged "List: data file failed for <host> (…); reading the page". Uses the saved recipes copy
   (`ListRecipes.saved`, never waits). Entries on `sports`: reedstreams (one file for all sports, filtered by the list
-  address's last part, or all on the home page) and ntv. Line "List: read N events from the site's data file for <host> in X s".
+  address's last part, or all on the home page), ntv and streamfree (`/streams`, grouped per sport, start in
+  seconds, link `/player/{category}/{id}`). Line "List: read N events from the site's data file for <host> in X s".
   **Quick reads** (`QuickRead.kt`, `QuickLogicTest`; user, 2026-11-20): `IndexReader.read` first asks the per-site verdict
   (`QuickReads`, own settings file `quick_reads`). Unknown site (or due a re-check: quick 24 h, browser 7 days) = TEST: the
   page's HTML is downloaded (`QuickFetch`, browser's name + cookies), scripts and meta refresh stripped

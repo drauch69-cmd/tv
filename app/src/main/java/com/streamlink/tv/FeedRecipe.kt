@@ -14,7 +14,8 @@ import org.json.JSONObject
 object FeedRecipe {
     data class Feed(
         val url: String,
-        /** Dotted path to the events array in the answer; "" = the answer itself is the array. */
+        /** Dotted path to the events array in the answer; "" = the answer itself is the array. An object of arrays
+         *  (events grouped per sport) counts as all its arrays joined. */
         val items: String = "",
         /** Keep only events whose field equals the (expanded) value. */
         val filter: Map<String, String> = emptyMap(),
@@ -135,7 +136,13 @@ object FeedRecipe {
 
     fun items(answer: String, feed: Feed, pageUrl: String, now: Long): List<ListItem> {
         val root: Any = try { org.json.JSONTokener(answer).nextValue() } catch (_: Exception) { return emptyList() }
-        val arr = value(root, feed.items) as? JSONArray ?: return emptyList()
+        val arr = when (val v = value(root, feed.items)) {
+            is JSONArray -> v
+            is JSONObject -> JSONArray().also { out -> // events grouped by a key (e.g. per sport): all groups, in file order
+                for (k in v.keys()) (v.opt(k) as? JSONArray)?.let { g -> for (j in 0 until g.length()) out.put(g.opt(j)) }
+            }
+            else -> return emptyList()
+        }
         val parts = pathParts(pageUrl)
         val filled = feed.filter.mapNotNull { (k, v) -> expand(v, parts)?.let { k to it.lowercase() } }
         if (filled.size != feed.filter.size) return emptyList() // a filter value couldn't be filled in: don't guess

@@ -105,4 +105,18 @@ class FeedRecipeTest {
         assertEquals("/w/7", FeedRecipe.expand("/w/{a.b}", parts, org.json.JSONObject("""{"a":{"b":7}}""")))
         assertNull(FeedRecipe.expand("/w/{a.c}", parts, org.json.JSONObject("""{"a":{"b":7}}""")))
     }
+
+    @Test
+    fun eventsGroupedPerSportAreJoined() {
+        val answer = """{"streams":{"soccer":[{"id":"a-vs-b","name":"A vs B","category":"soccer","league":"Cup","match_timestamp":1800000000}],
+            "baseball":[],"basketball":[{"id":"c-vs-d","name":"C vs D","category":"basketball","league":"Hoops","match_timestamp":0}],"note":"x"}}"""
+        val feed = FeedRecipe.Feed(url = "https://www.example.com/streams", items = "streams", link = "/player/{category}/{id}",
+            title = "name", subtitle = "league", section = "category", start = "match_timestamp", startUnit = "s")
+        val items = FeedRecipe.items(answer, feed, "https://www.example.com/", now)
+        assertEquals(listOf("https://www.example.com/player/soccer/a-vs-b", "https://www.example.com/player/basketball/c-vs-d"), items.map { it.url })
+        assertEquals(listOf("A vs B", "C vs D"), items.map { it.title })
+        assertEquals(1_800_000_000_000L, items[0].startMillis)
+        assertNull(items[1].startMillis)
+        assertEquals("Hoops", items[1].subtitle)
+    }
 }
