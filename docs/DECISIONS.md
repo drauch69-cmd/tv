@@ -18,6 +18,8 @@ file's git history (commit 3680843 and earlier).
   up to 15 min old, coming days 3 h); "Loading games…" screen on a fresh start until first scores or 3 s (not on first
   run with no lists); Left/Right stops at row ends on home (no wrap); sport-screen side card lined up with the first
   game card; featured cards: live NFL/college football always beat NBA/college basketball. Check all on the TV.
+- **Cut-off scores** (2026-11-20, user's go): home featured card showed "1" for 17. Both team lines now sized the
+  same and every score spot (featured, side card, small cards) keeps room for 3 digits. Check on the TV.
 - **Open: 17 s until home games show** (2026-11-20): cause found, not fixed (user will investigate later). Live games
   and the featured card only show games with a stream, so a cold start waits for the hidden page reader (one page at
   a time, ~8–10 s each) when saved pages are old. Options offered: show games from scores at once with "Finding

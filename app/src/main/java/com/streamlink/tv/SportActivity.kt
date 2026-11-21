@@ -525,7 +525,7 @@ class SportActivity : Activity() {
         val c = if (leading) Ui.TEXT else 0xFFC4CAD3.toInt()
         row.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 17f, c, bold = true).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(10) })
-        if (showScore) row.addView(Ui.text(this, ScoreText.points(t), 19f, c, bold = true),
+        if (showScore) row.addView(Ui.scoreText(this, ScoreText.points(t), 19f, c, Gravity.END),
             LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
         return row
     }

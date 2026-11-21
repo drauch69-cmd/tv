@@ -526,7 +526,7 @@ class MainActivity : Activity() {
         top.addView(featStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(14) })
         col.addView(top)
         featTeams = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.addView(featTeams, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
+        col.addView(featTeams, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         col.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f).apply { topMargin = dp(16) })
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
         featWatch = Ui.text(this, "Watch", 15f, Ui.ON_ACCENT, bold = true).apply {
@@ -553,7 +553,7 @@ class MainActivity : Activity() {
         row.addView(Logos.view(this, t, 30))
         val c = if (leading) Ui.TEXT else 0xFFC4CAD3.toInt()
         row.addView(teamName(t, c), LinearLayout.LayoutParams(nameW, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
-        row.addView(Ui.text(this, ScoreText.points(t), 22f, c, bold = true), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(22) })
+        row.addView(Ui.scoreText(this, ScoreText.points(t), 22f, c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(22) })
         return row
     }
 
@@ -577,8 +577,9 @@ class MainActivity : Activity() {
         val home = g.home.score.toIntOrNull() ?: 0
         featTeams.removeAllViews()
         val nameW = minOf(dp(260), maxOf(teamName(g.away).let { it.paint.measureText(it.text.toString()) }, teamName(g.home).let { it.paint.measureText(it.text.toString()) }).toInt() + dp(2))
-        featTeams.addView(teamLine(g.away, away >= home, nameW))
-        featTeams.addView(teamLine(g.home, home >= away, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
+        // Both lines sized the same way, so neither score is squeezed (user, 2026-11-20: "17" showed as "1").
+        featTeams.addView(teamLine(g.away, away >= home, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        featTeams.addView(teamLine(g.home, home >= away, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         featStatus.text = (if (FeaturedPick.heating(featState.ratings[g.id])) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: "")
         featWatch.contentDescription = "Watch ${SportsText.matchup(g)}"
         loadPhoto(g.league)
@@ -723,7 +724,7 @@ class MainActivity : Activity() {
         row.addView(Ui.text(this, t.shortName.ifBlank { t.displayName }, 13.5f, c, bold = true).apply {
             maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(9) })
-        row.addView(Ui.text(this, ScoreText.points(t), 14.5f, c, bold = true))
+        row.addView(Ui.scoreText(this, ScoreText.points(t), 14.5f, c, android.view.Gravity.END))
         return row
     }
 

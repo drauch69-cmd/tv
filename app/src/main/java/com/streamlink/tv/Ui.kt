@@ -96,6 +96,17 @@ object Ui {
         v.defaultFocusHighlightEnabled = false
     }
 
+    /**
+     * A bold score that always has room for 3 digits, so a new two-digit score is never cut to one (user, 2026-11-20).
+     * [gravity]: which side of that room the digits sit on.
+     */
+    fun scoreText(ctx: Context, s: CharSequence, sp: Float, color: Int, gravity: Int = android.view.Gravity.START): TextView =
+        text(ctx, s, sp, color, bold = true).apply {
+            maxLines = 1
+            this.gravity = gravity or android.view.Gravity.CENTER_VERTICAL
+            minWidth = kotlin.math.ceil(paint.measureText("888")).toInt()
+        }
+
     fun text(ctx: Context, s: CharSequence, sp: Float, color: Int = TEXT, bold: Boolean = false): TextView =
         TextView(ctx).apply {
             text = s
