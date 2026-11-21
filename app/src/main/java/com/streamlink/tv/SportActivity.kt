@@ -55,6 +55,8 @@ class SportActivity : Activity() {
     private var sideGame: GameFolder? = null
     private var drawnSideLook: String? = null
     private var sidePhotoKey = ""
+    /** Framing of the side card's photo (city or sport photo). */
+    private var sideFocus = 0.5f to 0.5f
 
     private val handler: (String, String?) -> Unit = { c, _ ->
         if (c == "stop") finish()
@@ -531,7 +533,9 @@ class SportActivity : Activity() {
     }
 
     private fun loadSidePhoto() {
-        val key = league + "|" + getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString()
+        val g = sideGame?.game
+        val key = league + "|" + (g?.let { CityPhotoRules.placeKey(it) }) + "|" + CityPhotos.version.get() + "|" +
+            getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString()
         if (key == sidePhotoKey) return
         sidePhotoKey = key
         val w = dp(SIDE_W)
@@ -540,9 +544,15 @@ class SportActivity : Activity() {
         val lg = league
         try {
             calc.execute {
-                val b = try { SportPhotos.bitmap(app, lg, w, h) } catch (_: Exception) { null }
+                // The game's city photo first (user, 2026-11-20, choice A), else the sport's photo.
+                val city = g?.let {
+                    try { CityPhotos.forGame(app, it, w, h) { main.post { if (!isFinishing && !isDestroyed) loadSidePhoto() } } } catch (_: Exception) { null }
+                }
+                val b = city?.bitmap ?: try { SportPhotos.bitmap(app, lg, w, h) } catch (_: Exception) { null }
+                val focus = if (city != null) city.x to city.y else SportPhotos.focus(app, lg)
                 main.post {
                     if (isFinishing || isDestroyed || sidePhotoKey != key) return@post
+                    sideFocus = focus
                     sidePhoto.setImageBitmap(b)
                     placeSidePhoto()
                 }
@@ -553,7 +563,7 @@ class SportActivity : Activity() {
 
     private fun placeSidePhoto() {
         val d = sidePhoto.drawable ?: return
-        val (fx, fy) = SportPhotos.focus(this, league)
+        val (fx, fy) = sideFocus
         val p = PhotoFrame.place(d.intrinsicWidth, d.intrinsicHeight, sidePhoto.width, sidePhoto.height, fx, fy)
         sidePhoto.imageMatrix = android.graphics.Matrix().apply { setScale(p.scale, p.scale); postTranslate(p.dx, p.dy) }
     }

@@ -171,7 +171,7 @@ in `warmHolder`; a stream it finds goes to `PreFound`, so the switch to it start
 report (`Report.start` archives the previous one; the current one is saved every 10 s) in `report-history.txt`, last 25
 plays / 1.5 MB (`ReportHistory`); GET `/reports` downloads all, POST `/reports/clear` empties it.
 **Sport screen side card:** `FeaturedPick.choose` on that sport only, its own `State` per sport; else `GamePick.nextUp`.
-Home featured card: the photo covers the whole card (212 dp tall), text on top; `Ui.photoFade` runs from the card's left edge. The TV reports the card's real width/height (`SportPhotos.cardAspect`, `aspect` in GET /photos) and the phone page frames photos and previews (with stand-in text) at that shape.
+Home featured card: the photo covers the whole card (345 dp tall, about 2.5:1 on the Onn; was 212), text on top; `Ui.photoFade` runs from the card's left edge. The TV reports the card's real width/height (`SportPhotos.cardAspect`, `aspect` in GET /photos) and the phone page frames photos and previews (with stand-in text) at that shape.
 
 
 - **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s; the count is cleared
@@ -445,6 +445,21 @@ Home featured card: the photo covers the whole card (212 dp tall), text on top; 
     allow, and the phone draws the same crop as a dashed box. Routes: `GET /photos`, `GET /photo?league=`,
     `POST /photo/upload?league=` (raw bytes, 3 MB max, same-origin), `POST /photo/focus`, `POST /photo/remove`.
     Report line: "Photos: saved a N KB photo for <sport>". No photo: the card shows without one.
+  - City photos (`CityPhotos`, rules in `CityPhotoRules`; user 2026-11-20, choice A): the featured card and the sport
+    screen's side card show a photo of the game's city (ESPN `competitions[0].venue.address` city/state/country, read
+    into `Game.venueCity/venueState/venueCountry`) ahead of the sport photo. Unsplash search "<city> skyline", then
+    "<state name or country> landscape"; landscape, 10 results, widest first. Saved per city (prefs `city_photos`,
+    images in `filesDir/city-photos`) and reused; nothing found = retried in 7 days, failure = 30 min; at most 40 API
+    calls an hour (demo key: 50). Default framing x 0.5, y 0.6. The download address is called once per photo used
+    (Unsplash guideline); the card shows "Photo: <name> / Unsplash" bottom-right (home card only). The sport's fade
+    applies (`POST /photo/fade` no longer needs an uploaded photo). Key: Actions secret `UNSPLASH_ACCESS_KEY` ->
+    `BuildConfig.UNSPLASH_KEY`; empty = city photos off. Phone (Lists tab, "City photos"): framing tap and "Next photo"
+    per city. Routes: `GET /cityphotos`, `GET /cityphoto?key=`, `POST /cityphoto/next`, `POST /cityphoto/focus`.
+    Report lines: "City photos: N for "<query>"", "nothing found for <place>", "Unsplash answered <code>", "hourly limit".
+  - Demo games (`DemoGames`, user 2026-11-20): phone checkbox (`GET /demo`, `POST /demo/set`) adds 7 made-up games in
+    real stadium cities plus a made-up list carrying them, home screen only (`MainActivity.computeHome`); in memory, so
+    off after a restart. Watch on one shows a "Demo game" toast.
+  - Top bar "Sports" (user 2026-11-20): scrolls home to the Sports row and focuses its first tile.
 - **Player connection pill** (overlay, right end of the button row, refreshed every 0.5 s; same shape, padding and text
   size as the buttons, not focusable; user 2026-11-20): "⇄ 24 ms   ▸ 6.2", "  N dropped" added only when frames were
   dropped, "…" for an unknown number; button-dark fill with a hint of the level color. Purpose: is it the connection or

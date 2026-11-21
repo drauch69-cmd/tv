@@ -51,7 +51,8 @@ object SportPhotos {
 
     /** The phone's fade sliders for this sport's photo (see [PhotoFade]). */
     fun setFade(ctx: Context, league: String, width: Float, dark: Float): Boolean {
-        if (!has(ctx, league)) return false
+        // No upload needed: the fade also applies to city photos (user, 2026-11-20).
+        if (!SportPhotoRules.validLeague(league)) return false
         prefs(ctx).edit().putFloat("$league.fw", width.coerceIn(PhotoFade.MIN_WIDTH, 1f)).putFloat("$league.fd", dark.coerceIn(0f, 1f)).apply()
         return true
     }

@@ -112,10 +112,18 @@ class MainActivity : Activity() {
     private var homeForce = false
 
     private fun computeHome(ctx: android.content.Context, games: List<Game>, now: Long): HomeModel {
-        val lists = SavedLists.all(ctx)
+        var lists = SavedLists.all(ctx)
         val byId = HashMap<String, CachedList>()
         for (l in lists) SavedLists.cached(ctx, l.id)?.let { byId[l.id] = it }
-        return HomeModel.build(lists, byId, games, now, java.time.ZoneId.systemDefault())
+        var all = games
+        if (DemoGames.on) {
+            // Demo games from the phone page (user, 2026-11-20): made-up games plus a made-up list carrying them.
+            val demo = DemoGames.games(now)
+            all = games + demo
+            lists = lists + DemoGames.list()
+            byId[DemoGames.LIST_ID] = DemoGames.cached(demo, now)
+        }
+        return HomeModel.build(lists, byId, all, now, java.time.ZoneId.systemDefault())
     }
 
     /** [computeHome] with a report line for the first 3 calculations and any one over 1.5 s. */
@@ -211,6 +219,7 @@ class MainActivity : Activity() {
         Session.prefetchEnabled = { PrefetchSettings.enabled(applicationContext) }
         sendLink.setOnClickListener { showQr(true) }
         yourLists.setOnClickListener { startActivity(ListsActivity.intent(this)) }
+        findViewById<View>(R.id.sportsJump).setOnClickListener { jumpToSports() }
         ListEvents.refresh = { id -> runOnUiThread { if (!isFinishing && !isDestroyed) refreshList(id, manual = true) } }
         findViewById<View>(R.id.qrClose).setOnClickListener { showQr(false) }
         sniffer = StreamSniffer(this, findViewById(R.id.webHolder))
@@ -250,6 +259,19 @@ class MainActivity : Activity() {
             onPhotoFocus = { lg, x, y -> SportPhotos.setFocus(this, lg, x, y).also { if (it) runOnUiThread { renderLists() } } },
             onPhotoFade = { lg, w, d -> SportPhotos.setFade(this, lg, w, d).also { if (it) runOnUiThread { renderLists() } } },
             onPhotoRemove = { lg -> SportPhotos.remove(this, lg).also { runOnUiThread { renderLists() } } },
+            cityPhotos = { CityPhotos.json(this) },
+            cityPhoto = { k -> CityPhotos.bytes(this, k) },
+            onCityNext = { k ->
+                val done = java.util.concurrent.CountDownLatch(1)
+                var ok = false
+                CityPhotos.next(this, k) { r -> ok = r; done.countDown() }
+                done.await(25, java.util.concurrent.TimeUnit.SECONDS)
+                runOnUiThread { renderLists() }
+                ok
+            },
+            onCityFocus = { k, x, y -> CityPhotos.setFocus(this, k, x, y).also { if (it) runOnUiThread { renderLists() } } },
+            demo = { DemoGames.on },
+            onDemo = { on -> DemoGames.on = on; Report.log("Demo games " + if (on) "on" else "off"); runOnUiThread { renderLists() } },
         )
         port = try { server.start() } catch (_: Exception) { -1 }
         showAddress()
@@ -548,7 +570,10 @@ class MainActivity : Activity() {
     private lateinit var featTeams: LinearLayout
     private lateinit var featStatus: TextView
     private lateinit var featWatch: TextView
+    private lateinit var featCredit: TextView
     private var featGame: GameFolder? = null
+    /** Framing of the photo shown now (city or sport photo), as image fractions. */
+    private var featFocus = 0.5f to 0.5f
     /** Sport + photo stamp shown now, so redraws only reload the photo when it changed. */
     private var featPhotoKey = ""
 
@@ -590,6 +615,14 @@ class MainActivity : Activity() {
         bottom.addView(featWatch)
         col.addView(bottom)
         featured.addView(col, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // Unsplash photographer credit for city photos (their guideline), small in the bottom-right corner.
+        featCredit = Ui.text(this, "", 10.5f, 0xCCFFFFFF.toInt()).apply {
+            maxLines = 1; visibility = View.GONE
+            setShadowLayer(4f, 0f, 1f, 0xCC000000.toInt())
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        featured.addView(featCredit, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.BOTTOM or android.view.Gravity.END).apply { setMargins(0, 0, dp(16), dp(12)) })
         featPhoto.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
             // The phone page frames photos for the card's real shape.
             if (v.width > 0 && v.height > 0) SportPhotos.cardAspect = v.width.toFloat() / v.height
@@ -638,22 +671,31 @@ class MainActivity : Activity() {
         featTeams.addView(teamLine(g.home, home >= away, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         featStatus.text = (if (FeaturedPick.heating(featState.ratings[g.id])) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: "")
         featWatch.contentDescription = "Watch ${SportsText.matchup(g)}"
-        loadPhoto(g.league)
+        loadPhoto(g)
     }
 
-    private fun loadPhoto(league: String) {
-        val key = league + "|" + (getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString())
+    /** The game's city photo (choice A, user 2026-11-20), else the user's photo for its sport; the sport's fade either way. */
+    private fun loadPhoto(g: Game) {
+        val league = g.league
+        val key = league + "|" + CityPhotoRules.placeKey(g) + "|" + CityPhotos.version.get() + "|" +
+            (getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString())
         if (key == featPhotoKey) return
         featPhotoKey = key
         val w = featCardW()
         val h = dp(FEAT_H)
         val app = applicationContext
         homeCalc.execute {
-            val b = try { SportPhotos.bitmap(app, league, w, h) } catch (_: Exception) { null }
+            val city = try {
+                CityPhotos.forGame(app, g, w, h) { main.post { if (!isFinishing && !isDestroyed) featGame?.let { loadPhoto(it.game) } } }
+            } catch (_: Exception) { null }
+            val b = city?.bitmap ?: try { SportPhotos.bitmap(app, league, w, h) } catch (_: Exception) { null }
+            val focus = if (city != null) city.x to city.y else SportPhotos.focus(app, league)
             main.post {
                 if (isFinishing || isDestroyed || featPhotoKey != key) return@post
                 featPhoto.setImageBitmap(b)
-                featPhoto.tag = league
+                featFocus = focus
+                featCredit.text = city?.credit ?: ""
+                featCredit.visibility = if (city != null) View.VISIBLE else View.GONE
                 val (fw, fd) = SportPhotos.fade(this, league)
                 featFade.background = Ui.photoFade(fw, fd)
                 placePhoto()
@@ -664,10 +706,19 @@ class MainActivity : Activity() {
     /** Covers the photo box with the photo, the spot the user tapped on the phone kept in view. */
     private fun placePhoto() {
         val d = featPhoto.drawable ?: return
-        val lg = featPhoto.tag as? String ?: return
-        val (fx, fy) = SportPhotos.focus(this, lg)
+        val (fx, fy) = featFocus
         val p = PhotoFrame.place(d.intrinsicWidth, d.intrinsicHeight, featPhoto.width, featPhoto.height, fx, fy)
         featPhoto.imageMatrix = android.graphics.Matrix().apply { setScale(p.scale, p.scale); postTranslate(p.dx, p.dy) }
+    }
+
+    /** Top bar "Sports" (user, 2026-11-20): glides the home screen down to the Sports row and focuses its first tile. */
+    private fun jumpToSports() {
+        val header = findViewById<View>(R.id.sportsHeader)
+        val scroll = findViewById<android.widget.ScrollView>(R.id.homeScroll)
+        val tile = (0 until sportsRow.childCount).map { sportsRow.getChildAt(it) }.firstOrNull { it.visibility == View.VISIBLE && it.isFocusable }
+        userMoved = true
+        tile?.requestFocus()
+        scroll.post { scroll.smoothScrollTo(0, (header.top - dp(12)).coerceAtLeast(0)) }
     }
 
     /** Watch: plays the game's best stream, like picking the game. */
@@ -675,6 +726,10 @@ class MainActivity : Activity() {
 
     /** Plays [gf]'s best stream (best-ranked list first, skipping ones marked Offline or just failed); false with none. */
     private fun playBest(gf: GameFolder): Boolean {
+        if (gf.game.id.startsWith("demo-")) {
+            Toast.makeText(this, "Demo game: there's no stream to play", Toast.LENGTH_SHORT).show()
+            return true
+        }
         val now = System.currentTimeMillis()
         val s = GamePick.best(gf.streams) { OfflineMarks.isOffline(it.item.url, now) || AutoSwitch.isDead(it.item.url, now) } ?: return false
         val l = SavedLists.get(this, s.listId) ?: return false
@@ -845,6 +900,7 @@ class MainActivity : Activity() {
     private fun styleHome() {
         Ui.focusCard(sendLink, normal = Ui.SURFACE, radiusDp = 9f)
         Ui.focusCard(yourLists, normal = Ui.SURFACE, radiusDp = 9f)
+        Ui.focusCard(findViewById(R.id.sportsJump), normal = Ui.SURFACE, radiusDp = 9f)
         val listsIcon = GradientDrawable().apply { setColor(Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(10)) }
         yourLists.setCompoundDrawablesRelativeWithIntrinsicBounds(listsIcon, null, null, null)
         val qrIcon = GradientDrawable().apply { setColor(0); setStroke(dp(2), Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(14)) }
@@ -1001,7 +1057,7 @@ class MainActivity : Activity() {
         const val REDZONE_TAG = "redzone"
         const val LOADING_MAX_MS = 15_000L
         /** Featured card height (dp); the photo covers the whole card. Side padding of the home page (dp). */
-        const val FEAT_H = 212
+        const val FEAT_H = 345
         const val FEAT_SIDE_PAD = 48
     }
 

@@ -67,6 +67,7 @@ jobs:
       - name: Build
         env:
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
         run: |
           set -o pipefail
           gradle testReleaseUnitTest assembleRelease --no-daemon --console=plain > build.log 2>&1 || {

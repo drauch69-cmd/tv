@@ -66,6 +66,23 @@
                     android:visibility="gone" />
 
                 <TextView
+                    android:id="@+id/sportsJump"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="10dp"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:paddingStart="14dp"
+                    android:paddingTop="8dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="8dp"
+                    android:text="Sports"
+                    android:textColor="#FFE8EAED"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <TextView
                     android:id="@+id/yourLists"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -139,7 +156,7 @@
             <FrameLayout
                 android:id="@+id/featured"
                 android:layout_width="match_parent"
-                android:layout_height="212dp"
+                android:layout_height="345dp"
                 android:layout_marginTop="16dp"
                 android:visibility="gone" />
 
@@ -192,6 +209,7 @@
 
             <!-- Sports -->
             <TextView
+                android:id="@+id/sportsHeader"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="22dp"

@@ -9,6 +9,13 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **City photos + taller card + Sports button + demo games** (2026-11-20, user's go): the featured card shows a photo of
+  the game's city from Unsplash (choice A: ahead of the sport photo; the sport's fade still applies), searched once per
+  city, widest of 10 results, framed a little below the middle. Phone: tap to frame and "Next photo" per city. Card now
+  345 dp tall (~2.5:1; re-crop sport photos on the phone); top bar "Sports" jumps down to the Sports row; "Demo games"
+  checkbox on the phone fills home with made-up games (off after restart). Key in Actions secret `UNSPLASH_ACCESS_KEY`
+  (user added it); production review applied for, not needed. Check: photos appear for Chicago/London/Laramie demo
+  games, framing, credit readable, Next photo, focus/scrolling on home, Sports button.
 - **Start-up crash fixed** (2026-11-20): the data-file build crashed at start (a recipe placeholder pattern Android's
   regex engine refuses: unescaped "}"; JVM tests passed). Placeholders now read by hand; recipe/data-file errors are caught
   (Throwable) and fall back to the page read. Lesson: no regex with a literal "}" in app code.

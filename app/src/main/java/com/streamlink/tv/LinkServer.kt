@@ -56,6 +56,18 @@ class LinkServer(
     private val onPhotoFade: (String, Float, Float) -> Boolean = { _, _, _ -> false },
     /** POST /photo/remove (league): false if there was nothing to remove. */
     private val onPhotoRemove: (String) -> Boolean = { false },
+    /** GET /cityphotos: JSON of the city photos (see CityPhotos.json). */
+    private val cityPhotos: () -> String = { "{\"cities\":[]}" },
+    /** GET /cityphoto?key=: one city's current photo bytes, or null. */
+    private val cityPhoto: (String) -> ByteArray? = { null },
+    /** POST /cityphoto/next (key): swaps that city to its next search result; false if there is none. */
+    private val onCityNext: (String) -> Boolean = { false },
+    /** POST /cityphoto/focus (key, x, y as 0..1 fractions): false if that city has no photo. */
+    private val onCityFocus: (String, Float, Float) -> Boolean = { _, _, _ -> false },
+    /** GET /demo: whether demo games are on. */
+    private val demo: () -> Boolean = { false },
+    /** POST /demo/set (on=1|0): turns demo games on or off. */
+    private val onDemo: (Boolean) -> Unit = { },
 ) {
     private var socket: ServerSocket? = null
     @Volatile private var running = false
@@ -244,6 +256,22 @@ class LinkServer(
                 val d = SportPhotoRules.focus(formValue(body, "d"))
                 if (w != null && d != null && onPhotoFade(lg, w, d)) respond(c, 200, text, "Saved") else respond(c, 400, text, "No photo for that sport")
             }
+            method == "GET" && path == "/cityphotos" -> respond(c, 200, json, cityPhotos())
+            method == "GET" && path == "/cityphoto" -> {
+                val bytes = formValue(query, "key")?.let { cityPhoto(it) }
+                if (bytes == null) respond(c, 404, text, "No photo") else respondBytes(c, 200, "image/jpeg", bytes)
+            }
+            method == "GET" && path == "/demo" -> respond(c, 200, json, "{\"on\":" + demo() + "}")
+            method == "POST" && path == "/demo/set" -> { onDemo(formValue(body, "on") == "1"); respond(c, 200, text, "Saved") }
+            method == "POST" && path == "/cityphoto/next" -> {
+                if (onCityNext(formValue(body, "key") ?: "")) respond(c, 200, text, "Saved") else respond(c, 400, text, "No other photo for that city")
+            }
+            method == "POST" && path == "/cityphoto/focus" -> {
+                val k = formValue(body, "key") ?: ""
+                val x = SportPhotoRules.focus(formValue(body, "x"))
+                val y = SportPhotoRules.focus(formValue(body, "y"))
+                if (x != null && y != null && onCityFocus(k, x, y)) respond(c, 200, text, "Saved") else respond(c, 400, text, "No photo for that city")
+            }
             method == "POST" && path == "/photo/remove" -> {
                 if (onPhotoRemove(formValue(body, "league") ?: "")) respond(c, 200, text, "Removed") else respond(c, 404, text, "No photo")
             }
@@ -306,7 +334,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove", "/cityphoto/next", "/cityphoto/focus", "/demo/set")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

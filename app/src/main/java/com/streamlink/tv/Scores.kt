@@ -54,6 +54,10 @@ data class Game(
     val redZone: Boolean = false,
     /** Every TV network ESPN lists (the [broadcast] text keeps only two). */
     val networks: List<String> = emptyList(),
+    /** Where the game is played (ESPN competition venue), "" when not sent: "Chicago", "IL" (US state code), country. */
+    val venueCity: String = "",
+    val venueState: String = "",
+    val venueCountry: String = "",
 )
 
 /** Reads ESPN's scoreboard JSON. Never throws. */
@@ -113,6 +117,7 @@ object ScoreParse {
         val homeWinProb = prob?.let { if (it.has("homeWinPercentage") && !it.isNull("homeWinPercentage")) it.optDouble("homeWinPercentage") else null }
             ?.takeIf { !it.isNaN() && it in 0.0..1.0 }
         val homeSpread = homeSpread(comp.optJSONArray("odds")?.optJSONObject(0), home.abbr)
+        val address = comp.optJSONObject("venue")?.optJSONObject("address")
         return Game(
             id = id, league = league, startMillis = start, state = state,
             shortDetail = str(type, "shortDetail"),
@@ -124,6 +129,9 @@ object ScoreParse {
             homeSpread = homeSpread,
             redZone = situation?.optBoolean("isRedZone", false) ?: false,
             networks = networks,
+            venueCity = str(address, "city").trim(),
+            venueState = str(address, "state").trim(),
+            venueCountry = str(address, "country").trim(),
         )
     }
 

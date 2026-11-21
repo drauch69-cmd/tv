@@ -141,6 +141,10 @@
     <div class="section" style="margin-top:18px">Home photos</div>
     <p class="small" style="margin:0 2px 10px">One photo per sport for the big featured game on the TV's home screen. After choosing one, tap the action in it: the dashed box shows what the TV will show; the game text sits on top of the photo. Photos stay on the TV.</p>
     <div id="photoItems"></div>
+    <div class="section" style="margin-top:18px">City photos</div>
+    <p class="small" style="margin:0 2px 10px">The featured game shows a photo of the city it's played in (from Unsplash), ahead of the sport photos above. Tap a photo to set the spot that stays in view, or try the next one. The fade belongs to the sport.</p>
+    <div id="cityItems"></div>
+    <div class="card" style="margin-top:12px"><label class="sl" style="display:flex;align-items:center;gap:10px"><input type="checkbox" id="demoOn" style="width:auto"> <span style="width:auto">Demo games on the TV's home screen (made-up games for trying the look; off again when the app restarts)</span></label></div>
   </div>
   <div id="listDetail" hidden>
     <div class="grid"><button type="button" id="lback">&lsaquo; Back</button><button type="button" id="lrefresh">Refresh</button></div>
@@ -654,8 +658,8 @@
     var iw = img.naturalWidth, ih = img.naturalHeight;
     pv.querySelector('.fade').style.background = fadeCss(w, d);
     pv.style.aspectRatio = PHOTO_ASPECT + ' / 1';
-    // Stand-in text at the TV's sizes: the card is 212 dp tall, team names are 20 sp.
-    pv.querySelector('.mock').style.fontSize = (H * 20 / 212).toFixed(1) + 'px';
+    // Stand-in text at the TV's sizes: the card is 345 dp tall, team names are 20 sp.
+    pv.querySelector('.mock').style.fontSize = (H * 20 / 345).toFixed(1) + 'px';
     if (!W || !iw || !ih) return;
     var s = Math.max(W / iw, H / ih), sw = iw * s, sh = ih * s;
     var left = Math.min(Math.max(W / 2 - x * sw, W - sw), 0), top = Math.min(Math.max(H / 2 - y * sh, H - sh), 0);
@@ -753,7 +757,80 @@
     d.appendChild(row);
     return d;
   }
+  // City photos (one per city the featured game was played in): framing and "Next photo" per city.
+  function cityCard(p){
+    var d = document.createElement('div'); d.className = 'card photo';
+    var hd = document.createElement('div'); hd.className = 'hd'; hd.textContent = p.label + ' \u00B7 ' + p.sport;
+    var msg = document.createElement('span'); msg.className = 'small'; msg.style.margin = '0'; hd.appendChild(msg);
+    d.appendChild(hd);
+    var box = document.createElement('div'); box.className = 'pic';
+    box.setAttribute('role', 'button'); box.setAttribute('aria-label', 'Tap the spot to keep in view');
+    var img = document.createElement('img'); img.alt = p.label + ' photo';
+    img.src = '/cityphoto?key=' + encodeURIComponent(p.key) + '&t=' + encodeURIComponent(p.id);
+    var fr = document.createElement('div'); fr.className = 'frame';
+    var dot = document.createElement('div'); dot.className = 'dot';
+    box.appendChild(img); box.appendChild(fr); box.appendChild(dot);
+    var x = p.x, y = p.y, fw = p.fw, fd = p.fd;
+    var pv = document.createElement('div'); pv.className = 'prev';
+    var pim = document.createElement('img'); pim.alt = ''; pim.src = img.src;
+    var fade = document.createElement('div'); fade.className = 'fade';
+    var mock = document.createElement('div'); mock.className = 'mock';
+    mock.innerHTML = '<div><span class="live">LIVE</span><span class="sp">' + p.sport.replace(/[<&]/g, '') + '</span></div>' +
+      '<div class="tm"><span>Home team</span><span>24</span></div><div class="tm"><span>Away team</span><span>7</span></div>' +
+      '<span class="w">\u25B6 Watch</span>';
+    pv.appendChild(pim); pv.appendChild(fade); pv.appendChild(mock);
+    var sw = slider('Fade width', (fw - 0.1) / 0.9), sd = slider('Fade darkness', fd);
+    function preview(){ drawPreview(pv, img, x, y, fw, fd); }
+    function say(r){ msg.textContent = r.ok ? 'Saved' : 'Not saved'; }
+    [sw.input, sd.input].forEach(function(i){
+      i.oninput = function(){ fw = 0.1 + 0.9 * (+sw.input.value / 100); fd = +sd.input.value / 100; preview(); };
+      i.onchange = function(){
+        msg.textContent = 'Saving…';
+        post('/photo/fade', 'league=' + p.league + '&w=' + fw.toFixed(3) + '&d=' + fd.toFixed(3)).then(say).catch(function(){ msg.textContent = 'Not saved'; });
+      };
+    });
+    img.onload = function(){ drawFrame(box, img, x, y); preview(); };
+    box.onclick = function(e){
+      var r = img.getBoundingClientRect();
+      x = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
+      y = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
+      drawFrame(box, img, x, y); preview();
+      msg.textContent = 'Saving…';
+      post('/cityphoto/focus', 'key=' + encodeURIComponent(p.key) + '&x=' + x.toFixed(3) + '&y=' + y.toFixed(3)).then(say).catch(function(){ msg.textContent = 'Not saved'; });
+    };
+    d.appendChild(box);
+    var ph = document.createElement('p'); ph.className = 'small'; ph.style.margin = '2px 2px 0'; ph.textContent = 'How it looks on the TV:';
+    d.appendChild(ph); d.appendChild(pv); d.appendChild(sw.row); d.appendChild(sd.row);
+    var cr = document.createElement('p'); cr.className = 'small'; cr.style.margin = '0 2px'; cr.textContent = p.credit;
+    d.appendChild(cr);
+    var row = document.createElement('div'); row.className = 'row';
+    var nx = document.createElement('button'); nx.type = 'button'; nx.className = 'ghost'; nx.textContent = 'Next photo';
+    nx.disabled = !(p.count > 1);
+    nx.onclick = function(){
+      nx.disabled = true; msg.textContent = 'Getting the next photo…';
+      post('/cityphoto/next', 'key=' + encodeURIComponent(p.key)).then(function(r){
+        msg.textContent = r.ok ? 'Saved' : 'Couldn\'t get another photo';
+        if (r.ok) loadCities(); else nx.disabled = false;
+      }).catch(function(){ msg.textContent = 'Couldn\'t get another photo'; nx.disabled = false; });
+    };
+    row.appendChild(nx);
+    d.appendChild(row);
+    return d;
+  }
+  function loadCities(){
+    fetch('/cityphotos', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
+      var box = $('cityItems'); box.innerHTML = '';
+      if (d.aspect > 1.5 && d.aspect < 8) PHOTO_ASPECT = d.aspect;
+      var list = d.cities || [];
+      if (!d.enabled) { box.innerHTML = '<p class="small" style="margin:0 2px">City photos are off: this build has no Unsplash key.</p>'; return; }
+      if (!list.length) { box.innerHTML = '<p class="small" style="margin:0 2px">No city photos yet: they appear once the TV has shown a featured game.</p>'; return; }
+      list.forEach(function(p){ box.appendChild(cityCard(p)); });
+    }).catch(function(){});
+    fetch('/demo', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){ $('demoOn').checked = !!d.on; }).catch(function(){});
+  }
+  $('demoOn').onchange = function(){ post('/demo/set', 'on=' + ($('demoOn').checked ? '1' : '0')); };
   function loadPhotos(){
+    loadCities();
     fetch('/photos', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
       var box = $('photoItems'); box.innerHTML = '';
       if (d.aspect > 1.5 && d.aspect < 8) PHOTO_ASPECT = d.aspect;

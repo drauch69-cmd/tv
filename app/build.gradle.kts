@@ -32,6 +32,9 @@ android {
         // Which release channel this app updates itself from ("main", "test" or "sports"); see Updater.kt.
         val ch = if (isTestChannel || isSportsChannel) channel else "main"
         buildConfigField("String", "CHANNEL", "\"$ch\"")
+        // Unsplash Access Key for city photos on the featured card (Actions secret UNSPLASH_ACCESS_KEY). Empty turns them off.
+        val unsplash = (System.getenv("UNSPLASH_ACCESS_KEY") ?: "").filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+        buildConfigField("String", "UNSPLASH_KEY", "\"$unsplash\"")
     }
 
     // A fixed signing key, so every new build can be installed over the old one.
