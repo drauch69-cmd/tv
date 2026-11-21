@@ -12,12 +12,14 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.text.format.DateFormat
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -26,7 +28,7 @@ import java.util.concurrent.Executors
 import rikka.shizuku.Shizuku
 
 class MainActivity : Activity() {
-    private enum class Page { SETUP, SUGGESTED, HOME, ALL, HISTORY }
+    private enum class Page { SETUP, SUGGESTED, HOME, ALL, DNS, HISTORY, UPDATES }
 
     private enum class Filter { BUILT_IN, YOURS, OFF }
 
@@ -56,6 +58,9 @@ class MainActivity : Activity() {
     private var busy = false
     private var lastPage: Page? = null
     private var applyButton: Button? = null
+    private var dnsNow: Dns.Current? = null
+    private var update: Updater.Available? = null
+    private var updateNote = ""
 
     private lateinit var status: TextView
     private lateinit var content: LinearLayout
@@ -73,6 +78,7 @@ class MainActivity : Activity() {
         Shizuku.addBinderDeadListener(onBinderDead)
         Shizuku.addRequestPermissionResultListener(onPermission)
         load()
+        if (prefs.getBoolean(PREF_AUTO_CHECK, true)) checkForUpdate(quiet = true)
     }
 
     override fun onResume() {
@@ -222,7 +228,9 @@ class MainActivity : Activity() {
             Page.SUGGESTED to "Suggested cleanup",
             Page.HOME to "Home screen",
             Page.ALL to "All apps",
+            Page.DNS to "DNS",
             Page.HISTORY to "History / undo",
+            Page.UPDATES to "Updates",
         ).forEach { (p, label) ->
             val b = button(label) {
                 page = p
@@ -267,7 +275,9 @@ class MainActivity : Activity() {
             Page.SUGGESTED -> renderSuggested()
             Page.HOME -> renderHome()
             Page.ALL -> renderAll()
+            Page.DNS -> renderDns(state)
             Page.HISTORY -> renderHistory()
+            Page.UPDATES -> renderUpdates()
         }
         scroll.post {
             scroll.scrollTo(0, keepScroll)
@@ -603,16 +613,162 @@ class MainActivity : Activity() {
                 "install" -> "Installed"
                 "home" -> "Made home screen"
                 "stockhome" -> "Back to built-in home screen"
+                "dns" -> "Changed DNS"
+                "update" -> "Updated TV Cleaner"
                 else -> c.action
             }
             val whenText = DateFormat.format("MMM d, h:mm a", Date(c.time))
             val detail = "$verb · $whenText · ${c.pkg}" + if (c.ok) "" else " · FAILED"
             val app = apps[c.pkg]
-            if (app == null || c.action in setOf("install", "home", "stockhome")) {
+            if (app == null || c.action in setOf("install", "home", "stockhome", "dns", "update")) {
                 infoRow(c.label, detail)
             } else {
                 actionRow(c.label, detail) { appDialog(app) }
             }
+        }
+    }
+
+    private fun renderDns(state: Shell.State) {
+        heading("DNS")
+        if (state != Shell.State.READY) {
+            para("Connect Shizuku first (see Setup); TV Cleaner needs it to change DNS.")
+            return
+        }
+        val now = dnsNow
+        if (now == null) {
+            para("Reading the current setting…", DIM)
+            background({ Dns.current() }) {
+                dnsNow = it
+                if (page == Page.DNS) render()
+            }
+            return
+        }
+        para("Now: ${Dns.describe(now)}")
+        para(
+            "This is Android's \"Private DNS\" setting, which Google TV hides. It takes server names only, not numbers " +
+                "like 8.8.8.8. After each change TV Cleaner checks the internet still works and puts the old setting " +
+                "back by itself if it doesn't.",
+            DIM,
+        )
+        Dns.PRESETS.forEach { c ->
+            val on = c.mode == now.mode && (c.host == null || c.host == now.host)
+            actionRow(c.name + if (on) "  ✓" else "", c.about + (c.host?.let { " · $it" } ?: "")) { changeDns(c.name, c.mode, c.host) }
+        }
+        actionRow("Custom…", "Type a Private DNS server name, like dns.nextdns.io") { customDns() }
+    }
+
+    private fun customDns() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            hint = "dns.example.com"
+            setText(dnsNow?.host ?: "")
+        }
+        AlertDialog.Builder(this).setTitle("Private DNS server name").setView(input)
+            .setPositiveButton("Use it") { _, _ ->
+                val h = Dns.cleanHost(input.text.toString())
+                if (h == null) {
+                    message("Not a server name", "Type a name like dns.adguard-dns.com. Plain numbers like 8.8.8.8 don't work here.")
+                } else {
+                    changeDns(h, Dns.HOST, h)
+                }
+            }
+            .setNegativeButton("Cancel", null).show()
+    }
+
+    private fun changeDns(name: String, mode: String, host: String?) {
+        task("Changing DNS to $name") { progress ->
+            val old = Dns.current()
+            if (host != null) {
+                progress("Checking $host answers…")
+                Dns.probe(host)?.let { return@task "$it\n\nNothing was changed." }
+            }
+            progress("Changing DNS…")
+            val r = Dns.set(mode, host)
+            if (!r.ok) {
+                Dns.restore(old)
+                history.add(Change("dns", "DNS: $name", "dns", System.currentTimeMillis(), false))
+                return@task "Couldn't change DNS: ${r.out.take(200)}"
+            }
+            progress("Checking the internet still works…")
+            val ok = Dns.works(this, mode, host)
+            history.add(Change("dns", "DNS: $name", "dns", System.currentTimeMillis(), ok))
+            val result = if (ok) {
+                "DNS is now $name."
+            } else {
+                Dns.restore(old)
+                "The internet didn't work with $name, so TV Cleaner put back ${Dns.describe(old)}."
+            }
+            dnsNow = Dns.current()
+            result
+        }
+    }
+
+    private fun renderUpdates() {
+        heading("Updates")
+        para("TV Cleaner build ${Updater.installedBuild(this)}")
+        if (updateNote.isNotEmpty()) para(updateNote, if (update != null) WARN else DIM)
+        update?.let { a -> action("Install build ${a.build}") { installUpdate(a) } }
+        action("Check for updates") { checkForUpdate(quiet = false) }
+        val auto = prefs.getBoolean(PREF_AUTO_CHECK, true)
+        val silent = prefs.getBoolean(PREF_AUTO_INSTALL, false)
+        checkRow("Check when TV Cleaner opens", "Looks for a newer build each time you open the app.", auto) {
+            prefs.edit().putBoolean(PREF_AUTO_CHECK, it).apply()
+        }
+        checkRow("Install without asking", "When a newer build is found, install it right away (the app reopens itself).", silent) {
+            prefs.edit().putBoolean(PREF_AUTO_INSTALL, it).apply()
+        }
+    }
+
+    /** Looks for a newer build. [quiet] (on open): no message unless there is one, and errors are ignored. */
+    private fun checkForUpdate(quiet: Boolean) {
+        if (io.isShutdown) return
+        if (!quiet) {
+            updateNote = "Checking…"
+            if (page == Page.UPDATES) render()
+        }
+        io.execute {
+            val result = try {
+                Result.success(Updater.check(this))
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            main.post {
+                if (gone) return@post
+                result.onSuccess { a ->
+                    update = a
+                    updateNote = if (a == null) "This is the latest build." else "Build ${a.build} is available."
+                    if (a != null && quiet) offerUpdate(a)
+                }.onFailure { e ->
+                    if (!quiet) updateNote = "Couldn't check: ${e.message ?: e.javaClass.simpleName}"
+                }
+                if (page == Page.UPDATES) render()
+            }
+        }
+    }
+
+    private fun offerUpdate(a: Updater.Available) {
+        if (busy) return
+        if (prefs.getBoolean(PREF_AUTO_INSTALL, false) && shellState() == Shell.State.READY) {
+            installUpdate(a)
+            return
+        }
+        AlertDialog.Builder(this).setTitle("Update available")
+            .setMessage("TV Cleaner build ${a.build} is ready (you have ${Updater.installedBuild(this)}). Install it now? The app closes and reopens.")
+            .setPositiveButton("Install") { _, _ -> installUpdate(a) }
+            .setNegativeButton("Later", null).show()
+    }
+
+    private fun installUpdate(a: Updater.Available) {
+        task("Updating TV Cleaner") { progress ->
+            progress("Downloading build ${a.build}…")
+            val r = try {
+                Updater.install(this, a) { pct -> if (pct >= 0) progress("Downloading build ${a.build}… $pct%") }
+            } catch (e: Exception) {
+                return@task "Couldn't download the update: ${e.message}"
+            }
+            // On success the app is replaced and closes before reaching here; this is the failure path.
+            history.add(Change(packageName, "TV Cleaner build ${a.build}", "update", System.currentTimeMillis(), r.ok))
+            if (r.ok) "Installed. TV Cleaner will reopen in a moment." else "Couldn't install the update: ${r.out.take(200)}"
         }
     }
 
@@ -814,6 +970,8 @@ class MainActivity : Activity() {
     }
 
     private companion object {
+        const val PREF_AUTO_CHECK = "update_auto_check"
+        const val PREF_AUTO_INSTALL = "update_auto_install"
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
         const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
         val BG = Color.rgb(14, 18, 28)
