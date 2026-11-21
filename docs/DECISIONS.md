@@ -109,8 +109,12 @@ file's git history (commit 3680843 and earlier).
   early, retried less or kept from reloading because of them; every referer is tried again. Why: the same servers failed in
   the TV's own browser and standard networking too (streameast list page all evening, reedstreams data file "Unable to
   parse TLS packet header"), picked by name (pl.playlist4.space fails, pl.nouveautry1.space works), so the likely cause is
-  DNS/ISP blocking on the user's network, not the app. Open: user to test Private DNS = Cloudflare via TV Cleaner. Turn
-  ENFORCE back on only when the user asks. Not yet tested on the TV.
+  DNS/ISP blocking on the user's network, not the app. Turn ENFORCE back on only when the user asks. Tested on the TV
+  (build 290): log only works (thetvapp reloaded past a broken server and played). Build 290's DNS lines show real
+  addresses (Cloudflare and others) for the failing servers, yet both engines get non-TLS bytes back, so the block looks
+  like a network filter acting on the server name (router security feature or ISP), not DNS. Open: user to test the TV on
+  a phone hotspot and check the router for a security/web filter.
+- **Willow (streamfree) plays** (build 290, TV): "Decoded video hidden in the picture's tsDa section".
 - **Dead-server memory can't sink a page alone** (2026-11-21, user's go on 1+2; build 283 crackstreams report: both
   servers skipped from memory, yet the stream plays on the phone): when every stream is on a remembered-down server they
   are tried once anyway; secure-connection failures now say why (certificate not trusted by the TV / no shared security
