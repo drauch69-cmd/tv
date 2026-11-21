@@ -171,7 +171,7 @@ in `warmHolder`; a stream it finds goes to `PreFound`, so the switch to it start
 report (`Report.start` archives the previous one; the current one is saved every 10 s) in `report-history.txt`, last 25
 plays / 1.5 MB (`ReportHistory`); GET `/reports` downloads all, POST `/reports/clear` empties it.
 **Sport screen side card:** `FeaturedPick.choose` on that sport only, its own `State` per sport; else `GamePick.nextUp`.
-Home featured card: the photo covers the whole card (345 dp tall, about 2.5:1 on the Onn; was 212), text on top; `Ui.photoFade` runs from the card's left edge. The TV reports the card's real width/height (`SportPhotos.cardAspect`, `aspect` in GET /photos) and the phone page frames photos and previews (with stand-in text) at that shape.
+Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on the Onn; 2026-11-21), text on top; `Ui.photoFade` runs from the card's left edge. The TV reports the card's real width/height (`SportPhotos.cardAspect`, `aspect` in GET /photos) and the phone page frames photos and previews (with stand-in text) at that shape.
 
 
 - **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s; the count is cleared
@@ -459,7 +459,9 @@ Home featured card: the photo covers the whole card (345 dp tall, about 2.5:1 on
   - Demo games (`DemoGames`, user 2026-11-20): phone checkbox (`GET /demo`, `POST /demo/set`) adds 7 made-up games in
     real stadium cities plus a made-up list carrying them, home screen only (`MainActivity.computeHome`); in memory, so
     off after a restart. Watch on one shows a "Demo game" toast.
-  - Top bar "Sports" (user 2026-11-20): scrolls home to the Sports row and focuses its first tile.
+  - Top bar "Leagues" (was "Sports"; user 2026-11-21): scrolls home to the Leagues row and focuses its first tile. "Options"
+    (was "Send a link") opens the panel with Your lists, Check for updates, Head start, Close and the QR code.
+  - Sport screen side card (2026-11-21): photo behind the whole card (`Ui.photoFadeUp`), 300 dp tall; next up = a week ahead.
 - **Player connection pill** (overlay, right end of the button row, refreshed every 0.5 s; same shape, padding and text
   size as the buttons, not focusable; user 2026-11-20): "⇄ 24 ms   ▸ 6.2", "  N dropped" added only when frames were
   dropped, "…" for an unknown number; button-dark fill with a hint of the level color. Purpose: is it the connection or

@@ -629,7 +629,7 @@
   setInterval(function(){ if (tab === 'live' && document.visibilityState !== 'hidden') loadLive(); }, 30000);
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && tab === 'live') loadLive(); });
   // Home photos (one per sport; tap to set the spot that stays in view)
-  var PHOTO_ASPECT = 4.1; // the TV's featured card (the photo fills it), width / height; the TV sends its real shape
+  var PHOTO_ASPECT = 3.3; // the TV's featured card (the photo fills it), width / height; the TV sends its real shape
   function drawFrame(box, img, x, y){
     var fr = box.querySelector('.frame'), dot = box.querySelector('.dot');
     var w = img.clientWidth, h = img.clientHeight;
@@ -658,8 +658,8 @@
     var iw = img.naturalWidth, ih = img.naturalHeight;
     pv.querySelector('.fade').style.background = fadeCss(w, d);
     pv.style.aspectRatio = PHOTO_ASPECT + ' / 1';
-    // Stand-in text at the TV's sizes: the card is 345 dp tall, team names are 20 sp.
-    pv.querySelector('.mock').style.fontSize = (H * 20 / 345).toFixed(1) + 'px';
+    // Stand-in text at the TV's sizes: the card is 260 dp tall, team names are 26 sp.
+    pv.querySelector('.mock').style.fontSize = (H * 26 / 260).toFixed(1) + 'px';
     if (!W || !iw || !ih) return;
     var s = Math.max(W / iw, H / ih), sw = iw * s, sh = ih * s;
     var left = Math.min(Math.max(W / 2 - x * sw, W - sw), 0), top = Math.min(Math.max(H / 2 - y * sh, H - sh), 0);

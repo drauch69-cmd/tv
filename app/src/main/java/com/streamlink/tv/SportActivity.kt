@@ -47,7 +47,7 @@ class SportActivity : Activity() {
     )
 
     // ---- Side card: this sport's featured game (FeaturedPick, its own state per sport), else the next game up ----
-    private lateinit var side: LinearLayout
+    private lateinit var side: FrameLayout
     private lateinit var sidePhoto: ImageView
     private lateinit var sideBadges: LinearLayout
     private lateinit var sideTeams: LinearLayout
@@ -184,7 +184,7 @@ class SportActivity : Activity() {
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
         val titles = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        titles.addView(Ui.text(this, "Sports", 12f, Ui.TEXT_3))
+        titles.addView(Ui.text(this, "Leagues", 12f, Ui.TEXT_3))
         titles.addView(Ui.text(this, Sports.label(league), 27f, Ui.TEXT, bold = true).apply {
             maxLines = 1; ellipsize = TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0)
         })
@@ -307,7 +307,8 @@ class SportActivity : Activity() {
         }
         for (s in f.other) sb.append("|o").append(streamLook(s, now))
         val pick = FeaturedPick.choose(listOf(f), now, sideFocused, sideState(lg))?.folder
-        val sideGf = pick ?: GamePick.nextUp(f.games, now)
+        // Next up looks a week ahead (user, 2026-11-21: Sunday's games showed no side card on Friday night).
+        val sideGf = pick ?: GamePick.nextUp(f.games, now, SIDE_AHEAD_MS)
         val sideLook = sideGf?.game?.let { g ->
             g.id + g.state + g.away.score + g.home.score + (ScoreText.status(g) ?: "") + SportsText.kickoff(g.startMillis, zone) + sideGf.streams.size
         } ?: ""
@@ -453,20 +454,19 @@ class SportActivity : Activity() {
 
     @Volatile private var sideFocused = false
 
+    /** Same look as the home card (user, 2026-11-21): the photo fills the card, the text sits on it, darkened from the bottom. */
     private fun buildSide() {
-        side = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        side = FrameLayout(this).apply {
             background = Ui.rounded(this@SportActivity, Ui.FADE_BOTTOM, 16f)
             clipToOutline = true
+            minimumHeight = dp(SIDE_H)
             visibility = View.GONE
         }
-        val photoBox = FrameLayout(this)
         sidePhoto = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
-        photoBox.addView(sidePhoto, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        photoBox.addView(View(this).apply { background = Ui.photoFadeDown() }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        side.addView(photoBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(SIDE_PHOTO_H)))
+        side.addView(sidePhoto, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        side.addView(View(this).apply { background = Ui.photoFadeUp() }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         sidePhoto.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeSidePhoto() }
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(4), dp(18), dp(18)) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(18), dp(18), dp(18)) }
         sideBadges = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         col.addView(sideBadges)
         sideTeams = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -481,7 +481,7 @@ class SportActivity : Activity() {
             setOnFocusChangeListener { _, has -> sideFocused = has }
         }
         col.addView(sideWatch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) })
-        side.addView(col)
+        side.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM))
     }
 
     private fun drawSide(m: Model) {
@@ -539,7 +539,7 @@ class SportActivity : Activity() {
         if (key == sidePhotoKey) return
         sidePhotoKey = key
         val w = dp(SIDE_W)
-        val h = dp(SIDE_PHOTO_H)
+        val h = dp(SIDE_H)
         val app = applicationContext
         val lg = league
         try {
@@ -576,7 +576,9 @@ class SportActivity : Activity() {
     companion object {
         private const val CHIP_W = 56
         private const val SIDE_W = 300
-        private const val SIDE_PHOTO_H = 130
+        /** The side card's height (photo behind the whole card). */
+        private const val SIDE_H = 300
+        private const val SIDE_AHEAD_MS = 7 * 24 * 3600_000L
         /** Each sport screen picks its own featured game; kept app-wide so the pick holds steady between visits. */
         private val sideStates = HashMap<String, FeaturedPick.State>()
         @Synchronized private fun sideState(league: String) = sideStates.getOrPut(league) { FeaturedPick.State() }

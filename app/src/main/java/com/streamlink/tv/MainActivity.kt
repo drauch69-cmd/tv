@@ -218,7 +218,7 @@ class MainActivity : Activity() {
         renderPrefetchToggle()
         Session.prefetchEnabled = { PrefetchSettings.enabled(applicationContext) }
         sendLink.setOnClickListener { showQr(true) }
-        yourLists.setOnClickListener { startActivity(ListsActivity.intent(this)) }
+        yourLists.setOnClickListener { showQr(false); startActivity(ListsActivity.intent(this)) }
         findViewById<View>(R.id.sportsJump).setOnClickListener { jumpToSports() }
         ListEvents.refresh = { id -> runOnUiThread { if (!isFinishing && !isDestroyed) refreshList(id, manual = true) } }
         findViewById<View>(R.id.qrClose).setOnClickListener { showQr(false) }
@@ -373,7 +373,7 @@ class MainActivity : Activity() {
 
     private fun atRowEnd(left: Boolean): Boolean {
         val f = currentFocus ?: return false
-        val rows = listOf<View?>(yourLists.parent as? View, featured, liveGamesRow, sportsRow, recentList)
+        val rows = listOf<View?>(sendLink.parent as? View, featured, liveGamesRow, sportsRow, recentList)
         var child: View = f
         var p = f.parent
         while (p is View) {
@@ -589,18 +589,18 @@ class MainActivity : Activity() {
             android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28), dp(22), dp(28), dp(22)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
-        top.addView(Ui.badge(this, "LIVE", true, 10.5f))
-        featSport = Ui.text(this, "", 12f, Ui.TEXT_2).apply { maxLines = 1 }
+        top.addView(Ui.badge(this, "LIVE", true, 13f))
+        featSport = Ui.text(this, "", 15f, Ui.TEXT_2).apply { maxLines = 1 }
         top.addView(featSport, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(10) })
         // The game clock sits up here, so Watch has the bottom row to itself (user, 2026-11-20).
-        featStatus = Ui.text(this, "", 12.5f, Ui.LIVE_TEXT, bold = true).apply { maxLines = 1 }
+        featStatus = Ui.text(this, "", 15f, Ui.LIVE_TEXT, bold = true).apply { maxLines = 1 }
         top.addView(featStatus, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(14) })
         col.addView(top)
         featTeams = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         col.addView(featTeams, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) })
         col.addView(View(this), LinearLayout.LayoutParams(1, 0, 1f).apply { topMargin = dp(16) })
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
-        featWatch = Ui.text(this, "Watch", 15f, Ui.ON_ACCENT, bold = true).apply {
+        featWatch = Ui.text(this, "Watch", 16f, Ui.ON_ACCENT, bold = true).apply {
             val play = android.graphics.drawable.ShapeDrawable(android.graphics.drawable.shapes.PathShape(android.graphics.Path().apply {
                 moveTo(0f, 0f); lineTo(10f, 6f); lineTo(0f, 12f); close()
             }, 10f, 12f)).apply { paint.color = Ui.ON_ACCENT; setIntrinsicWidth(dp(10)); setIntrinsicHeight(dp(12)) }
@@ -637,14 +637,15 @@ class MainActivity : Activity() {
     /** One team: logo, name in a column [nameW] wide (the longer name's width), then the score right after it. */
     private fun teamLine(t: TeamSide, leading: Boolean, nameW: Int): View {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
-        row.addView(Logos.view(this, t, 30))
+        // Bigger for the taller card (user, 2026-11-21).
+        row.addView(Logos.view(this, t, 42))
         val c = if (leading) Ui.TEXT else 0xFFC4CAD3.toInt()
-        row.addView(teamName(t, c), LinearLayout.LayoutParams(nameW, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
-        row.addView(Ui.scoreText(this, ScoreText.points(t), 22f, c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(22) })
+        row.addView(teamName(t, c), LinearLayout.LayoutParams(nameW, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(14) })
+        row.addView(Ui.scoreText(this, ScoreText.points(t), 30f, c), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(26) })
         return row
     }
 
-    private fun teamName(t: TeamSide, c: Int = Ui.TEXT) = Ui.text(this, t.shortName.ifBlank { t.displayName }, 20f, c, bold = true).apply {
+    private fun teamName(t: TeamSide, c: Int = Ui.TEXT) = Ui.text(this, t.shortName.ifBlank { t.displayName }, 26f, c, bold = true).apply {
         maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END
     }
 
@@ -665,7 +666,7 @@ class MainActivity : Activity() {
         val away = g.away.score.toIntOrNull() ?: 0
         val home = g.home.score.toIntOrNull() ?: 0
         featTeams.removeAllViews()
-        val nameW = minOf(dp(260), maxOf(teamName(g.away).let { it.paint.measureText(it.text.toString()) }, teamName(g.home).let { it.paint.measureText(it.text.toString()) }).toInt() + dp(2))
+        val nameW = minOf(dp(340), maxOf(teamName(g.away).let { it.paint.measureText(it.text.toString()) }, teamName(g.home).let { it.paint.measureText(it.text.toString()) }).toInt() + dp(2))
         // Both lines sized the same way, so neither score is squeezed (user, 2026-11-20: "17" showed as "1").
         featTeams.addView(teamLine(g.away, away >= home, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         featTeams.addView(teamLine(g.home, home >= away, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
@@ -711,7 +712,7 @@ class MainActivity : Activity() {
         featPhoto.imageMatrix = android.graphics.Matrix().apply { setScale(p.scale, p.scale); postTranslate(p.dx, p.dy) }
     }
 
-    /** Top bar "Sports" (user, 2026-11-20): glides the home screen down to the Sports row and focuses its first tile. */
+    /** Top bar "Leagues" (user, 2026-11-20; renamed 2026-11-21): glides the home screen down to the Sports row and focuses its first tile. */
     private fun jumpToSports() {
         val header = findViewById<View>(R.id.sportsHeader)
         val scroll = findViewById<android.widget.ScrollView>(R.id.homeScroll)
@@ -778,7 +779,7 @@ class MainActivity : Activity() {
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             })
-            val lp = LinearLayout.LayoutParams(dp(232), dp(146))
+            val lp = LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H))
             lp.marginEnd = dp(16)
             liveGamesRow.addView(card, lp)
             if (focusedId == REDZONE_TAG) focusTarget = card
@@ -815,7 +816,7 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             foot.addView(Ui.streamChip(this, gf.streams.size))
             card.addView(foot)
-            val lp = LinearLayout.LayoutParams(dp(232), dp(146))
+            val lp = LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H))
             lp.marginEnd = dp(16)
             liveGamesRow.addView(card, lp)
             if (g.id == focusedId) focusTarget = card
@@ -891,7 +892,7 @@ class MainActivity : Activity() {
         qrPanel.visibility = if (show) View.VISIBLE else View.GONE
         if (show) {
             showAddress()
-            findViewById<View>(R.id.qrClose).requestFocus()
+            yourLists.requestFocus()
         } else {
             focusFirst()
         }
@@ -899,12 +900,12 @@ class MainActivity : Activity() {
 
     private fun styleHome() {
         Ui.focusCard(sendLink, normal = Ui.SURFACE, radiusDp = 9f)
-        Ui.focusCard(yourLists, normal = Ui.SURFACE, radiusDp = 9f)
+        Ui.focusCard(yourLists, normal = Ui.CHIP, radiusDp = 8f)
         Ui.focusCard(findViewById(R.id.sportsJump), normal = Ui.SURFACE, radiusDp = 9f)
         val listsIcon = GradientDrawable().apply { setColor(Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(10)) }
         yourLists.setCompoundDrawablesRelativeWithIntrinsicBounds(listsIcon, null, null, null)
-        val qrIcon = GradientDrawable().apply { setColor(0); setStroke(dp(2), Ui.TEXT); cornerRadius = dp(2).toFloat(); setSize(dp(14), dp(14)) }
-        sendLink.setCompoundDrawablesRelativeWithIntrinsicBounds(qrIcon, null, null, null)
+        // "Options" (user, 2026-11-21): Your lists, Send a link, updates and Head start in one panel.
+        sendLink.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
         val dot = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Ui.ACCENT); setSize(dp(12), dp(12)) }
         // The StreamLink mark (user's logo, 2026-11-20) in blue before the name.
         val mark = getDrawable(R.drawable.logo_mark)?.apply { setBounds(0, 0, dp(26), dp(22)) }
@@ -1057,7 +1058,10 @@ class MainActivity : Activity() {
         const val REDZONE_TAG = "redzone"
         const val LOADING_MAX_MS = 15_000L
         /** Featured card height (dp); the photo covers the whole card. Side padding of the home page (dp). */
-        const val FEAT_H = 345
+        const val FEAT_H = 260
+        /** Live games and league tiles (232x146 until 2026-11-21: trimmed so Live games fits under the card). */
+        const val TILE_W = 222
+        const val TILE_H = 136
         const val FEAT_SIDE_PAD = 48
     }
 

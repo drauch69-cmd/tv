@@ -9,10 +9,16 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Home fit + Options + Leagues** (2026-11-21, user's go): "Scan the code" line gone, tighter gaps, featured card 260 dp
+  (~3.3:1; user's pick) with bigger logos 42, names 26, scores 30, LIVE/league/clock 13-15; Live games and league tiles
+  222x136 (were 232x146) so Live games shows without scrolling. "Send a link" -> "Options" panel (Your lists, Check for
+  updates, Head start, Close on the left; QR on the right); "Sports" -> "Leagues" (top bar, row, sport screen label).
+  Sport screen side card: same look as home (photo behind the whole card, dark from the bottom, 300 dp tall) and "Next
+  up" now looks a week ahead (it was 12 h, so Sunday's games showed no card on Friday night). Check all on the TV.
 - **City photos + taller card + Sports button + demo games** (2026-11-20, user's go): the featured card shows a photo of
   the game's city from Unsplash (choice A: ahead of the sport photo; the sport's fade still applies), searched once per
-  city, widest of 10 results, framed a little below the middle. Phone: tap to frame and "Next photo" per city. Card now
-  345 dp tall (~2.5:1; re-crop sport photos on the phone); top bar "Sports" jumps down to the Sports row; "Demo games"
+  city, widest of 10 results, framed a little below the middle. Phone: tap to frame and "Next photo" per city. Card was
+  345 dp tall (now 260, see above); top bar "Sports" jumps down to the Sports row; "Demo games"
   checkbox on the phone fills home with made-up games (off after restart). Key in Actions secret `UNSPLASH_ACCESS_KEY`
   (user added it); production review applied for, not needed. Check: photos appear for Chicago/London/Laramie demo
   games, framing, credit readable, Next photo, focus/scrolling on home, Sports button.

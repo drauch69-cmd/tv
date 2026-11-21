@@ -20,7 +20,7 @@ object SportPhotos {
 
     /** Width / height of the home featured card on this TV, reported to the phone so its crop box matches. */
     @Volatile var cardAspect: Float = DEFAULT_ASPECT
-    const val DEFAULT_ASPECT = 4.1f
+    const val DEFAULT_ASPECT = 3.3f
 
     /** The decoded photo last handed out, so redraws don't decode again. */
     @Volatile private var cached: Triple<String, Bitmap, Long>? = null
