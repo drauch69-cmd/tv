@@ -53,21 +53,29 @@ object FeedRecipe {
         (java.net.URI(pageUrl).rawPath ?: "").split('/').filter { it.isNotEmpty() }
     } catch (_: Exception) { pageUrl.substringAfter("://").substringAfter('/', "").substringBefore('?').split('/').filter { it.isNotEmpty() } }
 
-    private val TOKEN = Regex("\\{([^{}]+)}")
-
     /** Fills {path:N} from [parts] and {field} from [event]; a missing value makes the whole result null. */
     fun expand(template: String, parts: List<String>, event: JSONObject? = null): String? {
+        // Read by hand, no regex: Android's regex engine refuses an unescaped "}" (it crashed the app at start, 2026-11-20).
         var missing = false
-        val out = TOKEN.replace(template) { m ->
-            val key = m.groupValues[1].substringBefore('|')
-            val fallback = m.groupValues[1].substringAfter('|', "").ifEmpty { null }
+        val out = StringBuilder()
+        var i = 0
+        while (i < template.length) {
+            val open = template.indexOf('{', i)
+            val close = if (open < 0) -1 else template.indexOf('}', open + 1)
+            if (open < 0 || close < 0) { out.append(template, i, template.length); break }
+            out.append(template, i, open)
+            val inner = template.substring(open + 1, close)
+            i = close + 1
+            if (inner.isEmpty() || inner.contains('{')) { out.append(template, open, close + 1); continue }
+            val key = inner.substringBefore('|')
+            val fallback = inner.substringAfter('|', "").ifEmpty { null }
             val v = (if (key.startsWith("path:")) {
-                val i = key.removePrefix("path:").toIntOrNull()
-                if (i == null) null else parts.getOrNull(if (i < 0) parts.size + i else i)
+                val n = key.removePrefix("path:").toIntOrNull()
+                if (n == null) null else parts.getOrNull(if (n < 0) parts.size + n else n)
             } else event?.let { text(it, key) })?.ifEmpty { null } ?: fallback
-            if (v.isNullOrEmpty()) { missing = true; "" } else v
+            if (v.isNullOrEmpty()) missing = true else out.append(v)
         }
-        return if (missing) null else out
+        return if (missing) null else out.toString()
     }
 
     /** A dotted path's value: an object, array, string, number or boolean; null when absent. */

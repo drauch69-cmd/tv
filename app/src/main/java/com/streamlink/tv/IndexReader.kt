@@ -90,7 +90,8 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         }
         quickItems = null
         quickFellBack = false
-        if (!feedTried(url, callback)) startRead(url, callback)
+        val started = try { feedTried(url, callback) } catch (_: Throwable) { false } // a bad data-file recipe never stops the read
+        if (!started) startRead(url, callback)
     }
 
     /**
@@ -115,7 +116,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
             val items = try {
                 val text = QuickFetch.download(context, feedUrl, json = true, referer = url).html
                 FeedRecipe.items(text, feed, url, System.currentTimeMillis())
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 main.post { if (!done && gen == generation) feedFailed(url, callback, e.message?.take(60) ?: e.javaClass.simpleName) }
                 null
             }
@@ -1008,7 +1009,7 @@ object ListRecipes {
             val item = (m["item"] as? String)?.trim()?.ifEmpty { null }
             val zone = zoneOf(m["zone"] as? String)
             val habit = SiteHabits.fromRecipe(m["habit"] as? Map<*, *>)
-            val feed = try { FeedRecipe.parse(m["feed"] as? Map<*, *>) } catch (_: Exception) { null }
+            val feed = try { FeedRecipe.parse(m["feed"] as? Map<*, *>) } catch (_: Throwable) { null } // never crash on a recipe
             if (host.isEmpty() || (item == null && zone == null && habit == null && feed == null)) continue
             fun opt(k: String) = (m[k] as? String)?.trim()?.ifEmpty { null }
             out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live"), zone, habit, feed))

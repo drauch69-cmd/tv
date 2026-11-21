@@ -9,6 +9,9 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Start-up crash fixed** (2026-11-20): the data-file build crashed at start (a recipe placeholder pattern Android's
+  regex engine refuses: unescaped "}"; JVM tests passed). Placeholders now read by hand; recipe/data-file errors are caught
+  (Throwable) and fall back to the page read. Lesson: no regex with a literal "}" in app code.
 - **Data-file recipes + live-card fix** (2026-11-20, user's go; handoff claude/reedstreams-handoff.md): reedstreams and
   ntv lists read from the sites' own data files (every reedstreams sport list, filtered by its address; ntv's 15 s browser
   read gone); page fallback if the file fails. Event finder: two same-class names beat a league label styled like them;
