@@ -112,8 +112,10 @@ file's git history (commit 3680843 and earlier).
   DNS/ISP blocking on the user's network, not the app. Turn ENFORCE back on only when the user asks. Tested on the TV
   (build 290): log only works (thetvapp reloaded past a broken server and played). Build 290's DNS lines show real
   addresses (Cloudflare and others) for the failing servers, yet both engines get non-TLS bytes back, so the block looks
-  like a network filter acting on the server name (router security feature or ISP), not DNS. Open: user to test the TV on
-  a phone hotspot and check the router for a security/web filter.
+  like a network filter acting on the server name (router security feature or ISP), not DNS. **Confirmed 2026-11-21
+  04:35 with a VPN on the TV:** the same servers answer normally (crackstreams ESPN, Willow and ntv NFL Network play;
+  reedstreams' list reads again). Open: user to find the filter (router/provider security feature) or keep the VPN on for
+  StreamLink only. Still failing on the VPN (app-side, separate): strikeout's posamari player, ntv falcon events.
 - **Willow (streamfree) plays** (build 290, TV): "Decoded video hidden in the picture's tsDa section".
 - **Dead-server memory can't sink a page alone** (2026-11-21, user's go on 1+2; build 283 crackstreams report: both
   servers skipped from memory, yet the stream plays on the phone): when every stream is on a remembered-down server they
