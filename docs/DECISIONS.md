@@ -193,11 +193,14 @@ file's git history (commit 3680843 and earlier).
 - `renewAccess` doesn't cover path-coded addresses (low value; those codes last ~24 h).
 
 ### Offered, not approved
+- Per-site playbook (2026-11-19 plan) counted as done (user, 2026-11-21): `SiteHabits` (taps, source button, timing,
+  shipped habits), `ServerMemory` (referer per stream server), recipe `zone`, 10-min recipe refresh. "Remember which
+  player played" skipped: a site-player shortcut breaks the never-the-site-player-by-itself rule; a clean-player
+  shortcut only if reports show the same sites keep ending up there.
 - Player design: one failure classifier + one recovery ladder; one owner for the
   shared Chrome engine.
 - Speed: open the player frame directly (only if Timing lines show the outer page costs seconds); keep the browser
-  engine loaded at app start; pre-find the most likely game; shorter sibling wait for single-quality streams;
-  remember which player played.
+  engine loaded at app start; pre-find the most likely game; shorter sibling wait for single-quality streams.
 - Performance leftovers: player buffer byte cap (~40 MB) and recover only when no bytes arrive; release shrinking
   (R8); list caches out of the main settings file; lighter phone-page polling.
 - Faster fallback on sites the finder can't catch (treat "Live" as started; fall back after the first search at 3+
