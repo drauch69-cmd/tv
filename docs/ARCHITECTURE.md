@@ -174,7 +174,7 @@ plays / 1.5 MB (`ReportHistory`); GET `/reports` downloads all, POST `/reports/c
 Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on the Onn; 2026-11-21), text on top; `Ui.photoFade` runs from the card's left edge. The TV reports the card's real width/height (`SportPhotos.cardAspect`, `aspect` in GET /photos) and the phone page frames photos and previews (with stand-in text) at that shape.
 
 
-- **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s; the count is cleared
+- **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s, except every 4th miss in a row gets the full search (`SiteMemory.FULL_EVERY`); the count is cleared
   when the site player shows the page loaded a playlist the app can see. The early give-up on a
   player frame from another site (8 s after the first tap) was removed (f396b92): those players often need 10-15 s.
   `Prefetcher` gives
@@ -400,6 +400,9 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   `ListStatus.byTime`, the old rules. Matching is cached per games list. The home screen fetches scores too (5 s tick
   while in front) and redraws only when a status changes; the list screen rebuilds (keeping focus) only when a row's
   status or badge changes.
+- **Popup stand-in** (`SafeWeb.POPUP_STANDIN_JS`, every frame of every web view): window.open() returns a closable dummy, never
+  null, because players (ntv) treat a null popup as a sandboxed frame and refuse to play. target=_blank still reaches
+  `SafeChromeClient.onCreateWindow` and is refused ("Blocked a popup window").
 - **Renderer crashes** (`SafeWebViewClient.onRenderProcessGone`, always answers true): calls the open hook `onRendererGone(view,
   didCrash)`; default removes and destroys the view (`SafeWeb.dispose`). `StreamSniffer` logs "The hidden browser was shut down by
   the system" and ends the run as a failure (reason "web view crashed"); `SitePlayerActivity` logs, shows a short message and
