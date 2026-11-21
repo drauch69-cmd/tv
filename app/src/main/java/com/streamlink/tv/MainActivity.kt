@@ -81,12 +81,13 @@ class MainActivity : Activity() {
     }
 
     /**
-     * Scores landed (one call per league): the first answer hides the loading screen at once; the redraw waits
-     * [SCORE_SETTLE_MS] so the leagues of one refresh round give one home redo, not one each (2026-11-20).
+     * Scores landed (one call per league): while the loading screen shows, the home redo starts at once (the screen
+     * hides once that redo is drawn with games, see [applyHome]); otherwise the redraw waits [SCORE_SETTLE_MS] so the
+     * leagues of one refresh round give one home redo, not one each (2026-11-20).
      */
     private val scoreRedraw = Runnable { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
     private fun scoresLanded() {
-        if (loading != null) { requestHome(false); hideLoading(); return }
+        if (loading != null) { requestHome(false); return }
         main.removeCallbacks(scoreRedraw)
         main.postDelayed(scoreRedraw, SCORE_SETTLE_MS)
     }
@@ -154,11 +155,17 @@ class MainActivity : Activity() {
     }
 
     private fun applyHome(m: HomeModel) {
-        if (!homeForce && (m.look == homeLook || !resumed)) return
-        homeForce = false
-        homeLook = m.look
-        renderSports(m)
-        ListEvents.changed() // the "Your lists" screen, if open
+        val draw = homeForce || (m.look != homeLook && resumed)
+        if (draw) {
+            homeForce = false
+            homeLook = m.look
+            renderSports(m)
+            ListEvents.changed() // the "Your lists" screen, if open
+        }
+        // The loading screen goes once the screen underneath really shows games (user, 2026-11-20): this model was
+        // worked out from a non-empty scores list and is what is drawn. [applyHome] only runs for the latest request,
+        // so [homeGames] is what this model was built from.
+        if (loading != null && (draw || m.look == homeLook) && homeGames?.isNotEmpty() == true) hideLoading()
     }
     private val updateTick = object : Runnable {
         override fun run() {
@@ -245,7 +252,7 @@ class MainActivity : Activity() {
         // Saved scores from the last run go back in at once (off the main thread), then the home screen redraws.
         homeCalc.execute {
             val back = try { ScoreFeed.restoreOnce() } catch (_: Exception) { false }
-            if (back) main.post { if (!isFinishing && !isDestroyed) { requestHome(false); hideLoading() } }
+            if (back) main.post { if (!isFinishing && !isDestroyed) requestHome(false) }
         }
         renderRecents()
         watchNetwork()
@@ -257,8 +264,8 @@ class MainActivity : Activity() {
         main.postDelayed(homeTick, HOME_TICK_MS)
     }
 
-    // ---- Loading screen on a fresh start (user, 2026-11-20): logo + "Loading games…" until the first scores arrive or
-    // [LOADING_MAX_MS] passes, so a half-built home screen is never shown. ----
+    // ---- Loading screen on a fresh start (user, 2026-11-20): logo and spinner (no text, user 2026-11-20) until the home rows
+    // are drawn with games (see [applyHome]) or [LOADING_MAX_MS] passes, so a half-built home screen is never shown. ----
     private var loading: View? = null
     private val loadingTimeout = Runnable { hideLoading() }
 
@@ -272,8 +279,10 @@ class MainActivity : Activity() {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
         }
         box.addView(ImageView(this).apply { setImageResource(R.drawable.logo_mark) }, LinearLayout.LayoutParams(dp(78), dp(66)))
-        box.addView(Ui.text(this, "Loading games…", 16f, Ui.TEXT_2), LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) })
+        box.addView(android.widget.ProgressBar(this).apply {
+            isIndeterminate = true
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(Ui.ACCENT)
+        }, LinearLayout.LayoutParams(dp(36), dp(36)).apply { topMargin = dp(24) })
         root.addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         loading = box
         main.postDelayed(loadingTimeout, LOADING_MAX_MS)
@@ -978,7 +987,7 @@ class MainActivity : Activity() {
         const val STALE_MS = 10 * 60_000L
         const val ALWAYS_ON_TAG = "always-on"
         const val REDZONE_TAG = "redzone"
-        const val LOADING_MAX_MS = 3_000L
+        const val LOADING_MAX_MS = 15_000L
         /** Featured card height (dp); the photo covers the whole card. Side padding of the home page (dp). */
         const val FEAT_H = 212
         const val FEAT_SIDE_PAD = 48

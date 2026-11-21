@@ -47,6 +47,9 @@ file's git history (commit 3680843 and earlier).
   up to 15 min old, coming days 3 h); "Loading games…" screen on a fresh start until first scores or 3 s (not on first
   run with no lists); Left/Right stops at row ends on home (no wrap); sport-screen side card lined up with the first
   game card; featured cards: live NFL/college football always beat NBA/college basketball. Check all on the TV.
+- **Loading screen waits for games** (2026-11-20, user's choice): it used to hide on the first scores answer (or 3 s),
+  but the home redo after that takes ~3-4 s on the Onn, so an empty home showed. Now it hides once the home rows are
+  drawn from non-empty scores, at most 15 s; logo + spinner, no text. Check on TV: no empty home on start.
 - **Cut-off scores** (2026-11-20, user's go): home featured card showed "1" for 17. Both team lines now sized the
   same and every score spot (featured, side card, small cards) keeps room for 3 digits. Check on the TV.
 - **Open: 17 s until home games show** (2026-11-20): cause found, not fixed (user will investigate later). Live games
