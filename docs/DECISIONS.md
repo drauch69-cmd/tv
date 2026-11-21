@@ -68,6 +68,12 @@ file's git history (commit 3680843 and earlier).
 - Automatic retry of failed list reads after ~15 min; restyling the player's loading screen; pruning fixes never
   proven to help (needs TV reports, one at a time).
 
+### Splitting the big files (2026-11-20, user's go: option B, one step per build, code moved as is)
+- Step 1 done: the player's on-screen parts moved to `PlayerScreen`. Built in CI only; TV check needed: play a game,
+  open the menu, Audio & quality, Source, D-pad through the tiles, loading screen and Show details.
+- Next: step 2 (finder's habit replay and page tapping out of `StreamSniffer`), step 3 (network/decoder problem checks
+  out of the player). Wait for the user's TV check before step 3.
+
 ### Cleanup (2026-11-20, user's go: 1 housekeeping, 2 dead code, 3 signing key) — finished
 - Done: unused code removed (no behavior change); this file trimmed; docs say `sports` is the main line; signing key in secrets.
 - Branches done by the user (checked 2026-11-20 18:56): default branch is `sports`; only `sports` and `main` remain.

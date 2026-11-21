@@ -77,7 +77,7 @@ need** (search it by class name); do not load it whole. Keep this file short: ne
 
 - Pipeline: `LinkServer` (phone page, port 8080/8081) or a saved list (`IndexReader`) -> `StreamSniffer` (hidden
   WebView finds playlists) -> `Verifier` (checks with referers) -> `PlayerActivity` (ExoPlayer, Cronet, recovery,
-  backups, automatic switch) -> fallbacks `CleanPlayerActivity` / `SitePlayerActivity`.
+  backups, automatic switch; its on-screen parts are `PlayerScreen`) -> fallbacks `CleanPlayerActivity` / `SitePlayerActivity`.
 - Lists are read by one app-wide reader, `ListReads` (one queue, runs in the newest screen's hidden holder); screens
   ask it and listen, they never own an `IndexReader`. List recipes for the user's TV go on `sports` (`recipes.json`).
 - Screens: `MainActivity` (home: Live games row with RedZone first, Sports row, top bar Your lists / Send a link),

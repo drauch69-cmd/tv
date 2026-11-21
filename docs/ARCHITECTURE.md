@@ -40,7 +40,9 @@ Playback pipeline:
 3. **Check.** `Verifier` fetches each candidate with up to 4 referers plus none, with Origin derived from the referer
    being tried (`Headers.originFor`). Each page referer is also tried as its bare origin with a trailing slash
    (`Headers.withOriginForms`). Referers from the page or the player frame's host go first (`RefererTrust.trustedFirst`), so ad/tracker frames never push them out of the 5 tries; a remembered referer on a blocked ad host is ignored. A 403 failure line lists the referers tried (hosts only). Only verified sources play. A check stops after 2 answers of 404/410 (the rest would say the same); a check cut off by the 10 s limit is judged on the answers it already got (a slow 404 = gone, not "too slow"), and checks that finish after the ranking returned write no report lines. A source whose every referer got an HTTP refusal (401/403/451) is marked "; refused on every referer" (`Refusal.isRefusedSource`) and is never played (dropped like a gone source): a search with only such candidates is treated like offline (`StreamSet.offline`; other sites' streams through the automatic switch, else the site player), line "The stream server refuses this stream (server said 403 to every referer); not playing it". Not yet tested on the TV.
-4. **Play.** `PlayerActivity` (ExoPlayer). `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
+4. **Play.** `PlayerActivity` (ExoPlayer). What it draws (loading cover, info overlay with buttons/tiles/speed pill, Audio & quality and
+   Source panels) is `PlayerScreen`, which reads and acts through its `Host` interface; playback and recovery stay in
+   `PlayerActivity`. `UnwrapDataSource` strips disguises (PNG headers, pixel data, PNG text
    notes). If segments can't be decoded, fall back to the site's own player (`SitePlayerActivity`).
 5. **Extra sources.** Nothing runs in the background while playing (the old link run that pressed each source
    button after 10 s of play was retired 2026-11-19). The Source panel lists, in order: the page's playable sources;
