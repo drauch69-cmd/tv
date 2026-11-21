@@ -246,6 +246,15 @@ Home featured card: photo box 636x212 dp (phone frames photos at 3:1), `Ui.photo
   fallback (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers.
+  **Quick reads** (`QuickRead.kt`, `QuickLogicTest`; user, 2026-11-20): `IndexReader.read` first asks the per-site verdict
+  (`QuickReads`, own settings file `quick_reads`). Unknown site (or due a re-check: quick 24 h, browser 7 days) = TEST: the
+  page's HTML is downloaded (`QuickFetch`, browser's name + cookies), scripts and meta refresh stripped
+  (`QuickLogic.stripScripts`), loaded with `loadDataWithBaseURL` (only style sheets may load), extracted once, kept aside;
+  then the normal full read runs and its result is used. `QuickLogic.matches` (90% of events with the same start time and
+  live mark, few extra rows) decides the verdict. QUICK sites: quick half only; nothing found / failed / 10 s limit
+  (`QUICK_MS`) = full read and the site goes back to the browser. Quick halves never follow frames, press "show more",
+  scroll or snapshot. Report lines: "List: loading <host> the quick way", "read N events … (automatic, quick way)",
+  "the quick way finds the same events on <host>…" / "misses events…" / "didn't work (…)".
   **One reader for the app** (`ListReads.kt`, pure rules in `ListReadLogic.kt`, unit tested in `ListReadLogicTest`;
   2026-11-19, not yet tested on the TV): one queue, one read at a time, run in the hidden holder of the newest attached
   screen (home, `ListActivity`, `SportActivity` attach in onResume, detach in onDestroy; a read in a screen that goes away

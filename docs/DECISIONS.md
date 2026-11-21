@@ -9,6 +9,11 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Quick list reads** (2026-11-20, user's go on "plain download first"): each site is tested once (quick read + full
+  read, compared); sites that match are read from their downloaded HTML only, with the browser as fallback. Check:
+  "the quick way finds the same events" lines per site, quick reads well under 2 s, events and Live marks unchanged,
+  home fills sooner after a fresh start. Offered, not built: hold re-reads ~30 s after start; back off failing sites
+  (streameast SSL error retried 3x in 26 s); home timing line; skip sports no list covers.
 - **College basketball scores load last** (2026-11-20, user's go; home took ~17 s to show games): NFL, college football
   and NBA download first, then college basketball. Works with the other session's saved scores + loading screen.
   Check: "Scores timing" shows two "today" lines and the loading screen clears sooner. Offered, not built: an always-on

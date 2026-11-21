@@ -52,9 +52,16 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private var lookMode = false
     /** Pictures, fonts and media answered empty for this read (counted on the web view's network thread). */
     private val blocked = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Quick reads (QuickRead.kt): how this read goes, which half is running, and what the quick half found. */
+    private var mode = QuickLogic.Mode.FULL
+    private var quickPhase = false
+    private var quickItems: List<ListItem>? = null
+    private var quickFellBack = false
+    private var quickExtractStarted = false
 
     private val overallTimeout = Runnable {
         if (done) return@Runnable
+        if (quickPhase) { quickFailed("took too long"); return@Runnable }
         if (firstLoadedAt != 0L && !extracting) {
             Report.log("List: page still changing after ${(System.currentTimeMillis() - startedAt) / 1000}s; reading what is there")
             extract(allowRetry = false)
@@ -81,12 +88,22 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
             main.post { callback(r) }
             return
         }
+        quickItems = null
+        quickFellBack = false
+        mode = try { QuickLogic.mode(QuickReads.verdict(context, Uri.parse(url).host), System.currentTimeMillis()) } catch (_: Exception) { QuickLogic.Mode.FULL }
+        begin(url, callback, quick = mode != QuickLogic.Mode.FULL, keepStart = false)
+    }
+
+    /** Starts one half of a read: the quick one (downloaded HTML, no scripts) or the full browser read. */
+    private fun begin(url: String, callback: (ListResult) -> Unit, quick: Boolean, keepStart: Boolean) {
         done = false
         generation++
         val gen = generation
         onResult = callback
         requestUrl = url
-        startedAt = System.currentTimeMillis()
+        if (!keepStart) startedAt = System.currentTimeMillis()
+        quickPhase = quick
+        quickExtractStarted = false
         firstLoadedAt = 0L
         lastSignature = null
         unchanged = 0
@@ -107,11 +124,32 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         webView = wv
         // A fixed desktop-ish size, so pages lay out their list and not a phone menu.
         holder.addView(wv, ViewGroup.LayoutParams(1280, 720))
-        Report.log("List: loading ${Report.host(url)}")
-        wv.loadUrl(url)
-        schedulePollStart()
-        deadlineAt = startedAt + OVERALL_MS
-        main.postDelayed(overallTimeout, OVERALL_MS)
+        if (quick) {
+            Report.log("List: loading ${Report.host(url)} the quick way" + if (mode == QuickLogic.Mode.TEST) " (test against the full read)" else "")
+            deadlineAt = System.currentTimeMillis() + QUICK_MS
+            main.postDelayed(overallTimeout, QUICK_MS)
+            thread {
+                val page = try { QuickFetch.download(context, url) } catch (e: Exception) {
+                    val why = e.message?.take(60) ?: e.javaClass.simpleName
+                    main.post { if (!done && gen == generation) quickFailed(why) }
+                    null
+                }
+                if (page != null) {
+                    val html = QuickLogic.stripScripts(page.html)
+                    main.post {
+                        if (done || gen != generation) return@post
+                        client?.siteUrl = page.url
+                        try { wv.loadDataWithBaseURL(page.url, html, "text/html", "UTF-8", page.url) } catch (_: Throwable) { quickFailed("could not lay out the page") }
+                    }
+                }
+            }
+        } else {
+            Report.log("List: loading ${Report.host(url)}")
+            wv.loadUrl(url)
+            schedulePollStart()
+            deadlineAt = (if (keepStart) System.currentTimeMillis() else startedAt) + OVERALL_MS
+            main.postDelayed(overallTimeout, deadlineAt - System.currentTimeMillis())
+        }
         thread {
             val loaded = ListRecipes.load(context)
             main.post { if (!done && gen == generation) recipes = loaded }
@@ -126,6 +164,40 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         main.removeCallbacks(hardStop)
         main.removeCallbacks(poll)
         destroyWebView()
+    }
+
+    /** The quick half could not be used: the full browser read follows (the test keeps "found nothing"). */
+    private fun quickFailed(why: String) {
+        Report.log("List: the quick way didn't work ($why); reading with the browser")
+        if (mode == QuickLogic.Mode.TEST) quickItems = emptyList() else quickFellBack = true
+        restartFull()
+    }
+
+    /** Ends the quick half and starts the full browser read of the same page, keeping the callback and start time. */
+    private fun restartFull() {
+        val cb = onResult ?: return
+        main.removeCallbacks(overallTimeout)
+        main.removeCallbacks(hardStop)
+        main.removeCallbacks(poll)
+        destroyWebView()
+        begin(requestUrl, cb, quick = false, keepStart = true)
+    }
+
+    /** After a full read with events: saves whether the quick way works for this site, from the test or a fallback. */
+    private fun learnQuick(full: List<ListItem>) {
+        if (full.isEmpty()) return
+        val host = Uri.parse(requestUrl).host
+        val h = Report.host(requestUrl)
+        if (mode == QuickLogic.Mode.TEST) {
+            val q = quickItems ?: return
+            val ok = QuickLogic.matches(full, q)
+            QuickReads.set(context, host, ok)
+            Report.log(if (ok) "List: the quick way finds the same events on $h (${q.size} vs ${full.size}); using it from now on"
+                else "List: the quick way misses events on $h (${q.size} vs ${full.size}); this site keeps the browser")
+        } else if (mode == QuickLogic.Mode.QUICK && quickFellBack) {
+            QuickReads.set(context, host, false)
+            Report.log("List: the quick way stopped working on $h; this site keeps the browser")
+        }
     }
 
     private fun destroyWebView() {
@@ -230,13 +302,13 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         wv.webChromeClient = SafeChromeClient()
         val c = object : SafeWebViewClient(url) {
             override fun onLoaded() {
-                pageLoaded()
+                if (webView === wv) pageLoaded() // never an old web view being cleared after the quick half
             }
 
             /** C1: first paint; start looking without waiting for slow ads and trackers to finish loading. */
             override fun onPageCommitVisible(view: WebView?, url: String?) {
                 main.post {
-                    if (done) return@post
+                    if (done || quickPhase || webView !== wv) return@post
                     if (firstLoadedAt == 0L) firstLoadedAt = System.currentTimeMillis()
                     startPolling()
                 }
@@ -244,6 +316,13 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
             /** A1: pictures, fonts and media are answered empty (never the page itself; image links come from attributes). */
             override fun blockResource(request: WebResourceRequest): Boolean {
+                // Quick half: only style sheets load (layout needs them); no scripts, frames, pictures or fonts.
+                if (quickPhase && !request.isForMainFrame) {
+                    val a = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value ?: ""
+                    val css = a.contains("text/css") || (request.url?.path ?: "").lowercase().endsWith(".css")
+                    if (!css) { blocked.incrementAndGet(); return true }
+                    return false
+                }
                 val accept = request.requestHeaders?.entries?.firstOrNull { it.key.equals("Accept", true) }?.value
                 if (!ListReadLogic.isHeavy(accept, request.url?.path, request.isForMainFrame)) return false
                 blocked.incrementAndGet()
@@ -275,6 +354,11 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
     private fun pageLoaded() {
         if (done) return
+        if (quickPhase) {
+            // The downloaded page and its style sheets are in: read it once (nothing on it changes).
+            if (!quickExtractStarted) { quickExtractStarted = true; extract(allowRetry = false) }
+            return
+        }
         val now = System.currentTimeMillis()
         if (firstLoadedAt == 0L) firstLoadedAt = now
         // a (re)load restarts the "has it stopped changing" count
@@ -449,6 +533,16 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         val wv = webView ?: return
         val gen = generation
         val reqHost = Uri.parse(requestUrl).host
+        if (quickPhase) {
+            val items = ex?.result?.items
+            if (mode == QuickLogic.Mode.TEST) {
+                quickItems = items ?: emptyList()
+                Report.log("List: quick way found ${quickItems?.size ?: 0} events in ${String.format(java.util.Locale.US, "%.1f", (System.currentTimeMillis() - startedAt) / 1000.0)}s; now the full read to compare")
+                restartFull()
+                return
+            }
+            if (items.isNullOrEmpty()) { quickFailed("found nothing"); return }
+        }
         run {
             val parsed = ex?.result
             if (ex == null || parsed == null) {
@@ -492,9 +586,11 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
             }
             val secs = (System.currentTimeMillis() - startedAt) / 1000.0
             Report.log(
-                String.format(java.util.Locale.US, "List: read %d events from %s (%s) in %.1fs",
-                    parsed.items.size, Report.host(parsed.pageUrl), if (parsed.method.startsWith("recipe")) "recipe" else "automatic", secs)
+                String.format(java.util.Locale.US, "List: read %d events from %s (%s%s) in %.1fs",
+                    parsed.items.size, Report.host(parsed.pageUrl), if (parsed.method.startsWith("recipe")) "recipe" else "automatic",
+                    if (quickPhase) ", quick way" else "", secs)
             )
+            if (!quickPhase) learnQuick(parsed.items)
             if (ex.debug.isNotEmpty()) Report.log("List: ${ex.debug}")
             if (parsed.items.isNotEmpty()) {
                 val now = System.currentTimeMillis()
@@ -554,6 +650,8 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         private const val LOOK_AFTER_MS = 3_000L
         private const val LOOK_POLL_MS = 1_500L
         private const val OVERALL_MS = 25_000L
+        /** The quick half's own limit (download + layout + one extraction); then the full read takes over. */
+        private const val QUICK_MS = 10_000L
         /** The page's structure without scripts/styles, plus open shadow roots, capped at 1.5 MB. */
         internal const val SNAP_JS = """(function(){try{
 var c=document.documentElement.cloneNode(true);
