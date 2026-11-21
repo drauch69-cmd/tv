@@ -4,6 +4,8 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Player game tiles, 6 + "+N" by excitement** (2026-11-21): check the bigger tiles don't crowd the picture, order
+  doesn't jump around annoyingly between score updates, flames show on close late games.
 
 Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each. The full older text is in this
 file's git history (commit 3680843 and earlier).
@@ -207,6 +209,8 @@ file's git history (commit 3680843 and earlier).
 Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
+- **Player "other games" tiles** (user, 2026-11-21): 2 columns, up to 6 bigger game tiles plus a "+N more live"
+  tile; switchable games first, sorted by the excitement rating, flame on games heating up.
 
 - **Short search after repeated misses is off** (user, 2026-11-21: don't lock a site out of testing after a fail).
   `SiteMemory.SHORTEN_ENABLED = false`; misses still counted and shown. Temporary; turn back on only when the user asks.

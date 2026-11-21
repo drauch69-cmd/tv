@@ -5,13 +5,13 @@ package com.streamlink.tv
  * in the top-right corner. A game with a stream in the saved lists can be picked to switch to it; its stream is
  * the one from the best-ranked list (folders are already built in rank order). Pure, unit-tested.
  */
-data class GameTile(val game: Game, val stream: GameStream?)
+data class GameTile(val game: Game, val stream: GameStream?, val hot: Boolean = false)
 
 data class TileSet(val league: String, val tiles: List<GameTile>, val more: Int)
 
 object GameTiles {
-    /** Up to 8 tiles (a busy NFL Sunday); with more games, 7 tiles plus a "+N more" tile. */
-    const val MAX = 8
+    /** Up to 6 game tiles, 2 columns (user, 2026-11-21); any further live games become a "+N more" tile. */
+    const val MAX = 6
 
     /**
      * What is being watched: (league, game id or null). The game whose folder holds [itemUrl]; else a game the
@@ -30,16 +30,23 @@ object GameTiles {
     }
 
     /**
-     * Tiles for [league], leaving out [currentId]: live games only; games with a stream first, then earliest start,
-     * then id (stable order between updates). Null when there is nothing to show (no other live game).
+     * Tiles for [league], leaving out [currentId]: live games only; games with a stream first, then most exciting
+     * ([rate]: FeaturedPick score, null = unrated, user 2026-11-21), then earliest start, then id. [hot] marks the
+     * flame. Null when there is nothing to show (no other live game).
      */
-    fun pick(folders: List<SportFolders>, league: String, currentId: String?, max: Int = MAX): TileSet? {
+    fun pick(
+        folders: List<SportFolders>, league: String, currentId: String?, max: Int = MAX,
+        rate: (GameFolder) -> Double? = { null }, hot: (GameFolder) -> Boolean = { false },
+    ): TileSet? {
         val f = folders.firstOrNull { it.league == league } ?: return null
         val live = f.games.filter { it.game.state == "in" && it.game.id != currentId }
-            .sortedWith(compareBy<GameFolder>({ if (it.streams.isEmpty()) 1 else 0 }, { it.game.startMillis }, { it.game.id }))
+            .map { it to (rate(it) ?: Double.NEGATIVE_INFINITY) }
+            .sortedWith(compareBy<Pair<GameFolder, Double>>({ if (it.first.streams.isEmpty()) 1 else 0 }, { -it.second },
+                { it.first.game.startMillis }, { it.first.game.id }))
+            .map { it.first }
         if (live.isEmpty()) return null
-        val shown = if (live.size > max) live.take(max - 1) else live
-        return TileSet(league, shown.map { GameTile(it.game, it.streams.firstOrNull()) }, live.size - shown.size)
+        val shown = live.take(max)
+        return TileSet(league, shown.map { GameTile(it.game, it.streams.firstOrNull(), hot(it)) }, live.size - shown.size)
     }
 
     /** Top line: "BUF 17  KC 21" (away first, as ESPN lists them). */
@@ -57,7 +64,7 @@ object GameTiles {
         if (a.league != b.league || a.more != b.more || a.tiles.size != b.tiles.size) return false
         return a.tiles.indices.all { i ->
             val x = a.tiles[i]; val y = b.tiles[i]
-            x.game.id == y.game.id && scoreLine(x.game) == scoreLine(y.game) &&
+            x.game.id == y.game.id && x.hot == y.hot && scoreLine(x.game) == scoreLine(y.game) &&
                 statusLine(x.game, x.stream != null) == statusLine(y.game, y.stream != null) &&
                 x.stream?.item?.url == y.stream?.item?.url
         }

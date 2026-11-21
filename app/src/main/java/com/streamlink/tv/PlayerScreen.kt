@@ -287,7 +287,12 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
         kotlin.concurrent.thread(isDaemon = true, name = "game-tiles") {
             val next = try {
                 val folders = SportsData.both(ctx)
-                GameTiles.current(folders, itemUrl, title, ScoreFeed.latest())?.let { (lg, id) -> GameTiles.pick(folders, lg, id) }
+                val now = System.currentTimeMillis()
+                val ratings = HashMap<String, FeaturedPick.Rating?>()
+                fun rating(gf: GameFolder) = ratings.getOrPut(gf.game.id) { if (gf.streams.isEmpty()) null else FeaturedPick.shared.rateNow(gf, now) }
+                GameTiles.current(folders, itemUrl, title, ScoreFeed.latest())?.let { (lg, id) ->
+                    GameTiles.pick(folders, lg, id, rate = { rating(it)?.score }, hot = { FeaturedPick.heating(rating(it)) })
+                }
             } catch (_: Exception) { null }
             main.post {
                 tilesBusy = false
@@ -298,7 +303,7 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
         }
     }
 
-    /** Two rows of up to 4 small tiles, top right. Switchable games are focusable; Down from the last row goes to Pause. */
+    /** Two columns of up to 6 game tiles (+N more), top right. Switchable games are focusable; Down from the last row goes to Pause. */
     private fun drawTiles(set: TileSet?) {
         val focusedId = (a.currentFocus?.tag as? String)?.takeIf { a.currentFocus?.parent?.parent === tilesBox }
         tilesShown = set
@@ -313,16 +318,16 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
         val views = ArrayList<View>()
         for (t in set.tiles) views.add(tileView(t))
         if (set.more > 0) views.add(moreView(set.more))
-        val rows = views.chunked(4)
+        val rows = views.chunked(2)
         rows.forEachIndexed { r, rowViews ->
             val row = LinearLayout(a).apply { orientation = LinearLayout.HORIZONTAL }
             rowViews.forEachIndexed { i, v ->
                 if (r == rows.lastIndex) v.nextFocusDownId = btnPause.id
                 if (i == rowViews.lastIndex) v.nextFocusRightId = v.id
-                row.addView(v, LinearLayout.LayoutParams(dp(112f), ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(6f) })
+                row.addView(v, LinearLayout.LayoutParams(dp(176f), ViewGroup.LayoutParams.WRAP_CONTENT).apply { if (i > 0) marginStart = dp(8f) })
             }
             tilesBox.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                .apply { if (r > 0) topMargin = dp(6f) })
+                .apply { if (r > 0) topMargin = dp(8f) })
         }
         tilesBox.visibility = View.VISIBLE
         // Up from the buttons goes to the first tile of the bottom row that can be picked (else any that can).
@@ -344,7 +349,7 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
             orientation = LinearLayout.VERTICAL
             id = View.generateViewId()
             tag = t.game.id
-            setPadding(dp(9f), dp(5f), dp(9f), dp(6f))
+            setPadding(dp(12f), dp(7f), dp(12f), dp(8f))
             if (can) {
                 Ui.focusCard(this, 0xD9171B22.toInt(), 0xF21B2230.toInt(), 7f)
                 isFocusable = true; isClickable = true
@@ -354,8 +359,8 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
                 alpha = 0.6f
             }
         }
-        box.addView(Ui.text(a, GameTiles.scoreLine(t.game), 11.5f, Ui.TEXT, bold = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
-        box.addView(Ui.text(a, GameTiles.statusLine(t.game, can), 10.5f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        box.addView(Ui.text(a, GameTiles.scoreLine(t.game), 16f, Ui.TEXT, bold = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
+        box.addView(Ui.text(a, (if (t.hot) "${FeaturedPick.FLAME} " else "") + GameTiles.statusLine(t.game, can), 13.5f, Ui.TEXT_2).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END })
         return box
     }
 
@@ -365,9 +370,9 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
         gravity = Gravity.CENTER
         alpha = 0.6f
         background = Ui.rounded(context, 0x99171B22.toInt(), 7f)
-        setPadding(dp(9f), dp(5f), dp(9f), dp(6f))
-        addView(Ui.text(a, "+$n", 11.5f, Ui.TEXT, bold = true))
-        addView(Ui.text(a, "more live", 10.5f, Ui.TEXT_2))
+        setPadding(dp(12f), dp(7f), dp(12f), dp(8f))
+        addView(Ui.text(a, "+$n", 16f, Ui.TEXT, bold = true))
+        addView(Ui.text(a, "more live", 13.5f, Ui.TEXT_2))
     }
 
     private fun currentListItem(): ListItem? {

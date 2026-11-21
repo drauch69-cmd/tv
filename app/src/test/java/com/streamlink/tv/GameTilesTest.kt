@@ -44,11 +44,24 @@ class GameTilesTest {
         assertEquals("u-best", GameTiles.pick(folders, "nfl", null)!!.tiles.single().stream!!.item.url)
     }
 
-    @Test fun eightFitAndMoreBecomeSevenPlusCount() {
-        val eight = nfl(*(1..8).map { folder(game("$it", start = it.toLong()), stream("a", "u$it")) }.toTypedArray())
-        GameTiles.pick(eight, "nfl", null)!!.let { assertEquals(8, it.tiles.size); assertEquals(0, it.more) }
+    @Test fun sixFitAndMoreBecomeSixPlusCount() {
+        val six = nfl(*(1..6).map { folder(game("$it", start = it.toLong()), stream("a", "u$it")) }.toTypedArray())
+        GameTiles.pick(six, "nfl", null)!!.let { assertEquals(6, it.tiles.size); assertEquals(0, it.more) }
         val eleven = nfl(*(1..11).map { folder(game("$it", start = it.toLong()), stream("a", "u$it")) }.toTypedArray())
-        GameTiles.pick(eleven, "nfl", null)!!.let { assertEquals(7, it.tiles.size); assertEquals(4, it.more) }
+        GameTiles.pick(eleven, "nfl", null)!!.let { assertEquals(6, it.tiles.size); assertEquals(5, it.more) }
+    }
+
+    @Test fun mostExcitingFirstAmongStreamedGames_flameMarked() {
+        val folders = nfl(
+            folder(game("1", start = 1L), stream("a", "u1")),
+            folder(game("2", start = 2L), stream("a", "u2")),
+            folder(game("3", start = 3L)),
+            folder(game("4", start = 4L), stream("a", "u4")),
+        )
+        val score = mapOf("1" to 10.0, "2" to 50.0, "3" to 99.0)
+        val t = GameTiles.pick(folders, "nfl", null, rate = { score[it.game.id] }, hot = { it.game.id == "2" })!!
+        assertEquals(listOf("2", "1", "4", "3"), t.tiles.map { it.game.id })
+        assertEquals(listOf(true, false, false, false), t.tiles.map { it.hot })
     }
 
     @Test fun nothingWhenNoOtherLiveGame() {

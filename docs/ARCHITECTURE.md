@@ -484,7 +484,8 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   Low-delay mode switches to smooth after 2 empty stalls in 60 s.
 - **Other games tiles** (`GameTiles`, PlayerActivity "Overlay: other live games"): when the menu opens, live games of the
   sport being watched (the game whose folder holds the playing item; else a title naming both teams; RedZone = NFL)
-  show top right, 2 rows of up to 4 (7 + "+N more" past 8). Streams first, then start time. A tile with a stream ("▶")
+  show top right, 2 columns of up to 6 larger tiles (+ a "+N more" tile past 6). Streams first, then most exciting
+  (`FeaturedPick.shared.rateNow`, flame on heating-up games), then start time. A tile with a stream ("▶")
   switches: this player and its backup browser stop, then the best-ranked list's stream opens on the loading screen.
   Worked out off the main thread from cached lists and scores (no list reads); scores refresh while the menu is open
   (ScoreFeed: 30 s when live). Redrawn only when a tile changes; focus kept. Up from the buttons enters the tiles,
