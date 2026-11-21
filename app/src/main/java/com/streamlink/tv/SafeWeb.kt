@@ -44,8 +44,6 @@ object SafeWeb {
             WebSettingsCompat.setRequestedWithHeaderOriginAllowList(wv.settings, emptySet())
         }
     }
-    }
-
 }
 
 /** Takes a web view out of its parent and destroys it, without calling into the page (safe after the renderer died). */
