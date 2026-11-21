@@ -4,7 +4,8 @@ import org.json.JSONObject
 
 /**
  * The rules behind city photos on the featured card (user, 2026-11-20): the photo comes from the city the game is
- * played in (ESPN's venue), searched on Unsplash as "<city> skyline", then "<state or country> landscape".
+ * played in (ESPN's venue), searched on Unsplash as "<city>" (user, 2026-11-21; was "<city> skyline"), then
+ * "<state or country> landscape".
  * Pure (no Android), unit tested; the loader is [CityPhotos].
  */
 object CityPhotoRules {
@@ -37,11 +38,14 @@ object CityPhotoRules {
         return if (region.isEmpty()) g.venueCity.trim() else "${g.venueCity.trim()}, $region"
     }
 
-    /** The searches, best first: the city's skyline, then a landscape of its state (full name) or country. */
+    /** Bumped when the searches change, so cities saved under the old search are searched again. */
+    const val SEARCH_VERSION = 2
+
+    /** The searches, best first: the city by name, then a landscape of its state (full name) or country. */
     fun queries(g: Game): List<String> {
         val city = g.venueCity.trim()
         if (city.isEmpty()) return emptyList()
-        val out = mutableListOf("$city skyline")
+        val out = mutableListOf(city)
         val st = g.venueState.trim()
         val region = STATES[st.uppercase()] ?: st.takeIf { it.length > 2 } ?: g.venueCountry.trim()
         if (region.isNotEmpty() && !region.equals(city, ignoreCase = true)) out.add("$region landscape")

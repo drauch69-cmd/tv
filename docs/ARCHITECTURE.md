@@ -447,7 +447,7 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
     Report line: "Photos: saved a N KB photo for <sport>". No photo: the card shows without one.
   - City photos (`CityPhotos`, rules in `CityPhotoRules`; user 2026-11-20, choice A): the featured card and the sport
     screen's side card show a photo of the game's city (ESPN `competitions[0].venue.address` city/state/country, read
-    into `Game.venueCity/venueState/venueCountry`) ahead of the sport photo. Unsplash search "<city> skyline", then
+    into `Game.venueCity/venueState/venueCountry`) ahead of the sport photo. Unsplash search "<city>" (was "<city> skyline" until 2026-11-21; older saves are searched again), then
     "<state name or country> landscape"; landscape, 10 results, widest first. Saved per city (prefs `city_photos`,
     images in `filesDir/city-photos`) and reused; nothing found = retried in 7 days, failure = 30 min; at most 40 API
     calls an hour (demo key: 50). Default framing x 0.5, y 0.6. The download address is called once per photo used

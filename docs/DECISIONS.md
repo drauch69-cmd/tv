@@ -9,6 +9,8 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **City photos search the city name only** (2026-11-21, user): "Chicago" instead of "Chicago skyline"; cities saved
+  under the old search are searched again once. Check: photos still look like the city, not random street shots.
 - **Home fit + Options + Leagues** (2026-11-21, user's go): "Scan the code" line gone, tighter gaps, featured card 260 dp
   (~3.3:1; user's pick) with bigger logos 42, names 26, scores 30, LIVE/league/clock 13-15; Live games and league tiles
   222x136 (were 232x146) so Live games shows without scrolling. "Send a link" -> "Options" panel (Your lists, Check for

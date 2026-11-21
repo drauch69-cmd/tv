@@ -70,7 +70,12 @@ object CityPhotos {
         if (!enabled()) return null
         val key = CityPhotoRules.placeKey(g) ?: return null
         val now = System.currentTimeMillis()
-        val e = entry(ctx, key) ?: JSONObject().put("label", CityPhotoRules.placeLabel(g))
+        var e = entry(ctx, key) ?: JSONObject().put("label", CityPhotoRules.placeLabel(g))
+        if (e.optInt("v", 1) != CityPhotoRules.SEARCH_VERSION && e.has("state")) {
+            // Saved under an older search: forget it (and its image) so the city is searched again.
+            current(e)?.let { file(ctx, key, it.id).delete() }
+            e = JSONObject().put("label", CityPhotoRules.placeLabel(g))
+        }
         // Remember the sport and when it was shown, for the phone page's list.
         e.put("league", g.league).put("seen", now)
         store(ctx, key, e)
@@ -132,7 +137,7 @@ object CityPhotos {
                 found = CityPhotoRules.rank(CityPhotoRules.parseSearch(body))
                 if (found.isNotEmpty()) { Report.log("City photos: ${found.size} for \"$q\""); break }
             }
-            e.put("at", System.currentTimeMillis())
+            e.put("at", System.currentTimeMillis()).put("v", CityPhotoRules.SEARCH_VERSION)
             if (found.isEmpty()) {
                 e.put("state", if (failed) "fail" else "none")
                 store(ctx, key, e)
