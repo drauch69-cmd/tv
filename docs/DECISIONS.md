@@ -11,6 +11,8 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **City photos search city + state** (2026-11-21, user): "Chicago Illinois", "London England"; landscape-only filter
+  was already on. Older saves (and their Next photo/framing fixes) are searched again once.
 - **Faster cold home, smarter low delay, quick fix for broken inner servers** (2026-11-21, user's go on A+B+E; build
   291/292 logs). (A) A broken secure connection on a server the main playlist names re-asks the main playlist (up to 2x)
   before reloading the page (report: 32 s to picture, two ~15 s reloads). (B) Low delay gives up after 2 near-empty stalls

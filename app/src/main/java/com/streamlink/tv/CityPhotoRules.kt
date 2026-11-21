@@ -39,16 +39,17 @@ object CityPhotoRules {
     }
 
     /** Bumped when the searches change, so cities saved under the old search are searched again. */
-    const val SEARCH_VERSION = 2
+    const val SEARCH_VERSION = 3
 
-    /** The searches, best first: the city by name, then a landscape of its state (full name) or country. */
+    /** The searches, best first: city + state (full name) or country (user, 2026-11-21: "Chicago Illinois"), then a landscape of that state or country. */
     fun queries(g: Game): List<String> {
         val city = g.venueCity.trim()
         if (city.isEmpty()) return emptyList()
-        val out = mutableListOf(city)
         val st = g.venueState.trim()
         val region = STATES[st.uppercase()] ?: st.takeIf { it.length > 2 } ?: g.venueCountry.trim()
-        if (region.isNotEmpty() && !region.equals(city, ignoreCase = true)) out.add("$region landscape")
+        val own = region.isNotEmpty() && !region.equals(city, ignoreCase = true)
+        val out = mutableListOf(if (own) "$city $region" else city)
+        if (own) out.add("$region landscape")
         return out
     }
 

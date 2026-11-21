@@ -19,12 +19,12 @@ class CityPhotoRulesTest {
         assertEquals("Laramie", CityPhotoRules.placeLabel(g("Laramie")))
     }
 
-    @Test fun queriesUseTheCityNameThenTheStateOrCountry() {
-        assertEquals(listOf("Laramie", "Wyoming landscape"), CityPhotoRules.queries(g("Laramie", "WY")))
-        assertEquals(listOf("London", "England landscape"), CityPhotoRules.queries(g("London", "", "England")))
-        assertEquals(listOf("Mexico City", "Mexico landscape"), CityPhotoRules.queries(g("Mexico City", "", "Mexico")))
+    @Test fun queriesUseCityAndStateThenTheStateOrCountry() {
+        assertEquals(listOf("Laramie Wyoming", "Wyoming landscape"), CityPhotoRules.queries(g("Laramie", "WY")))
+        assertEquals(listOf("London England", "England landscape"), CityPhotoRules.queries(g("London", "", "England")))
+        assertEquals(listOf("Mexico City Mexico", "Mexico landscape"), CityPhotoRules.queries(g("Mexico City", "", "Mexico")))
         // A state given in full is used as is; a city named like its region gets no second search.
-        assertEquals(listOf("Austin", "Texas landscape"), CityPhotoRules.queries(g("Austin", "Texas")))
+        assertEquals(listOf("Austin Texas", "Texas landscape"), CityPhotoRules.queries(g("Austin", "Texas")))
         assertEquals(listOf("Singapore"), CityPhotoRules.queries(g("Singapore", "", "Singapore")))
         assertEquals(emptyList<String>(), CityPhotoRules.queries(g("")))
     }
