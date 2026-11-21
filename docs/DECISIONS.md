@@ -26,6 +26,10 @@ file's git history (commit 3680843 and earlier).
   and NBA download first, then college basketball. Works with the other session's saved scores + loading screen.
   Check: "Scores timing" shows two "today" lines and the loading screen clears sooner. Offered, not built: an always-on
   background service (advised against: RAM/CPU on the Onn); a 15-min background refresh.
+- **Featured photo fills the whole card** (2026-11-20, user's choice over a mini-card preview with a photo beside the
+  text): the photo covers the full card, game text sits on top, fade runs from the card's left edge. The TV reports the
+  card's real shape to the phone (about 4:1 on the Onn, was 3:1), so the dashed box and the preview (now with stand-in
+  text) match. Re-crop photos on the phone. Check on TV: home card matches the phone preview.
 - **Home polish batch** (2026-11-20, user's go): fade sliders per photo on the phone (width + darkness, live preview;
   home card only, sport-screen side card keeps the fixed fade); last scores saved to disk and put back on start (today's
   up to 15 min old, coming days 3 h); "Loading games…" screen on a fresh start until first scores or 3 s (not on first

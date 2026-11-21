@@ -527,11 +527,11 @@ class MainActivity : Activity() {
         featured.background = Ui.rounded(this, Ui.FADE_BOTTOM, 16f)
         featured.clipToOutline = true
         featPhoto = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
-        featured.addView(featPhoto, android.widget.FrameLayout.LayoutParams(dp(FEAT_PHOTO_W), ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.END))
-        // The photo fades in from its own left edge (user, 2026-11-20: small dark area, soft fade that starts at once).
+        // The photo fills the whole card and the text sits over it (user, 2026-11-20); the fade runs from the card's left edge.
+        featured.addView(featPhoto, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         featFade = View(this).apply { background = Ui.photoFade() }
         featured.addView(featFade,
-            android.widget.FrameLayout.LayoutParams(dp(FEAT_PHOTO_W), ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.END))
+            android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28), dp(22), dp(28), dp(22)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
         top.addView(Ui.badge(this, "LIVE", true, 10.5f))
@@ -560,8 +560,16 @@ class MainActivity : Activity() {
         bottom.addView(featWatch)
         col.addView(bottom)
         featured.addView(col, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        featPhoto.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placePhoto() }
+        featPhoto.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            // The phone page frames photos for the card's real shape.
+            if (v.width > 0 && v.height > 0) SportPhotos.cardAspect = v.width.toFloat() / v.height
+            placePhoto()
+        }
+        SportPhotos.cardAspect = featCardW().toFloat() / dp(FEAT_H)
     }
+
+    /** The card's width: its laid-out width, else the screen width less the home page's side padding. */
+    private fun featCardW(): Int = featured.width.takeIf { it > 0 } ?: (resources.displayMetrics.widthPixels - dp(2 * FEAT_SIDE_PAD))
 
     /** One team: logo, name in a column [nameW] wide (the longer name's width), then the score right after it. */
     private fun teamLine(t: TeamSide, leading: Boolean, nameW: Int): View {
@@ -605,7 +613,7 @@ class MainActivity : Activity() {
         val key = league + "|" + (getSharedPreferences("sport_photos", MODE_PRIVATE).all.toString())
         if (key == featPhotoKey) return
         featPhotoKey = key
-        val w = dp(FEAT_PHOTO_W)
+        val w = featCardW()
         val h = dp(FEAT_H)
         val app = applicationContext
         homeCalc.execute {
@@ -958,9 +966,9 @@ class MainActivity : Activity() {
         const val ALWAYS_ON_TAG = "always-on"
         const val REDZONE_TAG = "redzone"
         const val LOADING_MAX_MS = 3_000L
-        /** Featured card height and its photo box width (dp). The phone page frames photos for this shape (3:1). */
+        /** Featured card height (dp); the photo covers the whole card. Side padding of the home page (dp). */
         const val FEAT_H = 212
-        const val FEAT_PHOTO_W = 636
+        const val FEAT_SIDE_PAD = 48
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

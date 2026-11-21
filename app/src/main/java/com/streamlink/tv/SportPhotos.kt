@@ -18,6 +18,10 @@ object SportPhotos {
     private fun file(ctx: Context, league: String) = File(dir(ctx), "$league.img")
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    /** Width / height of the home featured card on this TV, reported to the phone so its crop box matches. */
+    @Volatile var cardAspect: Float = DEFAULT_ASPECT
+    const val DEFAULT_ASPECT = 4.1f
+
     /** The decoded photo last handed out, so redraws don't decode again. */
     @Volatile private var cached: Triple<String, Bitmap, Long>? = null
 
@@ -83,7 +87,7 @@ object SportPhotos {
                 .put("x", x.toDouble()).put("y", y.toDouble()).put("at", prefs(ctx).getLong("$lg.at", 0L))
                 .put("fw", fw.toDouble()).put("fd", fd.toDouble()))
         }
-        return JSONObject().put("photos", arr).toString()
+        return JSONObject().put("photos", arr).put("aspect", cardAspect.toDouble()).toString()
     }
 
     /** The photo shrunk to about [w]x[h] pixels (off the main thread), or null if the sport has none. */

@@ -171,7 +171,7 @@ in `warmHolder`; a stream it finds goes to `PreFound`, so the switch to it start
 report (`Report.start` archives the previous one; the current one is saved every 10 s) in `report-history.txt`, last 25
 plays / 1.5 MB (`ReportHistory`); GET `/reports` downloads all, POST `/reports/clear` empties it.
 **Sport screen side card:** `FeaturedPick.choose` on that sport only, its own `State` per sport; else `GamePick.nextUp`.
-Home featured card: photo box 636x212 dp (phone frames photos at 3:1), `Ui.photoFade` over the photo only.
+Home featured card: the photo covers the whole card (212 dp tall), text on top; `Ui.photoFade` runs from the card's left edge. The TV reports the card's real width/height (`SportPhotos.cardAspect`, `aspect` in GET /photos) and the phone page frames photos and previews (with stand-in text) at that shape.
 
 
 - **Finder speed-ups.** `SiteMemory`: after 2 failed finds on a site (a miss counts only when the search saw no candidate at all and the stream was not offline/refused; never from light, backup or reconnect searches: `SiteMemory.outcome`), its search shortens to 15 s; the count is cleared

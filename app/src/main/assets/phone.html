@@ -82,9 +82,14 @@
   .photo .dot{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}
   .photo .frame{position:absolute;border:2px dashed rgba(255,255,255,.85);box-shadow:0 0 0 9999px rgba(0,0,0,.45);pointer-events:none}
   .photo .hd{display:flex;justify-content:space-between;align-items:center;font-weight:600}
-  .photo .prev{position:relative;width:100%;aspect-ratio:3/1;border-radius:10px;overflow:hidden;background:#14181E}
+  .photo .prev{position:relative;width:100%;aspect-ratio:4.1/1;border-radius:10px;overflow:hidden;background:#14181E}
   .photo .prev img{position:absolute;max-width:none}
   .photo .prev .fade{position:absolute;inset:0}
+  .photo .prev .mock{position:absolute;inset:0;padding:1.1em 0 0 1.4em;color:#E8EDF3;font-weight:700;pointer-events:none;line-height:1.25}
+  .photo .prev .mock .live{display:inline-block;background:#E5484D;color:#fff;border-radius:.3em;padding:.05em .35em;font-size:.55em;margin-right:.6em}
+  .photo .prev .mock .sp{font-size:.6em;font-weight:500;opacity:.85}
+  .photo .prev .mock .tm{display:flex;width:9em;justify-content:space-between;margin-top:.3em}
+  .photo .prev .mock .w{position:absolute;bottom:1.45em;left:1.85em;background:#5AB0FF;color:#0B1A2A;border-radius:9em;padding:.3em 1em;font-size:.75em}
   .photo .sl{display:flex;align-items:center;gap:10px;font-size:14px}
   .photo .sl span{width:92px;flex:none}
   .photo .sl input{flex:1}
@@ -134,7 +139,7 @@
     <div id="listItems"></div>
     <div id="listsEmpty" class="empty" hidden><b>No stream lists yet</b>Paste the link of an index page above and tap Add as stream list.</div>
     <div class="section" style="margin-top:18px">Home photos</div>
-    <p class="small" style="margin:0 2px 10px">One photo per sport for the big featured game on the TV's home screen. After choosing one, tap the action in it: the dashed box shows what the TV will show. Photos stay on the TV.</p>
+    <p class="small" style="margin:0 2px 10px">One photo per sport for the big featured game on the TV's home screen. After choosing one, tap the action in it: the dashed box shows what the TV will show; the game text sits on top of the photo. Photos stay on the TV.</p>
     <div id="photoItems"></div>
   </div>
   <div id="listDetail" hidden>
@@ -620,7 +625,7 @@
   setInterval(function(){ if (tab === 'live' && document.visibilityState !== 'hidden') loadLive(); }, 30000);
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && tab === 'live') loadLive(); });
   // Home photos (one per sport; tap to set the spot that stays in view)
-  var PHOTO_ASPECT = 3.0; // the featured card's photo area, width / height
+  var PHOTO_ASPECT = 4.1; // the TV's featured card (the photo fills it), width / height; the TV sends its real shape
   function drawFrame(box, img, x, y){
     var fr = box.querySelector('.frame'), dot = box.querySelector('.dot');
     var w = img.clientWidth, h = img.clientHeight;
@@ -648,6 +653,9 @@
     var pim = pv.querySelector('img'), W = pv.clientWidth, H = W / PHOTO_ASPECT;
     var iw = img.naturalWidth, ih = img.naturalHeight;
     pv.querySelector('.fade').style.background = fadeCss(w, d);
+    pv.style.aspectRatio = PHOTO_ASPECT + ' / 1';
+    // Stand-in text at the TV's sizes: the card is 212 dp tall, team names are 20 sp.
+    pv.querySelector('.mock').style.fontSize = (H * 20 / 212).toFixed(1) + 'px';
     if (!W || !iw || !ih) return;
     var s = Math.max(W / iw, H / ih), sw = iw * s, sh = ih * s;
     var left = Math.min(Math.max(W / 2 - x * sw, W - sw), 0), top = Math.min(Math.max(H / 2 - y * sh, H - sh), 0);
@@ -692,7 +700,11 @@
       var pv = document.createElement('div'); pv.className = 'prev';
       var pim = document.createElement('img'); pim.alt = ''; pim.src = img.src;
       var fade = document.createElement('div'); fade.className = 'fade';
-      pv.appendChild(pim); pv.appendChild(fade);
+      var mock = document.createElement('div'); mock.className = 'mock';
+      mock.innerHTML = '<div><span class="live">LIVE</span><span class="sp">' + p.name.replace(/[<&]/g, '') + '</span></div>' +
+        '<div class="tm"><span>Home team</span><span>24</span></div><div class="tm"><span>Away team</span><span>7</span></div>' +
+        '<span class="w">\u25B6 Watch</span>';
+      pv.appendChild(pim); pv.appendChild(fade); pv.appendChild(mock);
       var sw = slider('Fade width', (fw - 0.1) / 0.9), sd = slider('Fade darkness', fd);
       function preview(){ drawPreview(pv, img, x, y, fw, fd); }
       function readSliders(){ fw = 0.1 + 0.9 * (+sw.input.value / 100); fd = +sd.input.value / 100; preview(); }
@@ -744,6 +756,7 @@
   function loadPhotos(){
     fetch('/photos', {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
       var box = $('photoItems'); box.innerHTML = '';
+      if (d.aspect > 1.5 && d.aspect < 8) PHOTO_ASPECT = d.aspect;
       (d.photos || []).forEach(function(p){ box.appendChild(photoCard(p)); });
     }).catch(function(){});
   }
