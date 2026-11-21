@@ -400,9 +400,11 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   `ListStatus.byTime`, the old rules. Matching is cached per games list. The home screen fetches scores too (5 s tick
   while in front) and redraws only when a status changes; the list screen rebuilds (keeping focus) only when a row's
   status or badge changes.
-- **Popup stand-in** (`SafeWeb.POPUP_STANDIN_JS`, every frame of every web view): window.open() returns a closable dummy, never
-  null, because players (ntv) treat a null popup as a sandboxed frame and refuse to play. target=_blank still reaches
-  `SafeChromeClient.onCreateWindow` and is refused ("Blocked a popup window").
+- **Throwaway popups** (`SafeChromeClient.onCreateWindow`, every web view): a popup gets an invisible, never-shown
+  web view (no scripts, every request answered empty), destroyed after 5 s; at most 3 live per page, past that refused
+  ("Blocked a popup window"). Reason: a refused popup returns null, which players (ntv) read as a sandboxed frame and
+  refuse to play; a JS-only stand-in (build 281) missed tests run from fresh blank frames. Report line: "Gave a popup
+  an empty hidden window". Popups without a tap still get null (javaScriptCanOpenWindowsAutomatically = false).
 - **Renderer crashes** (`SafeWebViewClient.onRenderProcessGone`, always answers true): calls the open hook `onRendererGone(view,
   didCrash)`; default removes and destroys the view (`SafeWeb.dispose`). `StreamSniffer` logs "The hidden browser was shut down by
   the system" and ends the run as a failure (reason "web view crashed"); `SitePlayerActivity` logs, shows a short message and

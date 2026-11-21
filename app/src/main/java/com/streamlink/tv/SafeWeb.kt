@@ -14,7 +14,6 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.view.ViewGroup
 import androidx.webkit.WebSettingsCompat
-import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
@@ -28,7 +27,7 @@ object SafeWeb {
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
             javaScriptCanOpenWindowsAutomatically = false
-            setSupportMultipleWindows(true) // so window.open() reaches onCreateWindow, where it's refused
+            setSupportMultipleWindows(true) // so window.open() reaches onCreateWindow (an empty throwaway window, see SafeChromeClient)
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             userAgentString = userAgentString.replace("; wv", "")
             // Pages get nothing from the TV itself: no files, no app content, no location.
@@ -44,39 +43,9 @@ object SafeWeb {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
             WebSettingsCompat.setRequestedWithHeaderOriginAllowList(wv.settings, emptySet())
         }
-        // In every frame: window.open() hands back a harmless stand-in instead of nothing.
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            try { WebViewCompat.addDocumentStartJavaScript(wv, POPUP_STANDIN_JS, setOf("*")) } catch (_: Exception) {}
-        }
+    }
     }
 
-    /**
-     * Some players (ntv, 2026-11-21) test popups on the first tap: open one, close it at once, and if
-     * window.open() returned null they decide they are in a sandboxed frame and refuse to play. A
-     * refused popup looks exactly like that, so every frame gets a window.open() that opens nothing
-     * and returns a closable stand-in. Links with target=_blank still reach onCreateWindow and are refused.
-     */
-    const val POPUP_STANDIN_JS = """
-        (function(){
-          try {
-            if (window.__slPopupStandin) return;
-            window.__slPopupStandin = 1;
-            var noop = function(){};
-            var make = function(){
-              var w = { closed: false, opener: null, name: '', focus: noop, blur: noop, print: noop,
-                        postMessage: noop, moveTo: noop, resizeTo: noop, stop: noop,
-                        addEventListener: noop, removeEventListener: noop };
-              w.close = function(){ w.closed = true; };
-              w.location = { href: 'about:blank', assign: noop, replace: noop, reload: noop };
-              w.document = { write: noop, writeln: noop, open: noop, close: noop };
-              w.window = w; w.self = w;
-              return w;
-            };
-            var open = function(){ return make(); };
-            Object.defineProperty(window, 'open', { value: open, writable: true, configurable: true });
-          } catch (e) {}
-        })();
-    """
 }
 
 /** Takes a web view out of its parent and destroys it, without calling into the page (safe after the renderer died). */
@@ -86,11 +55,66 @@ fun SafeWeb.dispose(view: WebView?) {
     try { view.destroy() } catch (_: Throwable) {}
 }
 
-/** Refuses popups and new windows, and silently dismisses alert/confirm/prompt boxes. */
+/**
+ * Popups get an invisible, empty throwaway window instead of nothing, and alert/confirm/prompt boxes are dismissed.
+ *
+ * Why not just refuse: a refused popup gives the page `null`, exactly what a sandboxed frame gets, and some players
+ * (ntv, 2026-11-21: "Remove sandbox attributes on the iframe tag") test for that and refuse to play. Ad blockers in
+ * real browsers let the popup open and kill it, so pages expect a real window. The throwaway is never shown, runs no
+ * scripts, loads nothing (every request answered empty), and is destroyed after [DECOY_LIFE_MS]. At most
+ * [MAX_DECOYS] live per page; past that, popups are refused as before.
+ */
 open class SafeChromeClient(private val quiet: () -> Boolean = { false }) : WebChromeClient() {
     override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
-        if (!quiet()) Report.log("Blocked a popup window")
-        return false
+        val msg = resultMsg
+        val transport = msg?.obj as? WebView.WebViewTransport
+        if (view == null || msg == null || transport == null || (liveDecoys[view] ?: 0) >= MAX_DECOYS) {
+            if (!quiet()) Report.log("Blocked a popup window")
+            return false
+        }
+        val decoy = try { makeDecoy(view) } catch (_: Throwable) { null }
+        if (decoy == null) {
+            if (!quiet()) Report.log("Blocked a popup window")
+            return false
+        }
+        liveDecoys[view] = (liveDecoys[view] ?: 0) + 1
+        transport.webView = decoy
+        msg.sendToTarget()
+        if (!quiet()) Report.log("Gave a popup an empty hidden window (nothing opens)")
+        main.postDelayed({
+            try { decoy.stopLoading(); decoy.destroy() } catch (_: Throwable) {}
+            val n = (liveDecoys[view] ?: 1) - 1
+            if (n <= 0) liveDecoys.remove(view) else liveDecoys[view] = n
+        }, DECOY_LIFE_MS)
+        return true
+    }
+
+    private fun makeDecoy(parent: WebView): WebView {
+        val d = WebView(parent.context)
+        with(d.settings) {
+            javaScriptEnabled = false
+            allowFileAccess = false
+            allowContentAccess = false
+            setSupportMultipleWindows(false)
+            blockNetworkImage = true
+        }
+        d.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(v: WebView?, r: WebResourceRequest?): Boolean = true
+            override fun shouldInterceptRequest(v: WebView?, r: WebResourceRequest?): WebResourceResponse =
+                WebResourceResponse("text/plain", "utf-8", 204, "No Content", emptyMap(), ByteArrayInputStream(ByteArray(0)))
+            override fun onRenderProcessGone(v: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                try { v?.destroy() } catch (_: Throwable) {}
+                return true
+            }
+        }
+        return d
+    }
+
+    companion object {
+        const val MAX_DECOYS = 3
+        const val DECOY_LIFE_MS = 5_000L
+        private val main = android.os.Handler(android.os.Looper.getMainLooper())
+        private val liveDecoys = java.util.WeakHashMap<WebView, Int>()
     }
 
     override fun onJsAlert(view: WebView?, url: String?, message: String?, result: JsResult?): Boolean {

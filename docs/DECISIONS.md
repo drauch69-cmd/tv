@@ -9,11 +9,13 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
-- **Popup stand-in + no stuck short search** (2026-11-21): ntv's player opens and closes a test popup on the first
-  tap; a refused popup (null) makes it decide it is sandboxed ("remove sandbox" in the site player, and no stream for
-  the finder: ntv was at 25 misses). Every frame now gets a window.open() that opens nothing and returns a closable
-  stand-in ("Blocked a popup window" lines now only for target=_blank links). Site memory gives every 4th miss in a row
-  a full 25 s search. Check on TV: ntv game plays; site player shows no sandbox message.
+- **Throwaway popups + no stuck short search** (2026-11-21, user's go): ntv's players test popups and read a refused
+  popup (null) as a sandboxed frame ("Remove sandbox attributes on the iframe tag"; no stream for the finder, ntv at
+  31 misses). Build 281's in-page stand-in didn't reach tests run from blank frames (still failed at 1:47), so now the
+  app hands every popup an invisible empty window and destroys it (like Brave/uBlock; ntv's admins point users there).
+  Site memory gives every 4th miss in a row a full 25 s search. Check on TV (after ntv's 1 h saved result runs out):
+  falcon plays in the site player with no sandbox message; raptor shows video, not the green Android placeholder.
+  Not built yet (user picked only this): black instead of the placeholder; harder taps on players buried in frames.
 - **City photos search the city name only** (2026-11-21, user): "Chicago" instead of "Chicago skyline"; cities saved
   under the old search are searched again once. Check: photos still look like the city, not random street shots.
 - **Home fit + Options + Leagues** (2026-11-21, user's go): "Scan the code" line gone, tighter gaps, featured card 260 dp
