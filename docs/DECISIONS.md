@@ -156,6 +156,11 @@ file's git history (commit 3680843 and earlier).
 - **Signing key moved to secrets** (user chose option A, same key, 2026-11-20): the user added the two Actions secrets;
   the build signs from them and checks the certificate is unchanged; the key file is gone from `sports` (still on
   `main` for the TV Cleaner, and in history). Untested on the TV: the next Sports update should install normally.
+- **TV Cleaner: DNS page + self-update** (user OK'd touching `cleaner/` and pushing `main` for this, 2026-11-21;
+  build 9). DNS sets the hidden Private DNS (presets AdGuard/Cloudflare/Google/Quad9/Automatic/Off + custom name),
+  probes port 853 first, then checks the internet and reverts by itself if it fails. Updates page checks
+  `cleaner-latest` on open, offers install (optional "install without asking"), same-signature only, reopens itself.
+  Untested on the TV; build 9 must be installed by hand once (older builds have no updater).
 
 Reminder: lay out options and get a "go" before starting any of these.
 
