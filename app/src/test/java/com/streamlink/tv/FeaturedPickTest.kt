@@ -144,6 +144,17 @@ class FeaturedPickTest {
         assertEquals("r", p?.folder?.game?.id)
     }
 
+    @Test fun footballAlwaysBeatsBasketball() {
+        val st = FeaturedPick.State()
+        val nba = folder(game("n", side("A", 101), side("B", 101), 4, "0:40", league = "nba"))
+        assertEquals("n", FeaturedPick.choose(sports(nba), now, false, st, 10)?.folder?.game?.id)
+        // a dull, unranked college football game still takes the card from a tied NBA finish
+        val cfb = folder(game("c", side("C", 0), side("D", 14), 2, "1:41", league = "cfb"))
+        assertEquals("c", FeaturedPick.choose(sports(nba, cfb), now + min, false, st, 10)?.folder?.game?.id)
+        val cbb = folder(game("b", side("E", 60), side("F", 60), 2, "0:20", league = "cbb"))
+        assertEquals("c", FeaturedPick.choose(sports(nba, cfb, cbb), now + 2 * min, false, st, 10)?.folder?.game?.id)
+    }
+
     @Test fun holdsFiveMinutesThenSwitchesWhenClearlyBeaten() {
         val st = FeaturedPick.State()
         val dull = folder(game("d", side("A", 7), side("B", 10), 3, "10:00"))

@@ -75,7 +75,7 @@ class MainActivity : Activity() {
      */
     private val scoreTick = object : Runnable {
         override fun run() {
-            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
+            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) { requestHome(false); hideLoading() } }
             main.postDelayed(this, SCORE_TICK_MS)
         }
     }
@@ -208,11 +208,18 @@ class MainActivity : Activity() {
             photo = { lg -> SportPhotos.bytes(this, lg) },
             onPhotoUpload = { lg, bytes -> SportPhotos.save(this, lg, bytes).also { if (it == null) runOnUiThread { renderLists() } } },
             onPhotoFocus = { lg, x, y -> SportPhotos.setFocus(this, lg, x, y).also { if (it) runOnUiThread { renderLists() } } },
+            onPhotoFade = { lg, w, d -> SportPhotos.setFade(this, lg, w, d).also { if (it) runOnUiThread { renderLists() } } },
             onPhotoRemove = { lg -> SportPhotos.remove(this, lg).also { runOnUiThread { renderLists() } } },
         )
         port = try { server.start() } catch (_: Exception) { -1 }
         showAddress()
         renderHomeNow()
+        if (savedInstanceState == null && ScoreFeed.latest().isEmpty() && SavedLists.all(this).isNotEmpty()) showLoading()
+        // Saved scores from the last run go back in at once (off the main thread), then the home screen redraws.
+        homeCalc.execute {
+            val back = try { ScoreFeed.restoreOnce() } catch (_: Exception) { false }
+            if (back) main.post { if (!isFinishing && !isDestroyed) { requestHome(false); hideLoading() } }
+        }
         renderRecents()
         watchNetwork()
         Updater.listener = { runOnUiThread { renderUpdate() } }
@@ -221,6 +228,35 @@ class MainActivity : Activity() {
         if (SavedLists.all(this).isEmpty() && Recents.list(this).isEmpty()) showQr(true) else focusFirst()
         main.post(updateTick)
         main.postDelayed(homeTick, HOME_TICK_MS)
+    }
+
+    // ---- Loading screen on a fresh start (user, 2026-11-20): logo + "Loading games…" until the first scores arrive or
+    // [LOADING_MAX_MS] passes, so a half-built home screen is never shown. ----
+    private var loading: View? = null
+    private val loadingTimeout = Runnable { hideLoading() }
+
+    private fun showLoading() {
+        val root = findViewById<ViewGroup>(android.R.id.content)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(Ui.BG)
+            isClickable = true // nothing underneath takes touches while it shows
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        }
+        box.addView(ImageView(this).apply { setImageResource(R.drawable.logo_mark) }, LinearLayout.LayoutParams(dp(78), dp(66)))
+        box.addView(Ui.text(this, "Loading games…", 16f, Ui.TEXT_2), LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) })
+        root.addView(box, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        loading = box
+        main.postDelayed(loadingTimeout, LOADING_MAX_MS)
+    }
+
+    private fun hideLoading() {
+        val v = loading ?: return
+        loading = null
+        main.removeCallbacks(loadingTimeout)
+        v.animate().alpha(0f).setDuration(250).withEndAction { (v.parent as? ViewGroup)?.removeView(v) }.start()
     }
 
     override fun onPause() {
@@ -255,6 +291,35 @@ class MainActivity : Activity() {
         }
         @Suppress("DEPRECATION")
         super.onBackPressed()
+    }
+
+    /**
+     * Left/Right at the end of a home row stays put instead of jumping to the row above or below (user, 2026-11-20).
+     * Rows: the top bar, the featured card, Live games, Sports and recents.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val left = event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+        if ((left || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) && qrPanel.visibility != View.VISIBLE && atRowEnd(left)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun atRowEnd(left: Boolean): Boolean {
+        val f = currentFocus ?: return false
+        val rows = listOf<View?>(yourLists.parent as? View, featured, liveGamesRow, sportsRow, recentList)
+        var child: View = f
+        var p = f.parent
+        while (p is View) {
+            if (p in rows) {
+                val row = p as ViewGroup
+                val items = (0 until row.childCount).map { row.getChildAt(it) }
+                    .filter { it.visibility == View.VISIBLE && (it.isFocusable || (it is ViewGroup && it.hasFocusable())) }
+                val i = items.indexOf(child)
+                return i >= 0 && RowEdges.blocked(i, items.size, left)
+            }
+            child = p
+            p = p.parent
+        }
+        return false
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -432,6 +497,7 @@ class MainActivity : Activity() {
 
     private lateinit var featured: android.widget.FrameLayout
     private lateinit var featPhoto: ImageView
+    private lateinit var featFade: View
     private lateinit var featSport: TextView
     private lateinit var featTeams: LinearLayout
     private lateinit var featStatus: TextView
@@ -447,7 +513,8 @@ class MainActivity : Activity() {
         featPhoto = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }
         featured.addView(featPhoto, android.widget.FrameLayout.LayoutParams(dp(FEAT_PHOTO_W), ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.END))
         // The photo fades in from its own left edge (user, 2026-11-20: small dark area, soft fade that starts at once).
-        featured.addView(View(this).apply { background = Ui.photoFade() },
+        featFade = View(this).apply { background = Ui.photoFade() }
+        featured.addView(featFade,
             android.widget.FrameLayout.LayoutParams(dp(FEAT_PHOTO_W), ViewGroup.LayoutParams.MATCH_PARENT, android.view.Gravity.END))
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(28), dp(22), dp(28), dp(22)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
@@ -530,6 +597,8 @@ class MainActivity : Activity() {
                 if (isFinishing || isDestroyed || featPhotoKey != key) return@post
                 featPhoto.setImageBitmap(b)
                 featPhoto.tag = league
+                val (fw, fd) = SportPhotos.fade(this, league)
+                featFade.background = Ui.photoFade(fw, fd)
                 placePhoto()
             }
         }
@@ -871,6 +940,7 @@ class MainActivity : Activity() {
         const val STALE_MS = 10 * 60_000L
         const val ALWAYS_ON_TAG = "always-on"
         const val REDZONE_TAG = "redzone"
+        const val LOADING_MAX_MS = 3_000L
         /** Featured card height and its photo box width (dp). The phone page frames photos for this shape (3:1). */
         const val FEAT_H = 212
         const val FEAT_PHOTO_W = 636

@@ -60,6 +60,8 @@ object FeaturedPick {
 
     fun college(league: String) = league == "cfb" || league == "cbb"
 
+    fun isFootball(league: String) = league == "nfl" || league == "cfb"
+
     /** College games with no ranked team count only when no better game is live, except Big Ten vs Big Ten. */
     fun topTier(g: Game): Boolean = !college(g.league) || g.home.rank != null || g.away.rank != null ||
         (g.home.conferenceId == BIG_TEN && g.away.conferenceId == BIG_TEN)
@@ -241,8 +243,9 @@ object FeaturedPick {
     data class Pick(val folder: GameFolder, val rating: Rating, val reason: String)
 
     /**
-     * The featured game: live games with at least one stream are rated; college games without a ranked team (except
-     * Big Ten vs Big Ten) are used only when nothing else is live. The card then changes only when:
+     * The featured game: live games with at least one stream are rated; while any football (NFL, college) game is live,
+     * only football is considered; college games without a ranked team (except Big Ten vs Big Ten) are used only when
+     * nothing else in that group is live. The card then changes only when:
      * - the shown game ended or lost its streams, or a top game appears while a fallback game is shown;
      * - not while [focused]: the shown game fell below 10 while another is 30 or more (blowout);
      * - else, not while [focused] and not before [HOLD_MS], a game beats it by 20% and 10 points (20 points while
@@ -259,8 +262,10 @@ object FeaturedPick {
         if (live.isEmpty()) { state.currentId = null; state.ratings = emptyMap(); return null }
         val all = live.map { it to rate(it.game, now, it.streams.size, week, state.historyOf(it.game.id)) }
         state.ratings = all.associate { it.first.game.id to it.second }
-        val top = all.filter { topTier(it.first.game) }
-        val rated = top.ifEmpty { all }
+        // Football (NFL, college football) always comes before basketball while any football game is live (user, 2026-11-20).
+        val football = all.filter { isFootball(it.first.game.league) }.ifEmpty { all }
+        val top = football.filter { topTier(it.first.game) }
+        val rated = top.ifEmpty { football }
             .sortedWith(compareByDescending<Pair<GameFolder, Rating>> { it.second.score }
                 .thenBy { LiveGames.leaguePriority(it.first.game.league) }.thenBy { it.first.game.startMillis })
         val best = rated.first()

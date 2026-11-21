@@ -82,6 +82,12 @@
   .photo .dot{position:absolute;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px rgba(0,0,0,.6);pointer-events:none}
   .photo .frame{position:absolute;border:2px dashed rgba(255,255,255,.85);box-shadow:0 0 0 9999px rgba(0,0,0,.45);pointer-events:none}
   .photo .hd{display:flex;justify-content:space-between;align-items:center;font-weight:600}
+  .photo .prev{position:relative;width:100%;aspect-ratio:3/1;border-radius:10px;overflow:hidden;background:#14181E}
+  .photo .prev img{position:absolute;max-width:none}
+  .photo .prev .fade{position:absolute;inset:0}
+  .photo .sl{display:flex;align-items:center;gap:10px;font-size:14px}
+  .photo .sl span{width:92px;flex:none}
+  .photo .sl input{flex:1}
 </style>
 </head>
 <body>
@@ -627,6 +633,33 @@
     var fx = Math.min(Math.max(x - fw / 2, 0), 1 - fw), fy = Math.min(Math.max(y - fh / 2, 0), 1 - fh);
     fr.style.left = (fx * 100) + '%'; fr.style.top = (fy * 100) + '%'; fr.style.width = (fw * 100) + '%'; fr.style.height = (fh * 100) + '%';
   }
+  // The TV's fade over the photo (same curve as PhotoFade.kt): solid at the photo's left edge, gone at w.
+  function fadeCss(w, d){
+    var k = 3.5 - 2.9 * d, n = 13, stops = [];
+    w = Math.min(Math.max(w, 0.1), 1);
+    for (var i = 0; i < n; i++) {
+      var t = (i / (n - 1)) / w, a = t >= 1 ? 0 : Math.pow(1 - t, k);
+      stops.push('rgba(20,24,30,' + a.toFixed(3) + ') ' + (i * 100 / (n - 1)).toFixed(1) + '%');
+    }
+    return 'linear-gradient(to right,' + stops.join(',') + ')';
+  }
+  // Preview of the TV's photo area: the cropped photo (same rule as drawFrame) with the fade on top.
+  function drawPreview(pv, img, x, y, w, d){
+    var pim = pv.querySelector('img'), W = pv.clientWidth, H = W / PHOTO_ASPECT;
+    var iw = img.naturalWidth, ih = img.naturalHeight;
+    pv.querySelector('.fade').style.background = fadeCss(w, d);
+    if (!W || !iw || !ih) return;
+    var s = Math.max(W / iw, H / ih), sw = iw * s, sh = ih * s;
+    var left = Math.min(Math.max(W / 2 - x * sw, W - sw), 0), top = Math.min(Math.max(H / 2 - y * sh, H - sh), 0);
+    pim.style.width = sw + 'px'; pim.style.height = sh + 'px'; pim.style.left = left + 'px'; pim.style.top = top + 'px';
+  }
+  function slider(label, val){
+    var r = document.createElement('label'); r.className = 'sl';
+    var t = document.createElement('span'); t.textContent = label;
+    var i = document.createElement('input'); i.type = 'range'; i.min = '0'; i.max = '100'; i.value = String(Math.round(val * 100));
+    r.appendChild(t); r.appendChild(i);
+    return {row: r, input: i};
+  }
   function shrink(file){
     return new Promise(function(ok, fail){
       var url = URL.createObjectURL(file), im = new Image();
@@ -655,18 +688,35 @@
       var dot = document.createElement('div'); dot.className = 'dot';
       box.appendChild(img); box.appendChild(fr); box.appendChild(dot);
       var x = p.x, y = p.y;
-      img.onload = function(){ drawFrame(box, img, x, y); };
+      var fw = p.fw != null ? p.fw : 0.75, fd = p.fd != null ? p.fd : 0.5;
+      var pv = document.createElement('div'); pv.className = 'prev';
+      var pim = document.createElement('img'); pim.alt = ''; pim.src = img.src;
+      var fade = document.createElement('div'); fade.className = 'fade';
+      pv.appendChild(pim); pv.appendChild(fade);
+      var sw = slider('Fade width', (fw - 0.1) / 0.9), sd = slider('Fade darkness', fd);
+      function preview(){ drawPreview(pv, img, x, y, fw, fd); }
+      function readSliders(){ fw = 0.1 + 0.9 * (+sw.input.value / 100); fd = +sd.input.value / 100; preview(); }
+      function saveFade(){
+        msg.textContent = 'Saving…';
+        post('/photo/fade', 'league=' + p.league + '&w=' + fw.toFixed(3) + '&d=' + fd.toFixed(3))
+          .then(function(r){ msg.textContent = r.ok ? 'Saved' : 'Not saved'; })
+          .catch(function(){ msg.textContent = 'Not saved'; });
+      }
+      [sw.input, sd.input].forEach(function(i){ i.oninput = readSliders; i.onchange = saveFade; });
+      img.onload = function(){ drawFrame(box, img, x, y); preview(); };
       box.onclick = function(e){
         var r = img.getBoundingClientRect();
         x = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1);
         y = Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1);
-        drawFrame(box, img, x, y);
+        drawFrame(box, img, x, y); preview();
         msg.textContent = 'Saving…';
         post('/photo/focus', 'league=' + p.league + '&x=' + x.toFixed(3) + '&y=' + y.toFixed(3))
           .then(function(r){ msg.textContent = r.ok ? 'Saved' : 'Not saved'; })
           .catch(function(){ msg.textContent = 'Not saved'; });
       };
       d.appendChild(box);
+      var ph = document.createElement('p'); ph.className = 'small'; ph.style.margin = '2px 2px 0'; ph.textContent = 'How it looks on the TV:';
+      d.appendChild(ph); d.appendChild(pv); d.appendChild(sw.row); d.appendChild(sd.row);
     }
     var row = document.createElement('div'); row.className = 'row';
     var pick = document.createElement('input'); pick.type = 'file'; pick.accept = 'image/*'; pick.hidden = true;

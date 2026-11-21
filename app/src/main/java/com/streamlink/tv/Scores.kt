@@ -1,9 +1,12 @@
 package com.streamlink.tv
 
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -463,6 +466,64 @@ object ScoreFeed {
     private val futureFail = HashMap<String, Long>()
     private var running = false
 
+    // ---- Saved scores (user, 2026-11-20): the last answers are kept on disk so a fresh start can draw at once ----
+    /** Where the last answers are saved; null until [init]. */
+    @Volatile private var dir: File? = null
+    private val restoredOnce = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Saved coming-days answers are used up to this old. Today's follow [MAX_AGE_MS] like live ones. */
+    private const val FUTURE_KEEP_MS = 3 * 60 * 60_000L
+
+    fun init(ctx: Context) { dir = File(ctx.filesDir, "scores").apply { mkdirs() } }
+
+    private fun save(name: String, at: Long, pages: List<String>) {
+        val d = dir ?: return
+        try {
+            val tmp = File(d, "$name.tmp")
+            tmp.writeText(JSONObject().put("at", at).put("pages", JSONArray(pages)).toString())
+            if (!tmp.renameTo(File(d, "$name.json"))) tmp.delete()
+        } catch (_: Exception) {}
+    }
+
+    private fun load(name: String): Pair<Long, List<String>>? = try {
+        val f = File(dir ?: return null, "$name.json")
+        if (!f.isFile) null else JSONObject(f.readText()).let { o ->
+            val a = o.getJSONArray("pages")
+            o.getLong("at") to (0 until a.length()).map { a.getString(it) }
+        }
+    } catch (_: Exception) { null }
+
+    /**
+     * Once per app start (off the main thread): puts the saved answers back if they are recent enough (today's: up to
+     * [MAX_AGE_MS], so they count as fresh; coming days: [FUTURE_KEEP_MS]). They are re-fetched as usual right after.
+     * True when anything was put back.
+     */
+    fun restoreOnce(now: Long = System.currentTimeMillis()): Boolean {
+        if (!restoredOnce.compareAndSet(false, true)) return false
+        var any = false
+        for (lg in LEAGUES) {
+            load("today-$lg")?.takeIf { now - it.first in 0..MAX_AGE_MS }?.let { (at, pages) ->
+                val games = parsePages(pages, lg) ?: return@let
+                synchronized(lock) {
+                    if (lastOk[lg] == null) { todayByLeague = todayByLeague + (lg to games); lastOk[lg] = at; version++; any = true }
+                }
+            }
+            load("future-$lg")?.takeIf { now - it.first in 0..FUTURE_KEEP_MS }?.let { (at, pages) ->
+                val games = parsePages(pages, lg) ?: return@let
+                synchronized(lock) {
+                    if (futureOk[lg] == null) { futureByLeague = futureByLeague + (lg to games); futureOk[lg] = at; version++; any = true }
+                }
+            }
+        }
+        if (any) Report.log("Scores: showing saved scores from the last run while new ones load")
+        return any
+    }
+
+    private fun parsePages(pages: List<String>, league: String): List<Game>? = try {
+        val m = LinkedHashMap<String, Game>()
+        for (p in pages) for (g in ScoreParse.parse(p, league)) m.putIfAbsent(g.id, g)
+        m.values.toList()
+    } catch (_: Exception) { null }
+
     /**
      * All known games: today's (and yesterday's before 5 am) plus the next two days, merged by game id. Today's games
      * of a league are left out when its last good fetch is older than [MAX_AGE_MS], so an old "in" never keeps an item
@@ -607,20 +668,24 @@ object ScoreFeed {
             val days = arrayListOf(now)
             if (now.hour < 5) days.add(now.minusDays(1))
             val merged = LinkedHashMap<String, Game>()
+            val pages = ArrayList<String>()
             for ((i, day) in days.withIndex()) {
                 val games = try {
-                    ScoreParse.parse(download(url(league, DAY.format(day))), league)
+                    val raw = download(url(league, DAY.format(day)))
+                    ScoreParse.parse(raw, league).also { pages.add(raw) }
                 } catch (e: Exception) {
                     if (i == 0) throw e else emptyList() // yesterday is a bonus
                 }
                 for (g in games) merged.putIfAbsent(g.id, g)
             }
+            val at = System.currentTimeMillis()
             synchronized(lock) {
                 val list = merged.values.toList()
                 if (todayByLeague[league] != list) { todayByLeague = todayByLeague + (league to list); version++ }
-                lastOk[league] = System.currentTimeMillis()
+                lastOk[league] = at
                 lastFail.remove(league)
             }
+            save("today-$league", at, pages)
             true
         } catch (e: Exception) {
             synchronized(lock) { lastFail[league] = System.currentTimeMillis() }
@@ -635,15 +700,20 @@ object ScoreFeed {
         return try {
             val now = ZonedDateTime.now(NY)
             val merged = LinkedHashMap<String, Game>()
+            val pages = ArrayList<String>()
             for (k in 1L..2L) {
-                for (g in ScoreParse.parse(download(url(league, DAY.format(now.plusDays(k)))), league)) merged.putIfAbsent(g.id, g)
+                val raw = download(url(league, DAY.format(now.plusDays(k))))
+                for (g in ScoreParse.parse(raw, league)) merged.putIfAbsent(g.id, g)
+                pages.add(raw)
             }
+            val at = System.currentTimeMillis()
             synchronized(lock) {
                 val list = merged.values.toList()
                 if (futureByLeague[league] != list) { futureByLeague = futureByLeague + (league to list); version++ }
-                futureOk[league] = System.currentTimeMillis()
+                futureOk[league] = at
                 futureFail.remove(league)
             }
+            save("future-$league", at, pages)
             true
         } catch (e: Exception) {
             synchronized(lock) { futureFail[league] = System.currentTimeMillis() }

@@ -132,9 +132,9 @@ object Ui {
      * Laid over a featured card's photo: the card colour at the photo's left edge, fading out at once and gone by
      * about 55% of the way across, so only a thin edge is dark and the photo has no hard line (user, 2026-11-20).
      */
-    fun photoFade(): GradientDrawable = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(
-        FADE_BOTTOM, 0xC014181E.toInt(), 0x8014181E.toInt(), 0x4814181E, 0x1C14181E, 0x0614181E, 0x0014181E, 0x0014181E, 0x0014181E,
-    ))
+    fun photoFade(width: Float = PhotoFade.DEFAULT_WIDTH, dark: Float = PhotoFade.DEFAULT_DARK): GradientDrawable =
+        GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+            PhotoFade.alphas(width, dark).map { (it shl 24) or (FADE_BOTTOM and 0xFFFFFF) }.toIntArray())
 
     /** Same fade, top to bottom, for a photo that sits above the text (the sport screen's side card). */
     fun photoFadeDown(): GradientDrawable = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(

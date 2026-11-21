@@ -52,6 +52,8 @@ class LinkServer(
     private val onPhotoUpload: (String, ByteArray) -> String? = { _, _ -> "Photos are not available" },
     /** POST /photo/focus (league, x, y as 0..1 fractions): false if that sport has no photo. */
     private val onPhotoFocus: (String, Float, Float) -> Boolean = { _, _, _ -> false },
+    /** POST /photo/fade (league, w, d as 0..1 fractions): false if that sport has no photo. */
+    private val onPhotoFade: (String, Float, Float) -> Boolean = { _, _, _ -> false },
     /** POST /photo/remove (league): false if there was nothing to remove. */
     private val onPhotoRemove: (String) -> Boolean = { false },
 ) {
@@ -236,6 +238,12 @@ class LinkServer(
                 val y = SportPhotoRules.focus(formValue(body, "y"))
                 if (x != null && y != null && onPhotoFocus(lg, x, y)) respond(c, 200, text, "Saved") else respond(c, 400, text, "No photo for that sport")
             }
+            method == "POST" && path == "/photo/fade" -> {
+                val lg = formValue(body, "league") ?: ""
+                val w = SportPhotoRules.focus(formValue(body, "w"))
+                val d = SportPhotoRules.focus(formValue(body, "d"))
+                if (w != null && d != null && onPhotoFade(lg, w, d)) respond(c, 200, text, "Saved") else respond(c, 400, text, "No photo for that sport")
+            }
             method == "POST" && path == "/photo/remove" -> {
                 if (onPhotoRemove(formValue(body, "league") ?: "")) respond(c, 200, text, "Removed") else respond(c, 404, text, "No photo")
             }
@@ -298,7 +306,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/remove")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

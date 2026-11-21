@@ -10,6 +10,7 @@ class StreamLinkApp : Application() {
         OfflineMarks.init(this)
         DeadHosts.init(this)
         ReportLog.init(this)
+        ScoreFeed.init(this)
         CrashRecorder.install(this)
         CrashRecorder.reportLast(this)
     }

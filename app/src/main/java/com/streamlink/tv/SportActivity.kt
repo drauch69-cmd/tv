@@ -358,6 +358,18 @@ class SportActivity : Activity() {
             focusTarget != null -> focusTarget!!.requestFocus()
             hadFocusInRows || currentFocus == null -> (firstRow ?: allChip).requestFocus()
         }
+        alignSide(firstRow)
+    }
+
+    /** Lines the side card's top up with the first game card, not the section label above it (user, 2026-11-20). */
+    private fun alignSide(first: View?) {
+        val target = first ?: return
+        target.post {
+            if (isFinishing || isDestroyed || target.parent !== rows) return@post
+            val lp = side.layoutParams as? LinearLayout.LayoutParams ?: return@post
+            val top = dp(3) + target.top // the list's own top padding + the card's place in the list
+            if (lp.topMargin != top) { lp.topMargin = top; side.layoutParams = lp }
+        }
     }
 
     private fun gameRow(gf: GameFolder, zone: ZoneId): View {

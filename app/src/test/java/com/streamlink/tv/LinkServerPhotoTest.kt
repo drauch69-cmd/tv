@@ -12,6 +12,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 class LinkServerPhotoTest {
     private val uploads = CopyOnWriteArrayList<Pair<String, ByteArray>>()
     private val focus = CopyOnWriteArrayList<Triple<String, Float, Float>>()
+    private val fades = CopyOnWriteArrayList<Triple<String, Float, Float>>()
     private lateinit var server: LinkServer
     private var port = 0
 
@@ -24,6 +25,7 @@ class LinkServerPhotoTest {
             photo = { lg -> if (lg == "nfl") byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 1, 2) else null },
             onPhotoUpload = { lg, b -> uploads.add(lg to b); if (lg == "nfl") null else "Unknown sport" },
             onPhotoFocus = { lg, x, y -> focus.add(Triple(lg, x, y)); lg == "nfl" },
+            onPhotoFade = { lg, w, d -> fades.add(Triple(lg, w, d)); lg == "nfl" },
             onPhotoRemove = { lg -> lg == "nfl" },
         )
         port = server.start()
@@ -71,5 +73,14 @@ class LinkServerPhotoTest {
         assertTrue(String(send("GET /photo?league=nba HTTP/1.1\r\nHost: x\r\n\r\n")).startsWith("HTTP/1.1 404"))
         assertTrue(String(send("GET /photos HTTP/1.1\r\nHost: x\r\n\r\n")).contains("\"league\":\"nfl\""))
         assertTrue(post("/photo/remove", "application/x-www-form-urlencoded", "league=nfl".toByteArray()).startsWith("HTTP/1.1 200"))
+    }
+
+    @Test fun fadeSliders() {
+        val form = "application/x-www-form-urlencoded"
+        assertTrue(post("/photo/fade", form, "league=nfl&w=0.6&d=0.8".toByteArray()).startsWith("HTTP/1.1 200"))
+        assertEquals(Triple("nfl", 0.6f, 0.8f), fades.single())
+        assertTrue(post("/photo/fade", form, "league=nfl&w=x&d=0.8".toByteArray()).startsWith("HTTP/1.1 400"))
+        assertTrue(post("/photo/fade", form, "league=nba&w=0.5&d=0.5".toByteArray()).startsWith("HTTP/1.1 400"))
+        assertTrue(post("/photo/fade", form, "league=nfl&w=0.5&d=0.5".toByteArray(), "Origin: https://evil.example\r\n").startsWith("HTTP/1.1 403"))
     }
 }

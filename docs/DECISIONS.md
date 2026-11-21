@@ -9,6 +9,15 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Home polish batch** (2026-11-20, user's go): fade sliders per photo on the phone (width + darkness, live preview;
+  home card only, sport-screen side card keeps the fixed fade); last scores saved to disk and put back on start (today's
+  up to 15 min old, coming days 3 h); "Loading games…" screen on a fresh start until first scores or 3 s (not on first
+  run with no lists); Left/Right stops at row ends on home (no wrap); sport-screen side card lined up with the first
+  game card; featured cards: live NFL/college football always beat NBA/college basketball. Check all on the TV.
+- **Open: 17 s until home games show** (2026-11-20): cause found, not fixed (user will investigate later). Live games
+  and the featured card only show games with a stream, so a cold start waits for the hidden page reader (one page at
+  a time, ~8–10 s each) when saved pages are old. Options offered: show games from scores at once with "Finding
+  streams…", read the likeliest page first, two readers at once (risky on the Onn), reading while closed.
 - **Dead servers** (2026-11-20, user's go on 1, 2, 4): the stream check also tests the first quality level and video piece;
   servers with a broken secure connection are remembered 5 min across sites and re-checked when the app opens; the player
   doesn't retry them and stops reloading a page that hands back the same dead server. Not done (held): trying the other

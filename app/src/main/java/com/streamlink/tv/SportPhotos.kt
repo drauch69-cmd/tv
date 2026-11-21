@@ -45,10 +45,24 @@ object SportPhotos {
         return true
     }
 
+    /** The phone's fade sliders for this sport's photo (see [PhotoFade]). */
+    fun setFade(ctx: Context, league: String, width: Float, dark: Float): Boolean {
+        if (!has(ctx, league)) return false
+        prefs(ctx).edit().putFloat("$league.fw", width.coerceIn(PhotoFade.MIN_WIDTH, 1f)).putFloat("$league.fd", dark.coerceIn(0f, 1f)).apply()
+        return true
+    }
+
+    /** (width, darkness) of the fade; the defaults until the user moves the sliders. */
+    fun fade(ctx: Context, league: String): Pair<Float, Float> {
+        val p = prefs(ctx)
+        return p.getFloat("$league.fw", PhotoFade.DEFAULT_WIDTH) to p.getFloat("$league.fd", PhotoFade.DEFAULT_DARK)
+    }
+
     fun remove(ctx: Context, league: String): Boolean {
         if (!SportPhotoRules.validLeague(league)) return false
         val gone = file(ctx, league).delete()
-        prefs(ctx).edit().remove("$league.x").remove("$league.y").remove("$league.at").apply()
+        prefs(ctx).edit().remove("$league.x").remove("$league.y").remove("$league.at")
+            .remove("$league.fw").remove("$league.fd").apply()
         cached = null
         return gone
     }
@@ -59,13 +73,15 @@ object SportPhotos {
         return p.getFloat("$league.x", 0.5f) to p.getFloat("$league.y", 0.5f)
     }
 
-    /** GET /photos for the phone page: which sports have a photo, and each one's focus point. */
+    /** GET /photos for the phone page: which sports have a photo, each one's focus point and fade. */
     fun json(ctx: Context): String {
         val arr = JSONArray()
         for (lg in Sports.ALL) {
             val (x, y) = focus(ctx, lg)
+            val (fw, fd) = fade(ctx, lg)
             arr.put(JSONObject().put("league", lg).put("name", Sports.label(lg)).put("has", has(ctx, lg))
-                .put("x", x.toDouble()).put("y", y.toDouble()).put("at", prefs(ctx).getLong("$lg.at", 0L)))
+                .put("x", x.toDouble()).put("y", y.toDouble()).put("at", prefs(ctx).getLong("$lg.at", 0L))
+                .put("fw", fw.toDouble()).put("fd", fd.toDouble()))
         }
         return JSONObject().put("photos", arr).toString()
     }
