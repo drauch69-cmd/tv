@@ -78,10 +78,11 @@ object QuickReads {
     fun verdict(ctx: Context, host: String?): QuickLogic.Verdict? =
         QuickLogic.decode(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(key(host), null))
 
-    fun set(ctx: Context, host: String?, quick: Boolean) {
+    /** [at] is when the verdict counts from; an earlier time makes the re-check come sooner. */
+    fun set(ctx: Context, host: String?, quick: Boolean, at: Long = System.currentTimeMillis()) {
         if (key(host).isEmpty()) return
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(key(host), QuickLogic.encode(QuickLogic.Verdict(quick, System.currentTimeMillis()))).apply()
+            .putString(key(host), QuickLogic.encode(QuickLogic.Verdict(quick, at))).apply()
     }
 }
 

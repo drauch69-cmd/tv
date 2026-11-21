@@ -1,6 +1,7 @@
 package com.streamlink.tv
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -35,6 +36,22 @@ class ScoreMatchCacheTest {
         "Los Angeles vs Boston", "Clippers at Celtics", "Michigan vs Ohio State", "Michigan State v Ohio State",
         "Giants", "", "Jets Bears live", "Buffalo Bills - NY Giants NFL",
     )
+
+    @Test fun scoreUpdateReusesMatchesButGivesTheNewGame() {
+        val before = games()
+        val m1 = ScoreMatch.find("Bills vs Giants", base, before)
+        assertEquals("1", m1?.id)
+        // Same games, new scores and state: same match, but the game object from the new list (new score).
+        val after = before.map { if (it.id == "1") it.copy(state = "in", home = it.home.copy(score = "14")) else it.copy() }
+        assertEquals(ScoreMatch.shapeOf(before), ScoreMatch.shapeOf(after))
+        val m2 = ScoreMatch.find("Bills vs Giants", base, after)
+        assertSame(after[0], m2)
+        assertEquals("14", m2?.home?.score)
+        // A different set of games is a different shape: answers are worked out again.
+        val fewer = after.filter { it.id != "1" }
+        assertNotEquals(ScoreMatch.shapeOf(after), ScoreMatch.shapeOf(fewer))
+        assertEquals(null, ScoreMatch.find("Bills vs Giants", base, fewer))
+    }
 
     @Test fun sameAnswersAsReference() {
         val g = games()

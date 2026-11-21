@@ -9,6 +9,10 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Home redo speed** (2026-11-20, user's go): build 271 showed featured at 11.8 s (was 20-33) but every home redo
+  took 3-7 s, about every 10-30 s. Now matches are kept across score updates and one score round = one redo; a site
+  that can't be opened either way is re-tested in a day (streameast was re-tested on every read). Check: "Home: worked
+  out" lines well under 1 s after the first, featured card time, menus smoother while scores update.
 - **List and home batch** (2026-11-20, user's go on all 5): home skips out-of-date redos + "Home: worked out in X s"
   line (featured card took ~20 s after scores); headings-only quick reads fall back to the browser (thetvapp's empty
   page showed 3 junk rows); lists failing/empty 3x in a row wait 30 min then 2 h; timer re-reads only when the list or

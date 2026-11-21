@@ -75,9 +75,20 @@ class MainActivity : Activity() {
      */
     private val scoreTick = object : Runnable {
         override fun run() {
-            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) { requestHome(false); hideLoading() } }
+            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) scoresLanded() }
             main.postDelayed(this, SCORE_TICK_MS)
         }
+    }
+
+    /**
+     * Scores landed (one call per league): the first answer hides the loading screen at once; the redraw waits
+     * [SCORE_SETTLE_MS] so the leagues of one refresh round give one home redo, not one each (2026-11-20).
+     */
+    private val scoreRedraw = Runnable { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
+    private fun scoresLanded() {
+        if (loading != null) { requestHome(false); hideLoading(); return }
+        main.removeCallbacks(scoreRedraw)
+        main.postDelayed(scoreRedraw, SCORE_SETTLE_MS)
     }
 
     // ---- Home data: worked out on one background thread, drawn on the main thread ----
@@ -961,6 +972,8 @@ class MainActivity : Activity() {
     private companion object {
         const val HOME_TICK_MS = 60_000L
         const val SCORE_TICK_MS = 5_000L
+        /** Leagues of one score round land within about a second of each other: one redo for all of them. */
+        const val SCORE_SETTLE_MS = 1_500L
         /** Lists older than this are re-read in the background while the home screen is shown. */
         const val STALE_MS = 10 * 60_000L
         const val ALWAYS_ON_TAG = "always-on"

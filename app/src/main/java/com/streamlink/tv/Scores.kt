@@ -232,7 +232,7 @@ object ScoreMatch {
     // Matching runs many times per render, from several threads (screens and the home calculation). Per games list
     // instance a prepared entry is kept (normalized names per team, answers per title); a small LRU of them means two
     // alternating lists never evict each other the way a single slot did.
-    private const val CACHE_MAX = 500
+    private const val CACHE_MAX = 2000
     private const val PREPARED_MAX = 6
 
     private class IdKey(val list: List<Game>) {
@@ -248,14 +248,39 @@ object ScoreMatch {
             GP(it, norm(it.home.location), norm(it.away.location),
                 norm(it.home.abbr).ifEmpty { norm(it.home.displayName) }, norm(it.away.abbr).ifEmpty { norm(it.away.displayName) })
         }
+        val byId: Map<String, Game> = games.associateBy { it.id }
+        /** What matching depends on (ids, leagues, start times, team names), never scores or clocks. */
+        val shape: Long = shapeOf(games)
         private val namesMemo = HashMap<Pair<TeamSide, Set<String>>, Set<String>>()
-        private val answers = HashMap<String, Game?>()
         @Synchronized fun namesOf(s: TeamSide, ambiguous: Set<String>): Set<String> =
             namesMemo.getOrPut(s to ambiguous) { names(s, ambiguous) }
-        @Synchronized fun hasAnswer(key: String) = answers.containsKey(key)
-        @Synchronized fun answer(key: String): Game? = answers[key]
-        @Synchronized fun remember(key: String, g: Game?) { if (answers.size >= CACHE_MAX) answers.clear(); answers[key] = g }
     }
+
+    /** 64-bit FNV-1a over everything a match depends on. Same teams/times/ids = same shape, whatever the scores. */
+    internal fun shapeOf(games: List<Game>): Long {
+        var h = -0x340d631b7bdddcdbL
+        fun add(x: String) { for (c in x) { h = h xor c.code.toLong(); h *= 0x100000001b3L }; h = h xor 0x1fL; h *= 0x100000001b3L }
+        for (g in games) {
+            add(g.id); add(g.league); add(g.startMillis.toString())
+            for (t in listOf(g.home, g.away)) { add(t.displayName); add(t.shortName); add(t.abbr); add(t.location); add(t.nickname) }
+        }
+        return h
+    }
+
+    /**
+     * Answers (title|start -> game id, "" = no game) per games shape, kept across score updates: a new scores list
+     * with the same games reuses every earlier match (2026-11-20; a home redo was 3-7 s on the Onn when each score
+     * update matched every list event again).
+     */
+    private class Answers {
+        private val map = HashMap<String, String>()
+        @Synchronized fun get(key: String): String? = map[key]
+        @Synchronized fun put(key: String, id: String) { if (map.size >= CACHE_MAX) map.clear(); map[key] = id }
+    }
+    private val answersByShape = object : LinkedHashMap<Long, Answers>(8, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Answers>?) = size > PREPARED_MAX * 2
+    }
+    private fun answersFor(shape: Long): Answers = synchronized(preparedLock) { answersByShape.getOrPut(shape) { Answers() } }
 
     private val preparedLock = Any()
     private val prepared = object : LinkedHashMap<IdKey, Prepared>(8, 0.75f, true) {
@@ -274,9 +299,10 @@ object ScoreMatch {
         if (t.isEmpty() || games.isEmpty()) return null
         val key = "$t|${itemStartMillis ?: ""}"
         val p = preparedFor(games)
-        if (p.hasAnswer(key)) return p.answer(key)
+        val answers = answersFor(p.shape)
+        answers.get(key)?.let { id -> return if (id.isEmpty()) null else p.byId[id] }
         val found = compute(t, itemStartMillis, p)
-        p.remember(key, found)
+        answers.put(key, found?.id ?: "")
         return found
     }
 

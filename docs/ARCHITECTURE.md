@@ -313,6 +313,12 @@ Home featured card: the photo covers the whole card (212 dp tall), text on top; 
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21
   · Q3 8:42", "Final · …"; NBA overtime reads OT, 2OT…), the details card a score block (names, status, records, channel; kickoff in the TV's time).
   Updates change text in place (rows are not rebuilt, focus untouched). Any failure = the screen looks as before.
+  **Matches survive score updates** (2026-11-20): answers are stored per games *shape* (`ScoreMatch.shapeOf`: ids,
+  leagues, start times, team names; never scores/clocks) as game ids, and handed back as the game object of the list
+  asked with, so a new scores list with the same games rematches nothing (home redo was 3-7 s on the Onn). The home
+  screen also waits `SCORE_SETTLE_MS` (1.5 s) after a league lands, so one score round = one redo (the first answer
+  still hides the loading screen at once). Report line "Home: worked out in X s (N games, M list events)" for the
+  first 3 calculations and any over 1.5 s.
   Matching is cheap and thread-safe: `ScoreMatch` keeps a small LRU (6) of prepared entries per games-list instance (names per team, answers per title), and `GameViews` (Games.kt; `ScoreFeed.forLeagues`) hands out the same filtered/windowed list instance per (source instance, filter), so screens and the home calculation no longer evict each other's cache.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Live games order** (user, 2026-11-19): by sport, NFL, college football, NBA, college basketball

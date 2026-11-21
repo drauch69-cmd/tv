@@ -244,6 +244,12 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
 
     private fun finish(result: ListResult) {
         if (done) return
+        // The page could not be opened either way during a test: no re-test on every read; try again in a day.
+        if (!quickPhase && mode == QuickLogic.Mode.TEST && result.error != null && !result.noEvents && quickItems?.isEmpty() == true) {
+            QuickReads.set(context, Uri.parse(requestUrl).host, false,
+                System.currentTimeMillis() - QuickLogic.BROWSER_RECHECK_MS + 24 * 60 * 60_000L)
+            Report.log("List: ${Report.host(requestUrl)} couldn't be opened either way; testing the quick way again in a day")
+        }
         val n = blocked.get()
         if (n > 0) Report.log("List: blocked $n heavy files")
         val wv = webView
