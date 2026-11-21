@@ -328,8 +328,10 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   asked with, so a new scores list with the same games rematches nothing (home redo was 3-7 s on the Onn). The home
   screen also waits `SCORE_SETTLE_MS` (1.5 s) after a league lands, so one score round = one redo (while the loading
   screen shows, the first answer starts a home redo at once; the screen hides once a redo built from non-empty scores is
-  drawn, or after 15 s). Report line "Home: worked out in X s (N games, M list events)" for the
-  first 3 calculations and any over 1.5 s.
+  drawn, or after 15 s). Report line "Home: worked out in X s (N games, M list events; K new matches in Y s)" for the
+  first 3 calculations and any over 1.5 s. **Matches survive restarts** (2026-11-21): after a home calculation with new
+  answers, the 4 most recent shapes' answers are saved to `files/match-answers.json` and loaded once per run before the
+  first calculation (a cold start's first home took 10-14 s on the Onn). The home thread runs at display priority.
   Matching is cheap and thread-safe: `ScoreMatch` keeps a small LRU (6) of prepared entries per games-list instance (names per team, answers per title), and `GameViews` (Games.kt; `ScoreFeed.forLeagues`) hands out the same filtered/windowed list instance per (source instance, filter), so screens and the home calculation no longer evict each other's cache.
   On a list screen whose list has sport tags (a set), scores are matched only against games of any of those leagues (untagged lists try all leagues). Report lines start with "Scores:". Uses ESPN team names only, never site wording.
 - **Live games order** (user, 2026-11-19): by sport, NFL, college football, NBA, college basketball
@@ -481,7 +483,11 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   (0 of 5 lost), this quality needs ≈ X Mbps, Ys of video was buffered".
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
-  Low-delay mode switches to smooth after 2 empty stalls in 60 s.
+  Low-delay mode switches to smooth after 2 empty stalls in 3 min (`PlaybackSigns.DRY_WINDOW_MS`; was 60 s) and
+  remembers the main playlist's server for 6 h (`LowDelayMemory`): its next plays start on smooth ("Low delay ran out of
+  video on this server recently; starting on the smooth delay"). A broken secure connection on a server named inside the
+  main playlist (not the main playlist's own) re-asks the main playlist up to 2 times per play before the page reload
+  (`BrokenTls.refetchMain`; "asking <host> again for another server").
 - **Other games tiles** (`GameTiles`, PlayerActivity "Overlay: other live games"): when the menu opens, live games of the
   sport being watched (the game whose folder holds the playing item; else a title naming both teams; RedZone = NFL)
   show top right, 2 columns of up to 6 larger tiles (+ a "+N more" tile past 6). Streams first, then most exciting

@@ -85,4 +85,19 @@ class ScoreMatchCacheTest {
     @Test fun scoreFeedForLeaguesKeepsInstanceWhileDataUnchanged() {
         assertSame(ScoreFeed.forLeagues(setOf("nfl")), ScoreFeed.forLeagues(setOf("nfl")))
     }
+
+    @Test fun savedAnswersRoundTripAndMatchTheSame() {
+        val g = games()
+        val before = titles.map { ScoreMatch.find(it, base, g)?.id }
+        val saved = ScoreMatch.exportAnswers()
+        assertEquals(false, ScoreMatch.answersChanged())
+        ScoreMatch.importAnswers(saved) // loading over known answers changes nothing
+        ScoreMatch.importAnswers("not json")
+        ScoreMatch.importAnswers(null)
+        val fresh = games() // a new list instance with the same shape reuses the saved answers
+        assertEquals(before, titles.map { ScoreMatch.find(it, base, fresh)?.id })
+        ScoreMatch.takeComputeStats()
+        ScoreMatch.find("Bills vs Giants", base, games())
+        assertEquals(0, ScoreMatch.takeComputeStats().second)
+    }
 }

@@ -272,6 +272,7 @@ class PlayerActivity : Activity() {
         countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
         smoothThisRun = false
         signs.resetLowDelay()
+        mainRefetches = 0
         sourceIndex = 0
         refererIndex = 0
         reconnects = 0
@@ -428,6 +429,10 @@ class PlayerActivity : Activity() {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(30_000, 60_000, 2_500, 8_000)
             .build()
+        if (!smoothLiveAllowed() && !smoothThisRun && LowDelayMemory.wantsSmooth(this, Report.host(src.url))) {
+            smoothThisRun = true
+            Report.log("Low delay ran out of video on this server recently; starting on the smooth delay")
+        }
         smoothLive = smoothLiveAllowed() || smoothThisRun
         Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~20s behind live)" else "low delay"}")
 
@@ -518,6 +523,7 @@ class PlayerActivity : Activity() {
                     screen.hideCover()
                     if (playingSince == 0L) {
                         playingSince = System.currentTimeMillis()
+                        mainRefetches = 0
                         Report.log("Playback started")
                         MemStat.log(this@PlayerActivity, "playing")
                     }
@@ -1087,13 +1093,16 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         if (signs.lowDelayRanDry(p, System.currentTimeMillis())) {
             smoothThisRun = true
-            Report.log("Low delay keeps running out of video; using the smooth delay for this stream")
+            set?.sources?.getOrNull(sourceIndex)?.let { LowDelayMemory.markDry(this, Report.host(it.url)) }
+            Report.log("Low delay keeps running out of video; using the smooth delay for this stream (remembered for this server)")
             play()
         }
     }
 
     /** The latest error was a broken secure connection to a server already known as down. */
     private var brokenAgain = false
+    /** Main playlist re-fetched after a broken inner server, this play (reset when the picture starts or on a new link). */
+    private var mainRefetches = 0
 
     private fun handleError(error: PlaybackException) {
         val p = player ?: return
@@ -1125,7 +1134,17 @@ class PlayerActivity : Activity() {
         // for a few minutes. Seen again right after a reload: reloading hands back the same server, so stop reloading.
         brokenAgain = false
         if (DeadHostText.brokenSecureLink(error)) {
-            BrokenTls.failingHost(error)?.let { h ->
+            val failing = BrokenTls.failingHost(error)
+            val mainHost = set?.sources?.getOrNull(sourceIndex)?.url?.let { Report.host(it) }
+            if (BrokenTls.refetchMain(failing, mainHost, mainRefetches)) {
+                mainRefetches++
+                failing?.let { DeadHosts.record(it) }
+                Report.log("$failing (named by the main playlist) has a broken secure connection; asking $mainHost again for another server " +
+                    "(try $mainRefetches of ${BrokenTls.MAX_MAIN_REFETCHES})")
+                play()
+                return
+            }
+            failing?.let { h ->
                 val again = !DeadHosts.record(h)
                 // Log only (DeadHosts.ENFORCE off): noted, but reloads and recovery run as usual.
                 brokenAgain = again && DeadHosts.ENFORCE

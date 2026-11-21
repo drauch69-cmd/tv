@@ -10,6 +10,7 @@ import androidx.media3.exoplayer.ExoPlayer
  */
 @OptIn(UnstableApi::class)
 class PlaybackSigns {
+    companion object { const val DRY_WINDOW_MS = 180_000L }
     private val emptyStallTimes = ArrayList<Long>()
     private val bufferedStallTimes = ArrayList<Long>()
     private val starveSamples = ArrayList<LongArray>()
@@ -88,7 +89,8 @@ class PlaybackSigns {
     fun lowDelayRanDry(p: ExoPlayer, now: Long): Boolean {
         if ((p.bufferedPosition - p.currentPosition) > 1_000) return false
         emptyStallTimes.add(now)
-        emptyStallTimes.removeAll { now - it > 60_000 }
+        // 3 min, not 1 (2026-11-21): West Virginia vs Houston's near-empty stalls came 60-100 s apart, so it took 6 stalls.
+        emptyStallTimes.removeAll { now - it > DRY_WINDOW_MS }
         if (emptyStallTimes.size >= 2) {
             emptyStallTimes.clear()
             return true

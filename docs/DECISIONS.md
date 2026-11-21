@@ -11,6 +11,15 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Faster cold home, smarter low delay, quick fix for broken inner servers** (2026-11-21, user's go on A+B+E; build
+  291/292 logs). (A) A broken secure connection on a server the main playlist names re-asks the main playlist (up to 2x)
+  before reloading the page (report: 32 s to picture, two ~15 s reloads). (B) Low delay gives up after 2 near-empty stalls
+  in 3 min (was 60 s) and the server is remembered for 6 h, so reopening starts on smooth (WVU–Houston stalled 6x, again
+  on every reopen). (E) Game matches are saved and reused after a restart, and the home thread runs at higher priority
+  (first home took 10–14 s, past the 15 s loading cap; later ones ~0.5 s). The home line now says how many matches were
+  new and how long they took: if the first home is still slow with few new matches, the cause is elsewhere. Check on TV.
+  Still offered: C (smooth delay falling behind live in a loop -> next source), D (0-byte chunks count as failures, log
+  labels).
 - **Willow: video in the picture's own section** (2026-11-21, user's go; build 287 report: 1x1 PNG + 3 MB "tsDa"
   chunk). Build 285's diagnostics ("Picture layout:" / "Picture unpacked ..." lines) found it; the unpacker now reads
   non-standard PNG sections (as is, or unzipped) before trying pixels. Check on TV: Willow plays in the app; report says

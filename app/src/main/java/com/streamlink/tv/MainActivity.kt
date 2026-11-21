@@ -99,7 +99,12 @@ class MainActivity : Activity() {
     }
 
     // ---- Home data: worked out on one background thread, drawn on the main thread ----
-    private val homeCalc = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "home-calc").apply { isDaemon = true } }
+    // Above normal priority: on a cold start it runs while the hidden list reader keeps the Onn's CPU busy (2026-11-21).
+    private val homeCalc = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread({ android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY); r.run() }, "home-calc").apply { isDaemon = true }
+    }
+    /** Saved game matches were loaded (once per app run, on the home thread before the first calculation). */
+    private var answersLoaded = false
     /** Bumped on every request; a result that is not from the latest request is dropped. Main thread only. */
     @Volatile private var homeGen = 0
     /** The first home calculations since start are logged, and any slow one after that. */
@@ -128,15 +133,40 @@ class MainActivity : Activity() {
 
     /** [computeHome] with a report line for the first 3 calculations and any one over 1.5 s. */
     private fun timedHome(ctx: android.content.Context, games: List<Game>, now: Long): HomeModel {
+        loadAnswers(ctx)
+        ScoreMatch.takeComputeStats()
         val t0 = System.currentTimeMillis()
         val m = computeHome(ctx, games, now)
         val ms = System.currentTimeMillis() - t0
+        val (matchMs, matched) = ScoreMatch.takeComputeStats()
         val n = synchronized(this) { ++homeTimed }
         if (n <= 3 || ms > 1500) {
             val events = m.cached.sumOf { it.second.result.items.size }
-            Report.log(String.format(java.util.Locale.US, "Home: worked out in %.1f s (%d games, %d list events)", ms / 1000.0, games.size, events))
+            Report.log(String.format(java.util.Locale.US, "Home: worked out in %.1f s (%d games, %d list events; %d new matches in %.1f s)",
+                ms / 1000.0, games.size, events, matched, matchMs / 1000.0))
         }
+        if (games.isNotEmpty() && ScoreMatch.answersChanged()) saveAnswers(ctx)
         return m
+    }
+
+    private fun answersFile(ctx: android.content.Context) = java.io.File(ctx.filesDir, "match-answers.json")
+
+    /** Game matches from the last run, so a cold start's first home is not matched from scratch. Once per run. */
+    private fun loadAnswers(ctx: android.content.Context) {
+        synchronized(this) { if (answersLoaded) return; answersLoaded = true }
+        try {
+            val f = answersFile(ctx)
+            if (f.exists()) ScoreMatch.importAnswers(f.readText())
+        } catch (_: Exception) {}
+    }
+
+    private fun saveAnswers(ctx: android.content.Context) {
+        try {
+            val f = answersFile(ctx)
+            val tmp = java.io.File(f.path + ".tmp")
+            tmp.writeText(ScoreMatch.exportAnswers())
+            tmp.renameTo(f)
+        } catch (_: Exception) {}
     }
 
     /**

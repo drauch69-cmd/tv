@@ -283,7 +283,46 @@ object ScoreMatch {
     private class Answers {
         private val map = HashMap<String, String>()
         @Synchronized fun get(key: String): String? = map[key]
-        @Synchronized fun put(key: String, id: String) { if (map.size >= CACHE_MAX) map.clear(); map[key] = id }
+        @Synchronized fun put(key: String, id: String) { if (map.size >= CACHE_MAX) map.clear(); map[key] = id; ScoreMatch.changed = true }
+        @Synchronized fun copy(): Map<String, String> = HashMap(map)
+        @Synchronized fun putAll(m: Map<String, String>) { for ((k, v) in m) if (map.size < CACHE_MAX) map.putIfAbsent(k, v) }
+    }
+
+    /** New answers since the last [exportAnswers] (so the home screen only saves when there is something new). */
+    @Volatile private var changed = false
+    private val computeNanos = java.util.concurrent.atomic.AtomicLong()
+    private val computeCount = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Time spent and titles matched from scratch since the last call (for the home timing line). */
+    fun takeComputeStats(): Pair<Long, Int> = (computeNanos.getAndSet(0) / 1_000_000) to computeCount.getAndSet(0)
+
+    fun answersChanged(): Boolean = changed
+
+    /**
+     * The answers of the [maxShapes] most recently used games shapes as JSON, so the next app start reuses them
+     * (2026-11-21: the first home calculation after a cold start took 10-14 s on the Onn, every later one ~0.5 s).
+     */
+    fun exportAnswers(maxShapes: Int = 4): String {
+        val shapes = synchronized(preparedLock) { answersByShape.entries.map { it.key to it.value }.takeLast(maxShapes) }
+        changed = false
+        val o = org.json.JSONObject()
+        for ((shape, a) in shapes) o.put(shape.toString(), org.json.JSONObject(a.copy() as Map<*, *>))
+        return o.toString()
+    }
+
+    /** Loads saved answers (see [exportAnswers]); bad or empty text is ignored. Answers already known win. */
+    fun importAnswers(json: String?) {
+        if (json.isNullOrBlank()) return
+        try {
+            val o = org.json.JSONObject(json)
+            for (k in o.keys()) {
+                val shape = k.toLongOrNull() ?: continue
+                val inner = o.optJSONObject(k) ?: continue
+                val m = HashMap<String, String>()
+                for (t in inner.keys()) m[t] = inner.optString(t)
+                answersFor(shape).putAll(m)
+            }
+        } catch (_: Exception) {}
     }
     private val answersByShape = object : LinkedHashMap<Long, Answers>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Answers>?) = size > PREPARED_MAX * 2
@@ -309,7 +348,9 @@ object ScoreMatch {
         val p = preparedFor(games)
         val answers = answersFor(p.shape)
         answers.get(key)?.let { id -> return if (id.isEmpty()) null else p.byId[id] }
+        val t0 = System.nanoTime()
         val found = compute(t, itemStartMillis, p)
+        computeNanos.addAndGet(System.nanoTime() - t0); computeCount.incrementAndGet()
         answers.put(key, found?.id ?: "")
         return found
     }
