@@ -47,7 +47,7 @@ object ListJson {
         for (l in lists) {
             val c = cache(l.id)
             arr.put(JSONObject().apply {
-                put("id", l.id); put("name", l.name); put("host", Report.host(l.url)); put("sports", JSONArray(l.sports.toList())); put("rank", l.rank ?: JSONObject.NULL)
+                put("id", l.id); put("name", l.name); put("url", l.url); put("host", Report.host(l.url)); put("sports", JSONArray(l.sports.toList())); put("rank", l.rank ?: JSONObject.NULL)
                 put("readAt", c?.readAt ?: 0L); put("ago", ListText.ago(c?.readAt ?: 0L, now))
                 put("count", c?.let { visible(it.result.items, now).size } ?: -1)
                 put("refreshing", busy(l.id)); put("error", error(l.id) ?: JSONObject.NULL)

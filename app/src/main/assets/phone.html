@@ -428,6 +428,17 @@
           post('/lists/rename', 'id=' + encodeURIComponent(l.id) + '&name=' + encodeURIComponent(n)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
         };
         sp.appendChild(rn);
+        // Address: point the list at a new page (the TV forgets the old page's events and reads the new one now).
+        var ad = el('button', null, '🔗 Address'); ad.type = 'button';
+        ad.setAttribute('aria-label', 'Change the address of ' + l.name);
+        ad.onclick = function(){
+          var u = prompt('New address for this list', l.url || '');
+          if (u === null) return;
+          u = u.trim();
+          if (!u || u === l.url) return;
+          post('/lists/url', 'id=' + encodeURIComponent(l.id) + '&url=' + encodeURIComponent(u)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
+        };
+        sp.appendChild(ad);
         row.appendChild(b); row.appendChild(x); row.appendChild(sp); box.appendChild(row);
       });
     }).catch(function(){});

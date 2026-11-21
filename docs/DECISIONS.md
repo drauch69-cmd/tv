@@ -12,8 +12,10 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
   finds no stream ("Authorization failed" in the frame); the frame note now says what the video's source is (blob = fed
   by a script, or host + file ending). Next: decide from that line (relax popup blocking for it, or skip strikeout's
   streams). Check: reedstreams "data file" line with events, streamfree shows game cards and they play.
-- **Open: edit a list's address** (2026-11-21, user request): lists' source addresses are fixed today. Plan to be laid
-  out; wait for "go".
+- **Edit a list's address** (2026-11-21, user's go): phone page "🔗 Address" button per list. Keeps name, sports and
+  rank (a host-only name follows the new site); refuses an address another list has; forgets the old address's events
+  and hold-off and reads the new one at once. Phone page only (TV option later if wanted). Check on the TV: change
+  reedstreams to its football page, events show within seconds, rank/sports kept.
 - **Player game tiles, 6 + "+N" by excitement** (2026-11-21): check the bigger tiles don't crowd the picture, order
   doesn't jump around annoyingly between score updates, flames show on close late games.
 

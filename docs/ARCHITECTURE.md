@@ -373,6 +373,10 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   "Rank" picker per list: Unranked, Rank #1..; `POST /lists/rank` id + rank, empty = unranked); `GET /lists` returns
   "rank" and lists best first. The TV list screen shows "Rank #N" read-only; "Your lists" tiles are drawn best first
   with "Rank #N". **Rename:** "✎ Rename" chip per list on the phone's Lists tab ->
+  `POST /lists/url` (id, url; phone "🔗 Address") -> `SavedLists.setUrl` / `ListAddress.change`: name, sports and rank stay (a
+  name that was just the old host follows the new one); refused if another list has the address (400) or no such list
+  (404); the old address's cached events, read error and hold-off (`ListBackoff`) are cleared, then the list is read
+  at once. The phone's lists JSON carries each list's `url` for the prompt.
   `POST /lists/rename` (id, name) -> `SavedLists.rename` (cleaned, max 60 chars; false = 404) -> home `renderLists()`. Code asks
   `SavedLists.rankOrder(ctx)`; no site is ever named in code. Wherever a game has several streams they follow the ranking:
   `GameFolders.build(..., listOrder)` (lists handled in rank order, so a better rank also wins a duplicate address and

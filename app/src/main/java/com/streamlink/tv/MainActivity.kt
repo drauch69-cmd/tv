@@ -278,6 +278,7 @@ class MainActivity : Activity() {
             onListSport = { id, sports -> SavedLists.setSports(this, id, sports) },
             onListRank = { id, rank -> SavedLists.setRank(this, id, rank).also { ok -> if (ok) runOnUiThread { renderLists() } } },
             onListRename = { id, name -> SavedLists.rename(this, id, name).also { ok -> if (ok) runOnUiThread { renderLists() } } },
+            onListUrl = { id, url -> SavedLists.setUrl(this, id, url).also { p -> if (p == null) runOnUiThread { renderLists(); refreshList(id, manual = true) } } },
             onListRemove = { id -> removeList(id) },
             onListRefresh = { id -> SavedLists.get(this, id)?.let { runOnUiThread { refreshList(id, manual = true) }; true } ?: false },
             onListPlay = { id, url, start ->

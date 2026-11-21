@@ -40,6 +40,8 @@ class LinkServer(
     private val onListRank: (String, Int?) -> Boolean = { _, _ -> false },
     /** POST /lists/rename (id, name): false if there is no such list or the name is empty. */
     private val onListRename: (String, String) -> Boolean = { _, _ -> false },
+    /** POST /lists/url (id, url): points a list at a new address; null on success, otherwise the reason it was refused. */
+    private val onListUrl: (String, String) -> String? = { _, _ -> "Stream lists are not available" },
     /** POST /list/refresh (id): asks the TV to read the list again; false if there is no such list. */
     private val onListRefresh: (String) -> Boolean = { false },
     /** POST /list/play (id, url, start): plays an event of a list; start is its start time (epoch ms) if known. */
@@ -298,6 +300,18 @@ class LinkServer(
                 val name = (formValue(body, "name") ?: "").take(200)
                 if (!id.isNullOrEmpty() && onListRename(id, name)) respond(c, 200, text, "Renamed") else respond(c, 404, text, "No such list or empty name")
             }
+            method == "POST" && path == "/lists/url" -> {
+                val id = formValue(body, "id")
+                val url = normalize(formValue(body, "url"))
+                when {
+                    id.isNullOrEmpty() -> respond(c, 404, text, "No such list")
+                    url == null -> respond(c, 400, text, "That doesn't look like a web link.")
+                    else -> {
+                        val problem = try { onListUrl(id, url) } catch (_: Exception) { "Could not save the address" }
+                        if (problem == null) respond(c, 200, text, "Address saved") else respond(c, if (problem == "No such list") 404 else 400, text, problem)
+                    }
+                }
+            }
             method == "POST" && path == "/lists/rank" -> {
                 val id = formValue(body, "id")
                 val rank = formValue(body, "rank")?.trim()?.take(4)?.toIntOrNull()?.takeIf { it >= 1 }
@@ -334,7 +348,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove", "/cityphoto/next", "/cityphoto/focus", "/demo/set")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/lists/url", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove", "/cityphoto/next", "/cityphoto/focus", "/demo/set")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

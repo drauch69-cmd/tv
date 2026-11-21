@@ -214,6 +214,24 @@ object SavedLists {
         return true
     }
 
+    /**
+     * Points a list at a new address (ListAddress.change). The old address's saved events, read error and
+     * hold-off are forgotten. Null on success, otherwise why it was refused.
+     */
+    @Synchronized
+    fun setUrl(ctx: Context, id: String, url: String): String? {
+        val cur = all(ctx)
+        val ch = ListAddress.change(cur, id, url) { Report.host(it) }
+        val next = ch.lists ?: return ch.problem
+        if (next === cur) return null
+        save(ctx, next)
+        prefs(ctx).edit().remove(CACHE_PREFIX + id).apply()
+        cacheMemo.invalidate(id)
+        errors.remove(id)
+        ListBackoff.record(ctx, id, bad = false, now = System.currentTimeMillis())
+        return null
+    }
+
     /** Sets or clears a list's sports. False if there is no such list. */
     @Synchronized
     fun setSports(ctx: Context, id: String, sports: Set<String>): Boolean {
