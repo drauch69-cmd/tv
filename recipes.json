@@ -5,7 +5,7 @@
       "feed": {
         "url": "https://api.reedstreams.link/api/matches/all",
         "filter": {
-          "category": "{path:-1}"
+          "category": "{path:-1|*}"
         },
         "link": "/watch/{id}",
         "title": "title",

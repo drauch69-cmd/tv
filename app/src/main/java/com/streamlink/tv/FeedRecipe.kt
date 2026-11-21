@@ -9,7 +9,7 @@ import org.json.JSONObject
  * file instead of drawing the page. Pure (org.json only), unit tested in FeedRecipeTest; no site names in code.
  *
  * Templates (in url, link and filter values): {path:N} = the list address's Nth path part (0 first, -1 last);
- * {field.sub} = a field of the event; {x|text} uses text when x is missing. Field names are dotted paths ("teams.home.name").
+ * {field.sub} = a field of the event; {x|text} uses text when x is missing; a filter value "*" matches everything. Field names are dotted paths ("teams.home.name").
  */
 object FeedRecipe {
     data class Feed(
@@ -130,12 +130,16 @@ object FeedRecipe {
      * The events of one data-file answer as list items, in file order, links made absolute from [pageUrl], one per
      * link. Live: the [Feed.live] field says so, or [now] is between start and end. Never throws (bad answers = empty).
      */
+    /** A filter value that matches every event. */
+    const val ANY = "*"
+
     fun items(answer: String, feed: Feed, pageUrl: String, now: Long): List<ListItem> {
         val root: Any = try { org.json.JSONTokener(answer).nextValue() } catch (_: Exception) { return emptyList() }
         val arr = value(root, feed.items) as? JSONArray ?: return emptyList()
         val parts = pathParts(pageUrl)
-        val filter = feed.filter.mapNotNull { (k, v) -> expand(v, parts)?.let { k to it.lowercase() } }
-        if (filter.size != feed.filter.size) return emptyList() // a filter value couldn't be filled in: don't guess
+        val filled = feed.filter.mapNotNull { (k, v) -> expand(v, parts)?.let { k to it.lowercase() } }
+        if (filled.size != feed.filter.size) return emptyList() // a filter value couldn't be filled in: don't guess
+        val filter = filled.filter { it.second != ANY } // "*" (e.g. "{path:-1|*}" on the site's home page) = no filter
         val out = ArrayList<ListItem>()
         val seen = HashSet<String>()
         for (i in 0 until arr.length()) {

@@ -49,6 +49,12 @@ class FeedRecipeTest {
         assertEquals(listOf("https://www.example.com/watch/e-at-f"), bb.map { it.url })
         // No last address part to filter by: nothing (never guess)
         assertTrue(FeedRecipe.items(arrayAnswer, arrayFeed, "https://www.example.com/", now).isEmpty())
+        // "{path:-1|*}": the site's home page (no last part) gets every event, a sport page still only its own
+        val anyFeed = arrayFeed.copy(filter = mapOf("category" to "{path:-1|*}"))
+        assertEquals(FeedRecipe.items(arrayAnswer, arrayFeed.copy(filter = emptyMap()), "https://www.example.com/", now).map { it.url },
+            FeedRecipe.items(arrayAnswer, anyFeed, "https://www.example.com/", now).map { it.url })
+        assertEquals(listOf("https://www.example.com/watch/e-at-f"),
+            FeedRecipe.items(arrayAnswer, anyFeed, "https://www.example.com/sport/basketball", now).map { it.url })
     }
 
     @Test

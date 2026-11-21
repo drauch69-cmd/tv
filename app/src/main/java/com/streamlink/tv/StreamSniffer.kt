@@ -1124,7 +1124,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         const val TIMEOUT_MS = 25_000L
         /**
          * In every frame: reports (to [frameNotes]) the frame's size, its frames and videos (with the first video's
-         * state) and its first visible text, 4, 12 and 22 s after it starts. Text only; nothing on the page changes.
+         * state and the kind of its source: blob = fed by a script, else host + file ending) and its first visible text, 4, 12 and 22 s after it starts. Text only; nothing on the page changes.
          */
         val FRAME_NOTE_JS = """
             (function(){try{
@@ -1133,7 +1133,9 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 if(typeof slFrameNote==='undefined'||!document.body)return;
                 var t=(document.body.innerText||'').replace(/\s+/g,' ').trim().slice(0,160);
                 var v=document.querySelector('video'), vs='';
-                if(v){vs=', video '+(v.currentSrc?'has a source':'has no source')+', state '+v.readyState+(v.error?', error '+v.error.code:'')+(v.paused?', paused':', playing');}
+                var kind=function(u){if(!u)return '';if(u.indexOf('blob:')===0)return ' (blob: fed by the page\'s script)';if(u.indexOf('data:')===0)return ' (data: built in)';
+                  try{var a=new URL(u),p=a.pathname,x=p.lastIndexOf('.')>p.lastIndexOf('/')?p.slice(p.lastIndexOf('.')):'';return ' ('+a.host+'/…'+x+')';}catch(e){return '';}};
+                if(v){vs=', video '+(v.currentSrc?'has a source'+kind(v.currentSrc):'has no source')+', state '+v.readyState+(v.error?', error '+v.error.code:'')+(v.paused?', paused':', playing');}
                 slFrameNote.postMessage(innerWidth+'x'+innerHeight+', frames '+document.querySelectorAll('iframe').length+
                   ', videos '+document.querySelectorAll('video').length+vs+(t?', text: "'+t+'"':', no text'));
               }catch(e){}};

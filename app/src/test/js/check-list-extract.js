@@ -235,6 +235,12 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   eq('arena: live card is live (game clock / live dot), upcoming are not', r.items.map(i => i.liveHint), [true, false, false]);
   eq('arena: links', r.items.map(i => i.url.replace(/^.*\/watch\//, '')), ['alpha-owls-at-beta-ducks', 'gamma-fins-at-delta-bills', 'eps-saints-at-zeta-bears']);
 
+  // a time-only schedule with no links next to a linked card row: the cards win (the schedule's rows open nothing)
+  r = await run(page, 'schedule-vs-cards.html');
+  console.log(r.debug);
+  eq('schedule vs cards: the linked cards are read', r.items.map(i => i.url.replace(/^.*\/player\//, '')), ['basketball/owls-vs-ducks', 'basketball/bills-vs-fins', 'basketball/bears-vs-saints', 'basketball/hawks-vs-jays', 'basketball/kings-vs-cats']);
+  eq('schedule vs cards: no click rows', r.clickRows, 0);
+
   await browser.close(); server.close(); server2.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');
   process.exit(fails ? 1 : 0);

@@ -4,6 +4,16 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Lists fixes: reedstreams home page, streamfree cards, strikeout source log** (2026-11-21, user's go; build 292 logs):
+  reedstreams' list is the site's home page, so the data file's sport filter had no address part and dropped every
+  event ("no events in it" every read, then a 19-24 s page read, once 0 events). Recipe now `{path:-1|*}` (`*` = no
+  filter). streamfree: a time-only schedule with no links (its rows open nothing when clicked) beat the linked game cards;
+  a link-less winner now gives way to a linked card group (3+ rows, scores >= 25). strikeout's posamari player still
+  finds no stream ("Authorization failed" in the frame); the frame note now says what the video's source is (blob = fed
+  by a script, or host + file ending). Next: decide from that line (relax popup blocking for it, or skip strikeout's
+  streams). Check: reedstreams "data file" line with events, streamfree shows game cards and they play.
+- **Open: edit a list's address** (2026-11-21, user request): lists' source addresses are fixed today. Plan to be laid
+  out; wait for "go".
 - **Player game tiles, 6 + "+N" by excitement** (2026-11-21): check the bigger tiles don't crowd the picture, order
   doesn't jump around annoyingly between score updates, flames show on close late games.
 

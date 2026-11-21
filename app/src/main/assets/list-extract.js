@@ -917,8 +917,23 @@
         debug.push('no group scored >= ' + MIN_SCORE);
         return learnedRows() || looseRows() || { items: [], noLink: 0 };
       }
+      // A winner with no links of its own (a schedule whose rows open nothing) gives way to a real linked card group
+      // on the same page: its rows play, the schedule's clicks may not (2026-11-21, a schedule beat the game cards).
+      var setAside = null;
+      if (best.uniqFrac === 0) {
+        for (var lk = 1; lk < top.length; lk++) {
+          var L = top[lk];
+          if (L.uniqFrac >= 0.9 && L.n >= 3 && !L.chrome && L.raw >= MIN_SCORE && L.score >= MIN_SCORE && !related(best, L)) {
+            debug.push('group without links set aside for a linked one');
+            setAside = best;
+            best = L;
+            break;
+          }
+        }
+      }
       var chosen = [best];
-      for (var c = 1; c < top.length; c++) {
+      for (var c = 0; c < top.length; c++) {
+        if (top[c] === best || (setAside && (top[c] === setAside || related(setAside, top[c])))) continue;
         var g = top[c], ok = g.score >= best.score * 0.75 && g.timeFrac >= 0.5;
         for (var q = 0; ok && q < chosen.length; q++) if (related(chosen[q], g)) ok = false;
         if (ok) chosen.push(g);
