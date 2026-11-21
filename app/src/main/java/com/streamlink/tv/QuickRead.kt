@@ -92,8 +92,8 @@ object QuickFetch {
 
     class Page(val url: String, val html: String)
 
-    /** Call off the main thread. Throws with a short reason on anything but an HTML page. */
-    fun download(ctx: Context, address: String): Page {
+    /** Call off the main thread. Throws with a short reason on anything but an HTML page ([json]: a JSON answer). */
+    fun download(ctx: Context, address: String, json: Boolean = false, referer: String? = null): Page {
         val agent = try { android.webkit.WebSettings.getDefaultUserAgent(ctx).replace("; wv", "") } catch (_: Exception) { "Mozilla/5.0" }
         var url = address
         repeat(5) {
@@ -103,7 +103,11 @@ object QuickFetch {
                 c.connectTimeout = 6000
                 c.readTimeout = 6000
                 c.setRequestProperty("User-Agent", agent)
-                c.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                c.setRequestProperty("Accept", if (json) "application/json, text/plain, */*" else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                if (referer != null) {
+                    c.setRequestProperty("Referer", referer)
+                    try { val u = java.net.URI(referer); c.setRequestProperty("Origin", "${u.scheme}://${u.host}") } catch (_: Exception) {}
+                }
                 c.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
                 try { android.webkit.CookieManager.getInstance().getCookie(url) } catch (_: Exception) { null }
                     ?.let { c.setRequestProperty("Cookie", it) }
@@ -115,7 +119,8 @@ object QuickFetch {
                 }
                 if (code != 200) throw IOException("HTTP $code")
                 val type = (c.contentType ?: "").lowercase()
-                if (!type.contains("html")) throw IOException("not a web page ($type)")
+                if (json) { if (type.contains("html")) throw IOException("got a web page, not data") }
+                else if (!type.contains("html")) throw IOException("not a web page ($type)")
                 val charset = Regex("charset=([\\w-]+)").find(type)?.groupValues?.get(1) ?: "UTF-8"
                 val buf = ByteArrayOutputStream()
                 c.inputStream.use { ins ->

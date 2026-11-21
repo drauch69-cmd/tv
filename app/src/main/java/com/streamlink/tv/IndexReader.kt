@@ -90,6 +90,60 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         }
         quickItems = null
         quickFellBack = false
+        if (!feedTried(url, callback)) startRead(url, callback)
+    }
+
+    /**
+     * A site with a "feed" recipe: download its data file and map it to events (FeedRecipe), no browser at all.
+     * Returns false (nothing started) when there's no recipe in the saved copy; the page read runs then. A failing or
+     * empty data file falls back to the page read. One read at a time: the same generation/done rules as a page read.
+     */
+    private fun feedTried(url: String, callback: (ListResult) -> Unit): Boolean {
+        val recipe = try { ListRecipes.match(ListRecipes.saved(context), Uri.parse(url).host) } catch (_: Exception) { null }
+        val feed = recipe?.feed ?: return false
+        val feedUrl = FeedRecipe.feedUrl(feed, url)
+        if (feedUrl == null) { Report.log("List: data file address for ${Report.host(url)} needs a part this list's address doesn't have; reading the page"); return false }
+        done = false
+        generation++
+        val gen = generation
+        onResult = callback
+        requestUrl = url
+        startedAt = System.currentTimeMillis()
+        Report.log("List: loading ${Report.host(url)} from the site's data file")
+        main.postDelayed(feedTimeout, FEED_MS)
+        thread {
+            val items = try {
+                val text = QuickFetch.download(context, feedUrl, json = true, referer = url).html
+                FeedRecipe.items(text, feed, url, System.currentTimeMillis())
+            } catch (e: Exception) {
+                main.post { if (!done && gen == generation) feedFailed(url, callback, e.message?.take(60) ?: e.javaClass.simpleName) }
+                null
+            }
+            if (items != null) main.post {
+                if (done || gen != generation) return@post
+                if (items.isEmpty()) { feedFailed(url, callback, "no events in it"); return@post }
+                main.removeCallbacks(feedTimeout)
+                val secs = (System.currentTimeMillis() - startedAt) / 1000.0
+                Report.log(String.format(java.util.Locale.US, "List: read %d events from the site's data file for %s in %.1fs", items.size, Report.host(url), secs))
+                val now = System.currentTimeMillis()
+                val counts = items.groupingBy { ListStatus.of(it, now) }.eachCount()
+                Report.log("List: by status " + counts.entries.joinToString(", ") { "${it.key} ${it.value}" })
+                complete(ListResult(url, "", items, "recipe:${recipe.host}", null))
+            }
+        }
+        return true
+    }
+
+    private val feedTimeout = Runnable { if (!done && onResult != null) feedFailed(requestUrl, onResult!!, "took too long") }
+
+    private fun feedFailed(url: String, callback: (ListResult) -> Unit, why: String) {
+        main.removeCallbacks(feedTimeout)
+        Report.log("List: data file failed for ${Report.host(url)} ($why); reading the page")
+        generation++ // a late data-file answer is ignored
+        startRead(url, callback)
+    }
+
+    private fun startRead(url: String, callback: (ListResult) -> Unit) {
         mode = try { QuickLogic.mode(QuickReads.verdict(context, Uri.parse(url).host), System.currentTimeMillis()) } catch (_: Exception) { QuickLogic.Mode.FULL }
         begin(url, callback, quick = mode != QuickLogic.Mode.FULL, keepStart = false)
     }
@@ -160,6 +214,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         done = true
         generation++
         onResult = null
+        main.removeCallbacks(feedTimeout)
         main.removeCallbacks(overallTimeout)
         main.removeCallbacks(hardStop)
         main.removeCallbacks(poll)
@@ -671,6 +726,8 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
         private const val OVERALL_MS = 25_000L
         /** The quick half's own limit (download + layout + one extraction); then the full read takes over. */
         private const val QUICK_MS = 10_000L
+        /** The data file's own limit; then the page is read. */
+        private const val FEED_MS = 8_000L
         /** The page's structure without scripts/styles, plus open shadow roots, capped at 1.5 MB. */
         internal const val SNAP_JS = """(function(){try{
 var c=document.documentElement.cloneNode(true);
@@ -926,6 +983,8 @@ object ListRecipes {
         val zone: ZoneId? = null,
         /** What to do on this site's stream pages right after they load (a learned habit copied from a report, "habit"). */
         val habit: SiteHabits.Habit? = null,
+        /** The site's data file to read instead of drawing the page ("feed", FeedRecipe.kt). */
+        val feed: FeedRecipe.Feed? = null,
     ) {
         /** The JSON handed to list-extract.js. */
         fun toJson(): String {
@@ -939,7 +998,7 @@ object ListRecipes {
 
     private fun normHost(h: String?): String = (h ?: "").trim().lowercase().removePrefix("www.").trimEnd('.')
 
-    /** Reads recipes.json text; bad JSON gives an empty list; entries need "host" plus "item", a valid "zone" or a valid "habit"; others are skipped. Never throws. */
+    /** Reads recipes.json text; bad JSON gives an empty list; entries need "host" plus "item", a valid "zone", "habit" or "feed"; others are skipped. Never throws. */
     fun parse(json: String): List<Recipe> {
         val sites = try { (MiniJson.parse(json) as? Map<*, *>)?.get("sites") as? List<*> } catch (_: Exception) { null } ?: return emptyList()
         val out = ArrayList<Recipe>()
@@ -949,9 +1008,10 @@ object ListRecipes {
             val item = (m["item"] as? String)?.trim()?.ifEmpty { null }
             val zone = zoneOf(m["zone"] as? String)
             val habit = SiteHabits.fromRecipe(m["habit"] as? Map<*, *>)
-            if (host.isEmpty() || (item == null && zone == null && habit == null)) continue
+            val feed = try { FeedRecipe.parse(m["feed"] as? Map<*, *>) } catch (_: Exception) { null }
+            if (host.isEmpty() || (item == null && zone == null && habit == null && feed == null)) continue
             fun opt(k: String) = (m[k] as? String)?.trim()?.ifEmpty { null }
-            out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live"), zone, habit))
+            out.add(Recipe(host, item, opt("title"), opt("subtitle"), opt("time"), opt("link"), opt("section"), opt("live"), zone, habit, feed))
         }
         return out
     }

@@ -9,6 +9,11 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Data-file recipes + live-card fix** (2026-11-20, user's go; handoff claude/reedstreams-handoff.md): reedstreams and
+  ntv lists read from the sites' own data files (every reedstreams sport list, filtered by its address; ntv's 15 s browser
+  read gone); page fallback if the file fails. Event finder: two same-class names beat a league label styled like them;
+  a game clock ("0:55 - 3rd") or a "liveDot" class marks live. Check: "data file" lines well under 2 s, all games
+  present, live college game shows both teams + Live + ESPN score, NFL vs college split right on reedstreams.
 - **Home redo speed** (2026-11-20, user's go): build 271 showed featured at 11.8 s (was 20-33) but every home redo
   took 3-7 s, about every 10-30 s. Now matches are kept across score updates and one score round = one redo; a site
   that can't be opened either way is re-tested in a day (streameast was re-tested on every read). Check: "Home: worked
@@ -84,7 +89,8 @@ file's git history (commit 3680843 and earlier).
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the
   TV's zone. Fix per site with a recipe entry: its host + `"zone": "UTC"`. ESPN still fixes matched games.
-- Live cards that show only a game clock (Reed college games) get no start time.
+- Live cards that show only a game clock get no start time from the page (2026-11-20: the clock now marks them live and
+  both team names are read, so ESPN supplies the time once matched; data-file sites get exact times).
 - Items with no matched game only get their own page's numbered sources; address-less source buttons (Reed's 9) are
   not gathered.
 - Links 2–4 on the old test site: the player's signed request never arrives (Cloudflare frame); they stay as

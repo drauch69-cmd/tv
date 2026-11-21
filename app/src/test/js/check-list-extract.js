@@ -228,6 +228,13 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   eq('subtitle cards: sections', r.items.map(i => i.section), ['Tuesday, November 17, 2026', 'Tuesday, November 17, 2026', 'Wednesday, November 18, 2026', 'Wednesday, November 18, 2026']);
   eq('subtitle cards: time', r.items.map(i => i.timeText), ['Start time: 7:00 PM ET', 'Start time: 8:00 PM ET', 'Start time: 7:30 PM ET', 'Start time: 9:00 PM ET']);
 
+  // arena cards: league label styled exactly like the team names; live card has a score, a game clock and a live dot
+  r = await run(page, 'cards-arena.html');
+  console.log(r.debug);
+  eq('arena: titles (league label is not a team)', r.items.map(i => i.title), ['Alpha State Owls vs Beta Ducks', 'Delta Bills vs Gamma Fins', 'Zeta Bears vs Epsilon Saints']);
+  eq('arena: live card is live (game clock / live dot), upcoming are not', r.items.map(i => i.liveHint), [true, false, false]);
+  eq('arena: links', r.items.map(i => i.url.replace(/^.*\/watch\//, '')), ['alpha-owls-at-beta-ducks', 'gamma-fins-at-delta-bills', 'eps-saints-at-zeta-bears']);
+
   await browser.close(); server.close(); server2.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');
   process.exit(fails ? 1 : 0);

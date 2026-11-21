@@ -616,19 +616,26 @@
 
     var RE_LIVE = /(^|[^a-z0-9])(live|on[\s-]?air|streaming[\s-]now|now[\s-]streaming)([^a-z0-9]|$)/i;
     var RE_LIVE_TITLE = /^[^A-Za-z0-9]*(live|on[\s-]?air)\s*(?:[:\-–—|•]|$)/i;
+    // A running game clock with its period ("0:55 - 3rd", "Q2 5:12", "12:00 2nd half", "Halftime"): the game is on.
+    var RE_PERIOD = '(?:[1-4](?:st|nd|rd|th)(?:\\s*(?:qtr|quarter|half|period|inning))?|q[1-4]|[12]h|h[12]|p[1-3]|\\d?ot\\d?)';
+    var RE_GAME_CLOCK = new RegExp('^(?:\\d{1,2}:\\d{2}\\s*[-\u2013\u2014|\u00b7]?\\s*' + RE_PERIOD + '|' + RE_PERIOD +
+      '\\s*[-\u2013\u2014|\u00b7]?\\s*\\d{1,2}:\\d{2}|half\\s?time|ht)$', 'i');
+    // "live" as its own word in a class name, also camelCase ("liveDot", "is-live", "card_live"), never inside a word ("olive").
+    var RE_LIVE_CLASS = /(^|[^A-Za-z])live([A-Z_\-\s]|$)/;
     function liveHintOf(item, lines, titleIdx, timeIdx) {
       if (titleIdx >= 0 && RE_LIVE_TITLE.test(lines[titleIdx].text)) return true;
       for (var i = 0; i < lines.length; i++) {
         if (i === titleIdx) continue;
         if (lines[i].btn) continue;
         if (lines[i].text.length <= 24 && RE_LIVE.test(lines[i].text)) return true;
+        if (lines[i].text.length <= 24 && RE_GAME_CLOCK.test(lines[i].text.trim())) return true;
       }
       var els = [item], more = item.querySelectorAll('*');
       for (var j = 0; j < more.length && j < 80; j++) els.push(more[j]);
       for (var k = 0; k < els.length; k++) {
         var el = els[k];
         var cls = typeof el.className === 'string' ? el.className : (el.getAttribute && el.getAttribute('class')) || '';
-        if (cls && RE_LIVE.test(cls)) return true;
+        if (cls && (RE_LIVE.test(cls) || RE_LIVE_CLASS.test(cls))) return true;
         var a = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('data-status') || '') + ' ' + (el.getAttribute('data-state') || '');
         if (a.trim() && RE_LIVE.test(a)) return true;
         var dl = (el.getAttribute('data-live') || '').toLowerCase();
@@ -705,6 +712,29 @@
       }
       return null;
     }
+    /**
+     * Exactly two name-like lines in the row that share one (non-empty) class, with different texts: the two sides of
+     * a matchup. Returns [first, second] line indexes or null. Used when a pairing mixed a twin with another line
+     * (a league label styled like the team names paired with the first team).
+     */
+    function classTwins(lines, tmIdx, labels) {
+      var by = {}, keys = [];
+      for (var i = 0; i < lines.length; i++) {
+        var L = lines[i], c = typeof L.el.className === 'string' ? L.el.className : '';
+        if (!c || tmIdx[i] || L.text.length < 3 || !nameLike(L, labels)) continue;
+        if (!by[c]) { by[c] = []; keys.push(c); }
+        by[c].push(i);
+      }
+      var found = null;
+      for (var k = 0; k < keys.length; k++) {
+        var g = by[keys[k]];
+        if (g.length !== 2 || lines[g[0]].text.toLowerCase() === lines[g[1]].text.toLowerCase()) continue;
+        if (found) return null; // two such pairs: not sure which is the matchup
+        found = g;
+      }
+      return found;
+    }
+
     /** An empty full-card link (the whole card is clickable) names the card in its aria-label / title. */
     function overlayTitle(item) {
       var as = item.querySelectorAll('a[href]');
@@ -769,7 +799,20 @@
               if (p2) { pr = p2; delete used[titleIdx]; titleIdx = pi; used[pi] = 1; }
             }
           }
-          if (pr) { title = pr.text; for (var u = titleIdx + 1; u <= pr.upto; u++) used[u] = 1; }
+          if (pr) {
+            var tw = classTwins(lines, tm.idx, labels);
+            var inA = tw && (tw[0] === titleIdx || tw[1] === titleIdx), inB = tw && (tw[0] === pr.upto || tw[1] === pr.upto);
+            if (tw && inA !== inB) {
+              // the pair mixed one of the two same-class names with another line: the two names are the title
+              var sepT = '';
+              for (var sx = tw[0] + 1; sx < tw[1]; sx++) if (RE_SEPARATOR.test(lines[sx].text)) { sepT = lines[sx].text; break; }
+              delete used[titleIdx];
+              titleIdx = tw[0];
+              pr = { text: lines[tw[0]].text + ' ' + (sepT ? sepText(sepT) : 'vs') + ' ' + lines[tw[1]].text, upto: tw[1] };
+              used[titleIdx] = 1;
+            }
+            title = pr.text; for (var u = titleIdx + 1; u <= pr.upto; u++) used[u] = 1;
+          }
         }
       }
       var timeText = tm.text;

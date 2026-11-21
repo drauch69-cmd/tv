@@ -246,6 +246,14 @@ Home featured card: the photo covers the whole card (212 dp tall), text on top; 
   fallback (`nextPlayable`, `firstPlayable`) and access-code renewal (`canRenew`).
 - **Lists.** `assets/list-extract.js` reads index pages with learned shapes (`LearnedShapes`), loose rows and
   stragglers.
+  **Data-file recipes** (`FeedRecipe.kt`, `FeedRecipeTest`; user, 2026-11-20): a recipe with "feed" (no "item" needed)
+  makes `IndexReader.read` download the site's own JSON (`QuickFetch.download(json = true, referer = list page)`, 8 s
+  limit `FEED_MS`) and map it to events: `items` (dotted path to the array), `filter` (field = value), `link`/`title`/
+  `subtitle`/`section`/`start`/`end`/`live` fields; templates `{path:N}` (list address part, -1 last), `{field}`,
+  `{x|fallback}`. Live = the live field or now between start and end. Failure / no events = the normal (quick or full)
+  read, logged "List: data file failed for <host> (…); reading the page". Uses the saved recipes copy
+  (`ListRecipes.saved`, never waits). Entries on `sports`: reedstreams (one file for all sports, filtered by the list
+  address's last part) and ntv. Line "List: read N events from the site's data file for <host> in X s".
   **Quick reads** (`QuickRead.kt`, `QuickLogicTest`; user, 2026-11-20): `IndexReader.read` first asks the per-site verdict
   (`QuickReads`, own settings file `quick_reads`). Unknown site (or due a re-check: quick 24 h, browser 7 days) = TEST: the
   page's HTML is downloaded (`QuickFetch`, browser's name + cookies), scripts and meta refresh stripped
