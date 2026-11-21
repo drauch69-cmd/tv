@@ -49,6 +49,7 @@ class UpdateLogicTest {
         assertEquals("test-latest", UpdateLogic.tagFor("test"))
         assertEquals("sports-latest", UpdateLogic.tagFor("sports"))
         assertEquals("https://github.com/drauch69-cmd/tv/releases/download/sports-latest/StreamLink-Sports.apk", UpdateLogic.apkUrl("sports"))
+        assertEquals("https://github.com/drauch69-cmd/tv/releases/download/lab-latest/StreamLink-Lab.apk", UpdateLogic.apkUrl("lab"))
         assertNull(UpdateLogic.tagFor("other"))
         assertEquals("https://github.com/drauch69-cmd/tv/releases/download/latest/version.json", UpdateLogic.versionUrl("main"))
         assertEquals("https://github.com/drauch69-cmd/tv/releases/download/test-latest/version.json", UpdateLogic.versionUrl("test"))

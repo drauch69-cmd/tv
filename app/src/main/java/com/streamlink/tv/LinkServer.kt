@@ -70,6 +70,10 @@ class LinkServer(
     private val demo: () -> Boolean = { false },
     /** POST /demo/set (on=1|0): turns demo games on or off. */
     private val onDemo: (Boolean) -> Unit = { },
+    /** GET /backup: a zip of all settings and data, or null if it couldn't be made. */
+    private val backup: () -> ByteArray? = { null },
+    /** POST /backup/restore (body: the zip): null on success (the app then restarts), otherwise why it was refused. */
+    private val onRestore: (ByteArray) -> String? = { "Restore is not available" },
 ) {
     private var socket: ServerSocket? = null
     @Volatile private var running = false
@@ -137,7 +141,11 @@ class LinkServer(
                         "sec-fetch-site" -> fetchSite = value.lowercase()
                     }
                 }
-                val limit = if (path == "/photo/upload") SportPhotoRules.MAX_BYTES else 65_536
+                val limit = when (path) {
+                    "/photo/upload" -> SportPhotoRules.MAX_BYTES
+                    "/backup/restore" -> SettingsBackup.MAX_BYTES
+                    else -> 65_536
+                }
                 val raw = if (contentLength in 1..limit) {
                     val buf = ByteArray(contentLength)
                     var read = 0
@@ -152,7 +160,12 @@ class LinkServer(
                     respond(c, 400, "text/plain; charset=utf-8", "That photo is too big (3 MB at most)")
                     return
                 }
-                val body = if (path == "/photo/upload") "" else String(raw, Charsets.UTF_8)
+                if (path == "/backup/restore" && contentLength > limit) {
+                    respond(c, 400, "text/plain; charset=utf-8", "That file is too big for a StreamLink backup")
+                    return
+                }
+                val binary = path == "/photo/upload" || path == "/backup/restore"
+                val body = if (binary) "" else String(raw, Charsets.UTF_8)
 
                 // Links and commands only from our own phone page or a Shortcut, never from another
                 // website (which a browser would label with its own Origin / Sec-Fetch-Site).
@@ -192,6 +205,15 @@ class LinkServer(
             method == "GET" && path == "/reports" -> {
                 val name = "streamlink-logs-" + java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US).format(java.util.Date()) + ".txt"
                 respondBytes(c, 200, text, allReports().toByteArray(Charsets.UTF_8), "Content-Disposition: attachment; filename=$name\r\n")
+            }
+            method == "GET" && path == "/backup" -> {
+                val zip = try { backup() } catch (_: Exception) { null }
+                if (zip == null) respond(c, 500, text, "Could not make the backup")
+                else respondBytes(c, 200, "application/zip", zip, "Content-Disposition: attachment; filename=" + SettingsBackup.fileName() + "\r\n")
+            }
+            method == "POST" && path == "/backup/restore" -> {
+                val err = if (payload.isEmpty()) "No file was sent" else try { onRestore(payload) } catch (_: Exception) { "Could not restore that file" }
+                if (err == null) respond(c, 200, text, "Restored") else respond(c, 400, text, err)
             }
             method == "POST" && path == "/reports/clear" -> { onReportsClear(); respond(c, 200, text, "Cleared") }
             method == "GET" && path == "/sample" -> {
@@ -348,7 +370,7 @@ class LinkServer(
 
     companion object {
         /** Routes that change something: POST only, and never from another website. */
-        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/lists/url", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove", "/cityphoto/next", "/cityphoto/focus", "/demo/set")
+        private val CHANGING_PATHS = setOf("/play", "/cmd", "/lists/add", "/lists/remove", "/lists/sport", "/lists/rank", "/lists/rename", "/lists/url", "/list/refresh", "/list/play", "/photo/upload", "/photo/focus", "/photo/fade", "/photo/remove", "/cityphoto/next", "/cityphoto/focus", "/demo/set", "/backup/restore")
         private val URL_IN_TEXT = Regex("https?://\\S+", RegexOption.IGNORE_CASE)
         private val JSON_URL = Regex("\"url\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"")
 

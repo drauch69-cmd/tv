@@ -34,6 +34,9 @@ jobs:
           elif [ "$GITHUB_REF" = "refs/heads/sports" ]; then
             echo "STREAMLINK_CHANNEL=sports" >> "$GITHUB_ENV"
             echo "APK_NAME=StreamLink-Sports.apk" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF" = "refs/heads/lab" ]; then
+            echo "STREAMLINK_CHANNEL=lab" >> "$GITHUB_ENV"
+            echo "APK_NAME=StreamLink-Lab.apk" >> "$GITHUB_ENV"
           else
             echo "STREAMLINK_CHANNEL=main" >> "$GITHUB_ENV"
             echo "APK_NAME=StreamLink.apk" >> "$GITHUB_ENV"
@@ -101,7 +104,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.STREAMLINK_CHANNEL == 'test' && 'StreamLink-Test-apk' || env.STREAMLINK_CHANNEL == 'sports' && 'StreamLink-Sports-apk' || 'StreamLink-apk' }}
+          name: ${{ env.STREAMLINK_CHANNEL == 'test' && 'StreamLink-Test-apk' || env.STREAMLINK_CHANNEL == 'sports' && 'StreamLink-Sports-apk' || env.STREAMLINK_CHANNEL == 'lab' && 'StreamLink-Lab-apk' || 'StreamLink-apk' }}
           path: ${{ env.APK_NAME }}
 
       # Also publish it as a "latest" release, so the TV can download it from one fixed link.
@@ -130,6 +133,15 @@ jobs:
         run: |
           gh release delete sports-latest --yes --cleanup-tag || true
           gh release create sports-latest StreamLink-Sports.apk version.json --title "Sports build" --notes "Sports build ${{ github.run_number }}"
+
+      # Branch "lab" publishes the Lab app (big redesigns, installs next to Sports) to its own fixed link.
+      - name: Publish lab release
+        if: github.ref == 'refs/heads/lab'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete lab-latest --yes --cleanup-tag || true
+          gh release create lab-latest StreamLink-Lab.apk version.json --title "Lab build" --notes "Lab build ${{ github.run_number }}"
 
       # Android Lint report. Runs after build/test and publishing so it can never block them.
       - name: Android Lint

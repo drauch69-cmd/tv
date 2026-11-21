@@ -48,6 +48,7 @@ internal object UpdateLogic {
         "main" -> "latest"
         "test" -> "test-latest"
         "sports" -> "sports-latest"
+        "lab" -> "lab-latest"
         else -> null
     }
 
@@ -56,6 +57,7 @@ internal object UpdateLogic {
         "main" -> "StreamLink.apk"
         "test" -> "StreamLink-Test.apk"
         "sports" -> "StreamLink-Sports.apk"
+        "lab" -> "StreamLink-Lab.apk"
         else -> null
     }
 

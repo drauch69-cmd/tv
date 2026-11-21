@@ -3,11 +3,12 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Build channel: "main" (default), "test" or "sports". Test and sports install next to the normal app
+// Build channel: "main" (default), "test", "sports" or "lab". Lab is the playground for big redesigns. Test and sports install next to the normal app
 // (own applicationId and label). Set with -Pchannel=test or the STREAMLINK_CHANNEL env var.
 val channel = (findProperty("channel") as String?) ?: System.getenv("STREAMLINK_CHANNEL") ?: "main"
 val isTestChannel = channel == "test"
 val isSportsChannel = channel == "sports"
+val isLabChannel = channel == "lab"
 
 android {
     namespace = "com.streamlink.tv"
@@ -17,20 +18,25 @@ android {
         applicationId = when {
             isTestChannel -> "com.streamlink.tv.test"
             isSportsChannel -> "com.streamlink.tv.sports"
+            isLabChannel -> "com.streamlink.tv.lab"
             else -> "com.streamlink.tv"
         }
         manifestPlaceholders["appLabel"] = when {
             isTestChannel -> "StreamLink Test"
             isSportsChannel -> "StreamLink Sports"
+            isLabChannel -> "StreamLink Lab"
             else -> "StreamLink"
         }
+        // Lab gets an orange icon and banner so it can't be mistaken for Sports.
+        manifestPlaceholders["appIcon"] = if (isLabChannel) "@drawable/icon_lab" else "@drawable/icon"
+        manifestPlaceholders["appBanner"] = if (isLabChannel) "@drawable/banner_lab" else "@drawable/banner"
         minSdk = 26
         targetSdk = 34
         // Each GitHub build gets a higher version number so it installs over the last one.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
         // Which release channel this app updates itself from ("main", "test" or "sports"); see Updater.kt.
-        val ch = if (isTestChannel || isSportsChannel) channel else "main"
+        val ch = if (isTestChannel || isSportsChannel || isLabChannel) channel else "main"
         buildConfigField("String", "CHANNEL", "\"$ch\"")
         // Unsplash Access Key for city photos on the featured card (Actions secret UNSPLASH_ACCESS_KEY). Empty turns them off.
         val unsplash = (System.getenv("UNSPLASH_ACCESS_KEY") ?: "").filter { it.isLetterOrDigit() || it == '-' || it == '_' }

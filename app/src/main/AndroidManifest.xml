@@ -11,10 +11,17 @@
     <application
         android:name=".StreamLinkApp"
         android:label="${appLabel}"
-        android:icon="@drawable/icon"
-        android:banner="@drawable/banner"
+        android:icon="${appIcon}"
+        android:banner="${appBanner}"
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
+
+        <activity
+            android:name=".RestartActivity"
+            android:process=":restart"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
 
         <activity
             android:name=".MainActivity"

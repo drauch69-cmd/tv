@@ -284,6 +284,13 @@ class MainActivity : Activity() {
             onListPlay = { id, url, start ->
                 SavedLists.get(this, id)?.let { l -> runOnUiThread { playListItem(l, url, start) }; true } ?: false
             },
+            backup = { SettingsBackup.export(this) },
+            onRestore = { bytes ->
+                SettingsBackup.stage(this, bytes).also { err ->
+                    // Answer the phone first, then restart so the backup is swapped in.
+                    if (err == null) android.os.Handler(mainLooper).postDelayed({ RestartActivity.restart(this) }, 1200)
+                }
+            },
             photos = { SportPhotos.json(this) },
             photo = { lg -> SportPhotos.bytes(this, lg) },
             onPhotoUpload = { lg, bytes -> SportPhotos.save(this, lg, bytes).also { if (it == null) runOnUiThread { renderLists() } } },

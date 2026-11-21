@@ -183,6 +183,12 @@
   </div>
   <div class="section" style="margin-top:18px">More</div>
   <div class="card">
+    <a href="/backup" download style="font-weight:600;font-size:16px;display:inline-block;min-height:44px;line-height:44px">Download settings backup</a>
+    &nbsp;·&nbsp; <a href="#" id="restorebtn" style="font-weight:600;font-size:16px;display:inline-block;min-height:44px;line-height:44px">Restore from a backup…</a>
+    <input type="file" id="restorefile" accept=".zip,application/zip" hidden>
+    <p class="small" style="margin:0">One file with your lists, ranks, photos, framing, site memory and other settings. Restoring replaces everything on this TV app with the file's contents, then the app restarts. Works between StreamLink Sports and StreamLink Lab.</p>
+  </div>
+  <div class="card">
     <button type="button" class="ghost" id="prefbtn">Head start while browsing: On</button>
     <p class="small" style="margin:8px 0 14px">While an event stays highlighted on the TV for a couple of seconds, the TV looks for its stream in the background, so pressing OK starts faster.</p>
     <a href="/sample" download style="font-weight:600;font-size:16px;display:inline-block;min-height:44px;line-height:44px">Save sample</a>
@@ -602,6 +608,22 @@
     if (open) { loadReport(); $('reportbox').scrollIntoView({block: 'nearest'}); }
   };
   $('refresh').onclick = loadReport;
+  $('restorebtn').onclick = function(e){ e.preventDefault(); $('restorefile').value = ''; $('restorefile').click(); };
+  $('restorefile').onchange = function(){
+    var f = this.files && this.files[0];
+    var a = $('restorebtn');
+    if (!f) return;
+    if (!confirm('Replace all settings, lists and photos on this TV app with "' + f.name + '"? The app restarts afterwards.')) return;
+    a.textContent = 'Restoring…';
+    fetch('/backup/restore', {method:'POST', headers:{'Content-Type':'application/zip'}, body:f})
+      .then(function(r){ return r.text().then(function(t){ return {ok:r.ok, t:t}; }); })
+      .then(function(r){
+        if (!r.ok) { a.textContent = 'Restore from a backup…'; alert(r.t); return; }
+        a.textContent = 'Restored ✓ — the TV app is restarting';
+        setTimeout(function(){ location.reload(); }, 8000);
+      })
+      .catch(function(){ a.textContent = 'Restore from a backup…'; alert('Could not reach the TV'); });
+  };
   $('clearlogs').onclick = function(e){
     e.preventDefault();
     if (!confirm('Clear the saved logs on the TV? The current report stays.')) return;
