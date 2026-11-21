@@ -1182,18 +1182,28 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 for(var pn=e;pn&&pn!==document.body;pn=pn.parentElement){var pp=getComputedStyle(pn).position;if(pp==='fixed'||pp==='sticky')return false;}
                 return true;
               };
-              var pick=function(sel,minA,landscape){
+              var pick=function(sel,minA,landscape,weight){
                 var b=null,ba=0;
                 document.querySelectorAll(sel).forEach(function(e){
                   if(!vis(e))return;
                   var r=e.getBoundingClientRect(), a=r.width*r.height;
                   if(landscape&&r.width/r.height<1.1)return; // a tall narrow panel (chat) is not the player
-                  if(r.width>=200&&r.height>=120&&a>=minA&&a>ba){ba=a;b=e;}
+                  if(r.width<200||r.height<120||a<minA)return;
+                  var s=weight?a*weight(e,r):a;
+                  if(s>ba){ba=s;b=e;}
                 });
                 return b;
               };
+              // Frames: a video-shaped one (16:9-ish, 1.3-2.4) beats a squarer one (a chat box stacked under the player
+              // on a narrow page is wider than tall but nearly square), and one allowed to autoplay or play protected
+              // video beats one that isn't. Size decides between equals.
+              var frameWeight=function(e,r){
+                var ar=r.width/r.height, w=(ar>=1.3&&ar<=2.4)?1:0.15;
+                if(/autoplay|encrypted-media/i.test(e.getAttribute('allow')||''))w*=2;
+                return w;
+              };
               var kind='video', el=pick('video',40000);
-              if(!el){ el=pick('iframe',40000,true); kind='frame'; }
+              if(!el){ el=pick('iframe',40000,true,frameWeight); kind='frame'; }
               if(!el){
                 kind='box';
                 ['#videoPlayer','#player','.iframe-placeholder','.player-container','.video-player','[class*="player-wrap" i]','[id*="player" i]']

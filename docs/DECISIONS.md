@@ -9,6 +9,11 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Player frame beats a chat box under it** (2026-11-21, user's go): on narrow pages (the TV's hidden browser is
+  ~640 px wide) a chat frame stacked under the player can be bigger and still wider than tall, so the tap hit the chat
+  (StreamFree Willow: no stream in 25 s). NUDGE_JS now weights frames: video-shaped (1.3–2.4) ×1 else ×0.15, and an
+  `allow` with autoplay/encrypted-media ×2. Checked in a browser at 640×360 (old rule picks the chat, new picks the
+  player; one tap on it starts the playlist). Not yet tested on the TV.
 - **Throwaway popups + no stuck short search** (2026-11-21, user's go): ntv's players test popups and read a refused
   popup (null) as a sandboxed frame ("Remove sandbox attributes on the iframe tag"; no stream for the finder, ntv at
   31 misses). Build 281's in-page stand-in didn't reach tests run from blank frames (still failed at 1:47), so now the
