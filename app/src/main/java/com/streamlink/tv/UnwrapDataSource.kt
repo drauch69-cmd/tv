@@ -169,6 +169,20 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
                 }
             }
             Report.logOnce("pixels-fail", "The picture's pixels didn't contain recognisable video either")
+            if (undecodable.get() == 0) {
+                Report.logOnce("png-layout", "Picture layout: " + (PngPixels.describe(head, n) ?: "not a PNG"))
+                for (drop in listOf(false, true)) {
+                    val d = PngPixels.decodeOne(head, n, drop)
+                    val label = if (drop) "without transparency" else "all channels"
+                    if (d == null) {
+                        Report.logOnce("png-try-$drop", "Picture unpacked $label: failed (${PngPixels.lastFail})")
+                    } else {
+                        val hex = (0 until minOf(d.bytes.size, 24)).joinToString(" ") { String.format("%02X", d.bytes[it]) }
+                        Report.logOnce("png-try-$drop", "Picture unpacked $label: ${d.bytes.size} bytes, starts [$hex], " +
+                            "video sync marks ${syncMarks(d.bytes)}")
+                    }
+                }
+            }
             undecodable.incrementAndGet()
         }
 
@@ -347,6 +361,21 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
     }
 
     /** One line for the report: what the first video chunk really looks like. */
+    /** How many bytes are 0x47 (the MPEG-TS sync mark), and the most common spacing between them. */
+    private fun syncMarks(b: ByteArray): String {
+        var count = 0
+        var last = -1
+        val gaps = HashMap<Int, Int>()
+        val lim = minOf(b.size, 2 * 1024 * 1024)
+        for (i in 0 until lim) if (b[i] == SYNC) {
+            count++
+            if (last >= 0) { val g = i - last; if (g <= 400) gaps[g] = (gaps[g] ?: 0) + 1 }
+            last = i
+        }
+        val top = gaps.entries.sortedByDescending { it.value }.take(3).joinToString(", ") { "${it.key}:${it.value}" }
+        return "$count in the first ${lim / 1024} KB (common gaps $top)"
+    }
+
     private fun describeChunk(spec: DataSpec, head: ByteArray, n: Int, skip: Int): String {
         val type = upstream.responseHeaders.entries
             .firstOrNull { it.key.equals("Content-Type", true) }?.value?.firstOrNull() ?: "?"

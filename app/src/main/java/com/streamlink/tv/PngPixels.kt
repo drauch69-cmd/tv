@@ -22,6 +22,9 @@ object PngPixels {
 
     private const val MAX_OUT = 24 * 1024 * 1024
 
+    /** Why the last [decodeOne] returned null (for the report). */
+    @Volatile var lastFail: String = ""
+
     private class Header(val width: Int, val height: Int, val channels: Int, val idat: List<IntArray>)
 
     /** All packings this picture could hold, most likely first. Used by tests. */
@@ -30,15 +33,15 @@ object PngPixels {
 
     /** Decode the pixel bytes, optionally skipping the transparency channel. Null if not possible. */
     fun decodeOne(b: ByteArray, n: Int, dropAlpha: Boolean): Decoded? {
-        val h = header(b, n) ?: return null
+        val h = header(b, n) ?: run { lastFail = "unsupported picture format"; return null }
         val hasAlpha = h.channels == 2 || h.channels == 4
-        if (dropAlpha && !hasAlpha) return null
+        if (dropAlpha && !hasAlpha) { lastFail = "no transparency channel to drop"; return null }
 
         val bpp = h.channels
         val stride = h.width * bpp
         val outPerRow = if (dropAlpha) h.width * (bpp - 1) else stride
         val outSize = outPerRow.toLong() * h.height
-        if (outSize <= 0 || outSize > MAX_OUT) return null
+        if (outSize <= 0 || outSize > MAX_OUT) { lastFail = "picture too big to unpack ($outSize bytes)"; return null }
         val out = ByteArray(outSize.toInt())
 
         var prev = ByteArray(stride) // the row above; all zeros for the first row, as PNG defines
@@ -68,8 +71,12 @@ object PngPixels {
 
         try {
             for (y in 0 until h.height) {
-                if (!inflateExactly(filter, 1) || !inflateExactly(cur, stride)) return null
-                if (!unfilterRow(filter[0].toInt() and 0xFF, cur, prev, bpp)) return null
+                if (!inflateExactly(filter, 1) || !inflateExactly(cur, stride)) {
+                    lastFail = "image data ran out at row $y of ${h.height}"; return null
+                }
+                if (!unfilterRow(filter[0].toInt() and 0xFF, cur, prev, bpp)) {
+                    lastFail = "unknown row filter ${filter[0].toInt() and 0xFF} at row $y"; return null
+                }
                 val base = y * outPerRow
                 if (!dropAlpha) {
                     System.arraycopy(cur, 0, out, base, stride)
@@ -81,7 +88,8 @@ object PngPixels {
                 prev = cur
                 cur = t
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            lastFail = "unpacking failed (${e.javaClass.simpleName})"
             return null
         } finally {
             inflater.end()
@@ -123,6 +131,43 @@ object PngPixels {
         val pb = Math.abs(p - b)
         val pc = Math.abs(p - c)
         return if (pa <= pb && pa <= pc) a else if (pb <= pc) b else c
+    }
+
+    /**
+     * One line describing the picture's layout for the report: size, bit depth, colour type,
+     * interlacing and its chunk list (type and size; repeated chunks counted). Null if not a PNG.
+     */
+    fun describe(b: ByteArray, n: Int): String? {
+        if (n < 33 || (b[0].toInt() and 0xFF) != 0x89 || b[1] != 'P'.code.toByte()) return null
+        var info = ""
+        val chunks = ArrayList<Pair<String, Long>>() // type, total bytes; consecutive repeats merged
+        val counts = ArrayList<Int>()
+        var pos = 8
+        var tail = 0
+        while (pos + 8 <= n) {
+            val len = int32(b, pos)
+            if (len < 0 || pos + 12L + len > n) { info += " (chunk at byte $pos runs past the end)"; break }
+            val type = String(b, pos + 4, 4, Charsets.ISO_8859_1).replace(Regex("[^\\x20-\\x7E]"), "?")
+            if (type == "IHDR" && len >= 13) {
+                val ct = b[pos + 17].toInt() and 0xFF
+                val ctName = when (ct) { 0 -> "grey"; 2 -> "RGB"; 3 -> "palette"; 4 -> "grey+alpha"; 6 -> "RGBA"; else -> "type $ct" }
+                info = "${int32(b, pos + 8)}x${int32(b, pos + 12)}, ${b[pos + 16].toInt() and 0xFF}-bit $ctName, " +
+                    "interlace ${b[pos + 20].toInt() and 0xFF}, compression ${b[pos + 18].toInt() and 0xFF}, filter ${b[pos + 19].toInt() and 0xFF}"
+            }
+            if (chunks.isNotEmpty() && chunks.last().first == type) {
+                chunks[chunks.size - 1] = type to (chunks.last().second + len)
+                counts[counts.size - 1]++
+            } else {
+                chunks.add(type to len.toLong()); counts.add(1)
+            }
+            pos += 12 + len
+            if (type == "IEND") { tail = n - pos; break }
+        }
+        val list = chunks.indices.joinToString(", ") { i ->
+            val (t, sz) = chunks[i]
+            if (counts[i] > 1) "$t x${counts[i]} ($sz bytes)" else "$t ($sz bytes)"
+        }
+        return "PNG $info; chunks: $list; $tail bytes after the end"
     }
 
     /** Reads the picture's size/format and where its compressed image data sits, without copying it. */

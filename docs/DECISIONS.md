@@ -9,6 +9,11 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Picture-chunk diagnostics** (2026-11-21, user's go; build 285 streamfree Willow: chunks are ~3 MB PNGs on a TikTok
+  CDN, nothing after IEND, pixel unpack found no video). On the first undecodable picture the report now adds
+  "Picture layout:" (size, bit depth, colour type, interlace, chunk list) and one "Picture unpacked ..." line per packing
+  (failure reason, or first bytes + 0x47 sync-mark count/spacing). Next: run Willow on the TV, send the report, then
+  write the real unpacker from it. A Save sample of that play would also carry the raw chunk.
 - **AdScore no longer blocked** (2026-11-21, user's go on A; build 283 strikeout ESPN report): the posamari.me player
   needs AdScore's (c.adsco.re) bot-check pass; blocked, it said "authorization failed please reload the page" and the
   finder saw no stream. Removed from the block list everywhere (no popups/redirects come from it). Check on TV: the
@@ -178,6 +183,9 @@ file's git history (commit 3680843 and earlier).
 Reminder: lay out options and get a "go" before starting any of these.
 
 ## Decisions (do not undo without asking)
+
+- **Short search after repeated misses is off** (user, 2026-11-21: don't lock a site out of testing after a fail).
+  `SiteMemory.SHORTEN_ENABLED = false`; misses still counted and shown. Temporary; turn back on only when the user asks.
 
 - **`sports` is the main line** (user, 2026-11-20). StreamLink Sports is the only app in use; `test` and the helper
   branches are retired. `main` stays only because the TV Cleaner app builds from it; StreamLink's own `main`/`test`

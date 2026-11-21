@@ -14,6 +14,11 @@ import org.json.JSONObject
  * Only host names and counts are stored.
  */
 object SiteMemory {
+    /**
+     * Off for now (user, 2026-11-21): a failed site should never get a shorter search while testing.
+     * Misses are still counted and shown in the report. Set true to bring the short search back.
+     */
+    const val SHORTEN_ENABLED = false
     const val FAILS_TO_SHORTEN = 2
     const val SHORT_TIMEOUT_MS = 15_000L // 10 s left only ~8 s after the page load and first tap
     const val FULL_EVERY = 4
@@ -50,6 +55,7 @@ object SiteMemory {
     // ---- storage ----
 
     fun shouldShorten(ctx: Context, host: String?): Boolean {
+        if (!SHORTEN_ENABLED) return false
         val k = key(host) ?: return false
         return shorten(load(ctx)[k], System.currentTimeMillis())
     }

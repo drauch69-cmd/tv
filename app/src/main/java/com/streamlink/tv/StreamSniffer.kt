@@ -406,7 +406,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
             SiteMemory.SHORT_TIMEOUT_MS
         } else {
             val misses = SiteMemory.fails(context, siteHost)
-            if (misses >= SiteMemory.FAILS_TO_SHORTEN) log("The stream wasn't found on this site the last $misses times; giving it a full search this time")
+            if (misses >= SiteMemory.FAILS_TO_SHORTEN) log("The stream wasn't found on this site the last $misses times; " +
+                if (SiteMemory.SHORTEN_ENABLED) "giving it a full search this time" else "full search anyway (short search is off)")
             TIMEOUT_MS
         }
         timeoutMs = if (ref != null) base + CLICK_EXTRA_MS else base
