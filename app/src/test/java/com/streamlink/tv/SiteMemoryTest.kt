@@ -17,6 +17,14 @@ class SiteMemoryTest {
         assertTrue(SiteMemory.shorten(e, now + 2000))
     }
 
+    @Test fun everyFourthMissGetsAFullSearch() {
+        assertTrue(SiteMemory.shorten(SiteMemory.Entry(3, now), now))
+        assertFalse(SiteMemory.shorten(SiteMemory.Entry(4, now), now))
+        assertTrue(SiteMemory.shorten(SiteMemory.Entry(5, now), now))
+        assertTrue(SiteMemory.shorten(SiteMemory.Entry(25, now), now))
+        assertFalse(SiteMemory.shorten(SiteMemory.Entry(28, now), now))
+    }
+
     @Test fun oneSuccessClears() {
         val e = SiteMemory.Entry(5, now)
         assertNull(SiteMemory.afterResult(e, found = true, now = now))

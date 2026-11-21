@@ -9,11 +9,14 @@ import org.json.JSONObject
  * falls back to the site's own player, instead of 25 s. One success clears it; entries expire after a week.
  * The site's own player also clears it when the page there loads a playlist the finder could have
  * caught (the miss was the finder's, not a site the app can't read), see [clear].
+ * Every [FULL_EVERY]th miss in a row gets a full search again, so a site whose page now needs longer than
+ * the short search can't stay stuck (ntv sat at 25 misses, 2026-11-21).
  * Only host names and counts are stored.
  */
 object SiteMemory {
     const val FAILS_TO_SHORTEN = 2
     const val SHORT_TIMEOUT_MS = 15_000L // 10 s left only ~8 s after the page load and first tap
+    const val FULL_EVERY = 4
     const val EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
     private const val PREFS = "streamlink"
     // "_2": forgets misses recorded while builds 153–156 gave up early on other sites' players.
@@ -25,7 +28,7 @@ object SiteMemory {
     // ---- pure, unit tested ----
 
     internal fun shorten(e: Entry?, now: Long): Boolean =
-        e != null && e.fails >= FAILS_TO_SHORTEN && now - e.at < EXPIRE_MS
+        e != null && e.fails >= FAILS_TO_SHORTEN && now - e.at < EXPIRE_MS && e.fails % FULL_EVERY != 0
 
     internal fun afterResult(e: Entry?, found: Boolean, now: Long): Entry? =
         if (found) null else Entry(if (e == null || now - e.at >= EXPIRE_MS) 1 else e.fails + 1, now)

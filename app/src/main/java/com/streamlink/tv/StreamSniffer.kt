@@ -404,7 +404,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val base = if (light) LIGHT_TIMEOUT_MS else if (SiteMemory.shouldShorten(context, siteHost)) {
             log("The stream wasn't found on this site the last ${SiteMemory.fails(context, siteHost)} times; looking for ${SiteMemory.SHORT_TIMEOUT_MS / 1000} s only")
             SiteMemory.SHORT_TIMEOUT_MS
-        } else TIMEOUT_MS
+        } else {
+            val misses = SiteMemory.fails(context, siteHost)
+            if (misses >= SiteMemory.FAILS_TO_SHORTEN) log("The stream wasn't found on this site the last $misses times; giving it a full search this time")
+            TIMEOUT_MS
+        }
         timeoutMs = if (ref != null) base + CLICK_EXTRA_MS else base
         nudgeCount = 0
         sourceScheduled = false

@@ -14,6 +14,7 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebView
 import android.view.ViewGroup
 import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import android.webkit.WebViewClient
 import java.io.ByteArrayInputStream
@@ -43,7 +44,39 @@ object SafeWeb {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
             WebSettingsCompat.setRequestedWithHeaderOriginAllowList(wv.settings, emptySet())
         }
+        // In every frame: window.open() hands back a harmless stand-in instead of nothing.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            try { WebViewCompat.addDocumentStartJavaScript(wv, POPUP_STANDIN_JS, setOf("*")) } catch (_: Exception) {}
+        }
     }
+
+    /**
+     * Some players (ntv, 2026-11-21) test popups on the first tap: open one, close it at once, and if
+     * window.open() returned null they decide they are in a sandboxed frame and refuse to play. A
+     * refused popup looks exactly like that, so every frame gets a window.open() that opens nothing
+     * and returns a closable stand-in. Links with target=_blank still reach onCreateWindow and are refused.
+     */
+    const val POPUP_STANDIN_JS = """
+        (function(){
+          try {
+            if (window.__slPopupStandin) return;
+            window.__slPopupStandin = 1;
+            var noop = function(){};
+            var make = function(){
+              var w = { closed: false, opener: null, name: '', focus: noop, blur: noop, print: noop,
+                        postMessage: noop, moveTo: noop, resizeTo: noop, stop: noop,
+                        addEventListener: noop, removeEventListener: noop };
+              w.close = function(){ w.closed = true; };
+              w.location = { href: 'about:blank', assign: noop, replace: noop, reload: noop };
+              w.document = { write: noop, writeln: noop, open: noop, close: noop };
+              w.window = w; w.self = w;
+              return w;
+            };
+            var open = function(){ return make(); };
+            Object.defineProperty(window, 'open', { value: open, writable: true, configurable: true });
+          } catch (e) {}
+        })();
+    """
 }
 
 /** Takes a web view out of its parent and destroys it, without calling into the page (safe after the renderer died). */
