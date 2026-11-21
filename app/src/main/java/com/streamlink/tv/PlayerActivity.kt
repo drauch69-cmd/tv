@@ -114,7 +114,8 @@ class PlayerActivity : Activity() {
     private var smoothLive = true
     /** Low delay kept running dry: smooth delay for the rest of this play. */
     private var smoothThisRun = false
-    private val emptyStallTimes = ArrayList<Long>()
+    /** Decoder, tunneling and low-delay readings (see [PlaybackSigns]). */
+    private val signs = PlaybackSigns()
     private var stalls = 0
     /** The current stall was already counted and logged (the buffering event), so the stall check does not count it again. */
     private var stallLogged = false
@@ -270,7 +271,7 @@ class PlayerActivity : Activity() {
         renewing = false
         countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
         smoothThisRun = false
-        emptyStallTimes.clear()
+        signs.resetLowDelay()
         sourceIndex = 0
         refererIndex = 0
         reconnects = 0
@@ -494,7 +495,7 @@ class PlayerActivity : Activity() {
         disguiseChecks = 0
         main.removeCallbacks(disguiseCheck)
         main.postDelayed(disguiseCheck, 1_000)
-        starveSamples.clear()
+        signs.resetStarve()
         main.removeCallbacks(audioStarveCheck)
         main.postDelayed(audioStarveCheck, 2_000)
         p.prepare()
@@ -684,7 +685,7 @@ class PlayerActivity : Activity() {
     /** 12s in: lots of video waiting but nothing started -> the format is the problem; don't wait 20s. */
     /** 6s in: frames already going into the decoder with no picture out -> switch decoders now. */
     private val earlyDecoderCheck = Runnable {
-        if (playingSince == 0L && player != null && !tunnelEngaged() && decoderStuck()) {
+        if (playingSince == 0L && player != null && !tunnelEngaged() && signs.decoderStuck(player)) {
             Report.log("Early check: frames reach the video decoder but no picture comes out")
             main.removeCallbacks(startCheck)
             decodeProblem()
@@ -730,31 +731,12 @@ class PlayerActivity : Activity() {
         Report.log("Audio switched back on while playing")
     }
 
-    /**
-     * For the report: per decoder, how many frames came in, how many were shown/played, how many
-     * were dropped as too late. "Received but none shown, many dropped late" = a timing problem.
-     */
-    private fun decoderStats(): String {
-        val p = player ?: return "Decoders: no player"
-        val v = p.videoDecoderCounters
-        val a = p.audioDecoderCounters
-        v?.ensureUpdated()
-        a?.ensureUpdated()
-        val vs = if (v == null) "video decoder never started" else
-            "video frames received ${v.queuedInputBufferCount}, shown ${v.renderedOutputBufferCount}, " +
-                "dropped late ${v.droppedBufferCount}, skipped ${v.skippedOutputBufferCount + v.skippedInputBufferCount}"
-        val aus = if (a == null) "audio decoder never started" else
-            "audio frames received ${a.queuedInputBufferCount}, played ${a.renderedOutputBufferCount}, skipped ${a.skippedInputBufferCount}"
-        return String.format(java.util.Locale.US, "Decoders: %s; %s; position %.1fs, buffered to %.1fs",
-            vs, aus, p.currentPosition / 1000.0, p.bufferedPosition / 1000.0)
-    }
-
     private fun decodeProblem() {
-        Report.log(decoderStats())
+        Report.log(signs.decoderStats(player))
         val p = player
         // Read the decoder counters first: they say which remedy fits, so we don't walk the
         // whole list of experiments (which can take over a minute).
-        if (decoderStuck()) {
+        if (signs.decoderStuck(player)) {
             if (tunnelEngaged()) {
                 retryWithoutTunneling("the video decoder takes frames but shows none")
             } else if (!preferSoftware) {
@@ -792,13 +774,6 @@ class PlayerActivity : Activity() {
         // No frames ever reached the decoder, so a different decoder can't help; the browser's
         // more forgiving player usually can.
         openCleanPlayer("video arrived but never reached the decoder")
-    }
-
-    /** Frames go into the video decoder but no picture ever comes out. */
-    private fun decoderStuck(): Boolean {
-        val v = player?.videoDecoderCounters ?: return false
-        v.ensureUpdated()
-        return v.queuedInputBufferCount >= 5 && v.renderedOutputBufferCount == 0
     }
 
     /** Tunneling was requested AND the player actually uses it for the current tracks. */
@@ -1021,7 +996,7 @@ class PlayerActivity : Activity() {
 
     /** For the report: is it the connection or the stream? */
     private fun logStall(fromCheck: Boolean = false) {
-        Report.log(decoderStats())
+        Report.log(signs.decoderStats(player))
         // The buffering event and the 20 s check describe the same stall: count it once.
         val again = fromCheck && stallLogged
         if (!again) stalls++
@@ -1058,19 +1033,11 @@ class PlayerActivity : Activity() {
      * stalls (audio frames stop arriving while video keeps coming) and the picture waits for it.
      * Two such stalls within 30 s, each with >= 6 s buffered, and it's tunneling, not the network.
      */
-    private var bufferedStallTimes = ArrayList<Long>()
     private fun tunnelStallCheck() {
         if (!tunnelEngaged()) return
         val p = player ?: return
-        val ahead = (p.bufferedPosition - p.currentPosition) / 1000.0
-        if (ahead < 6.0) return
-        val now = System.currentTimeMillis()
-        bufferedStallTimes.add(now)
-        bufferedStallTimes.removeAll { now - it > 30_000 }
-        if (bufferedStallTimes.size >= 2) {
-            bufferedStallTimes.clear()
-            retryWithoutTunneling(String.format(java.util.Locale.US, "keeps stalling with %.0fs buffered", ahead))
-        }
+        val ahead = signs.bufferedStallRepeat(p, System.currentTimeMillis()) ?: return
+        retryWithoutTunneling(String.format(java.util.Locale.US, "keeps stalling with %.0fs buffered", ahead))
     }
 
     private fun retryWithoutTunneling(why: String) {
@@ -1101,26 +1068,13 @@ class PlayerActivity : Activity() {
      * (and the picture then waits for the frozen audio clock). Checked every 2 s; over the last 4 s,
      * 40+ new video frames and at most 2 audio frames means tunneling, not the stream.
      */
-    private val starveSamples = ArrayList<LongArray>()
     private val audioStarveCheck = object : Runnable {
         override fun run() {
             val p = player ?: return
             if (!tunnelEngaged()) return
-            val v = p.videoDecoderCounters
-            val a = p.audioDecoderCounters
-            if (v != null && a != null && p.playWhenReady) {
-                v.ensureUpdated(); a.ensureUpdated()
-                val now = System.currentTimeMillis()
-                starveSamples.add(longArrayOf(now, v.queuedInputBufferCount.toLong(), a.queuedInputBufferCount.toLong()))
-                starveSamples.removeAll { now - it[0] > 4_500 }
-                val first = starveSamples.first()
-                if (now - first[0] >= 3_500 && starveSamples.last()[1] - first[1] >= 40 && starveSamples.last()[2] - first[2] <= 2 &&
-                    p.isCurrentMediaItemLive
-                ) {
-                    starveSamples.clear()
-                    retryWithoutTunneling("the audio stopped while the video kept coming")
-                    return
-                }
+            if (signs.audioStarved(p, System.currentTimeMillis())) {
+                retryWithoutTunneling("the audio stopped while the video kept coming")
+                return
             }
             main.postDelayed(this, 2_000)
         }
@@ -1130,12 +1084,7 @@ class PlayerActivity : Activity() {
     private fun lowDelayCheck() {
         if (smoothLive) return
         val p = player ?: return
-        if ((p.bufferedPosition - p.currentPosition) > 1_000) return
-        val now = System.currentTimeMillis()
-        emptyStallTimes.add(now)
-        emptyStallTimes.removeAll { now - it > 60_000 }
-        if (emptyStallTimes.size >= 2) {
-            emptyStallTimes.clear()
+        if (signs.lowDelayRanDry(p, System.currentTimeMillis())) {
             smoothThisRun = true
             Report.log("Low delay keeps running out of video; using the smooth delay for this stream")
             play()
