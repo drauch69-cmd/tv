@@ -144,6 +144,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         ChromeNet.init(this)
+        DeadHosts.recheckOnStart()
         statusView = findViewById(R.id.status)
         recentList = findViewById(R.id.recentList)
         recentLabel = findViewById(R.id.recentLabel)

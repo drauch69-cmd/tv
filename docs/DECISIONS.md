@@ -9,6 +9,10 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Dead servers** (2026-11-20, user's go on 1, 2, 4): the stream check also tests the first quality level and video piece;
+  servers with a broken secure connection are remembered 5 min across sites and re-checked when the app opens; the player
+  doesn't retry them and stops reloading a page that hands back the same dead server. Not done (held): trying the other
+  network engine first on SSL errors (both engines failed on the same server in the 2026-11-20 report).
 - **UI + playing batch** (2026-11-20, user's go): home featured card (small dark area, soft photo fade, clock moved up,
   no stream pill, scores next to names); sport screen centered scores + side card (that sport's featured game, else
   next up); OK on a game plays the best stream, hold OK = all streams; failures move to the next stream (max 3
@@ -52,7 +56,7 @@ file's git history (commit 3680843 and earlier).
 - `renewAccess` doesn't cover path-coded addresses (low value; those codes last ~24 h).
 
 ### Offered, not approved
-- Player design: one failure classifier + one recovery ladder; check one video piece before playing; one owner for the
+- Player design: one failure classifier + one recovery ladder; one owner for the
   shared Chrome engine.
 - Speed: open the player frame directly (only if Timing lines show the outer page costs seconds); keep the browser
   engine loaded at app start; pre-find the most likely game; shorter sibling wait for single-quality streams;

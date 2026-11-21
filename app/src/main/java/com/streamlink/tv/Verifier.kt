@@ -62,6 +62,9 @@ object Verifier {
     }
 
     private const val TOTAL_LIMIT_MS = 10_000L
+    private const val PROBE_TIMEOUT_MS = 1500
+    private const val PROBE_PLAYLIST_BYTES = 64 * 1024
+    private const val PROBE_PIECE_BYTES = 16 * 1024
     private const val MIME_HLS = "application/x-mpegURL"
     private const val MIME_DASH = "application/dash+xml"
     /** Results of early single checks (possible playlists), taken by [rank] so the address is not fetched twice. */
@@ -258,15 +261,30 @@ object Verifier {
         val remembered = ServerMemory.refererFor(host)?.takeUnless { AdBlock.isBlockedHost(Report.host(it)) }
         val refs = ServerMemory.refererOrder(c.referers, remembered)
         if (remembered != null && refs.firstOrNull() == remembered) log("Trying the referer this server accepted last time")
+        if (DeadHosts.isDead(host)) {
+            answers.add(0)
+            log("✗ ${Report.short(c.url)}: ${DeadNotes.SERVER_DOWN}")
+            return Checked(c, false, false, false, false, looksLikeAd(c.url), null, emptyList(), DeadNotes.SERVER_DOWN)
+        }
         var note = "no response"
         val tried = ArrayList<String>()
+        var broken = false
         // Every try answered 404/410: the address is gone (the stream is offline), not refused (see [DeadStream]).
         // The answer of each try: the HTTP status, or 0 when the fetch threw (no answer at all; see [DeadStream.goneVerdict]).
         for (ref in refs) {
             if (over.get() || DeadStream.enough(synchronized(answers) { answers.toList() })) break
             tried.add(Headers.describeReferer(ref))
-            val r = fetch(c.url, c.headers, ref, log)
-            if (r == null) { answers.add(0); continue }
+            val r = fetch(c.url, c.headers, ref, log) { e -> if (DeadHostText.brokenSecureLink(e)) broken = true }
+            if (r == null) {
+                answers.add(0)
+                // A broken secure connection is the server, not the referer: the other referers would fail the same way.
+                if (broken) {
+                    if (DeadHosts.record(host)) log("$host's secure connection is broken; remembering it as down for a few minutes")
+                    note = DeadNotes.SERVER_DOWN
+                    break
+                }
+                continue
+            }
             answers.add(r.code)
             if (r.code !in 200..299) {
                 note = "server said ${r.code}"
@@ -298,6 +316,18 @@ object Verifier {
                 isDash -> "DASH"
                 master -> "adaptive"
                 else -> "single quality"
+            }
+            DeadHosts.clear(host)
+            DeadHosts.seen(host)
+            // One level down: the first quality level and the first video piece must reach their servers too (many sites
+            // share piece servers, and a broken one fails every source behind it). Only a broken secure connection fails
+            // the check; a slow or refused answer leaves it to the player.
+            if (live && !adLike && isHls && !over.get()) {
+                val down = probeDown(text, r.finalUrl, master, variants, c.headers, ref, log)
+                if (down != null) {
+                    log("✗ ${Report.short(c.url)}: $down")
+                    return Checked(c, false, master, false, live, adLike, null, variants, down)
+                }
             }
             if (ref.isNotEmpty() && ref in c.rememberable) ServerMemory.recordReferer(host, ref)
             val refText = if (ref.isEmpty()) "none" else Report.short(ref)
@@ -345,12 +375,64 @@ object Verifier {
         return out
     }
 
-    private fun fetch(url: String, headers: Map<String, String>, referer: String, log: (String) -> Unit): Resp? {
+    /**
+     * Fetch the first quality level (for an adaptive playlist) and the first bytes of the first video piece with the
+     * referer that worked. Returns why the stream can't play (a server on the way is down), or null when it may.
+     */
+    private fun probeDown(
+        text: String, base: String, master: Boolean, variants: List<String>,
+        headers: Map<String, String>, ref: String, log: (String) -> Unit,
+    ): String? {
+        var mediaText = text
+        var mediaBase = base
+        if (master) {
+            val v = variants.firstOrNull() ?: return null
+            when (val p = probe(v, headers, ref, PROBE_PLAYLIST_BYTES, log)) {
+                is Probe.Down -> return p.note
+                is Probe.Got -> {
+                    val t = String(p.resp.body, Charsets.UTF_8).trimStart('\uFEFF', ' ', '\r', '\n', '\t')
+                    if (!t.startsWith("#EXTM3U")) return null
+                    mediaText = t
+                    mediaBase = p.resp.finalUrl
+                }
+                Probe.NoVerdict -> return null
+            }
+        }
+        val piece = DeadNotes.firstPiece(mediaText, mediaBase) ?: return null
+        return (probe(piece, headers, ref, PROBE_PIECE_BYTES, log) as? Probe.Down)?.note
+    }
+
+    private sealed class Probe {
+        class Got(val resp: Resp) : Probe()
+        class Down(val note: String) : Probe()
+        object NoVerdict : Probe()
+    }
+
+    private fun probe(url: String, headers: Map<String, String>, ref: String, max: Int, log: (String) -> Unit): Probe {
+        val h = Report.host(url)
+        if (DeadHosts.isDead(h)) return Probe.Down(DeadNotes.downstreamDown(h))
+        var broken = false
+        val r = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS) { e -> if (DeadHostText.brokenSecureLink(e)) broken = true }
+        if (r == null) {
+            if (!broken) return Probe.NoVerdict
+            if (DeadHosts.record(h)) log("$h's secure connection is broken; remembering it as down for a few minutes")
+            return Probe.Down(DeadNotes.downstreamDown(h))
+        }
+        if (r.code !in 200..299) return Probe.NoVerdict
+        DeadHosts.clear(h)
+        DeadHosts.seen(h)
+        return Probe.Got(r)
+    }
+
+    private fun fetch(
+        url: String, headers: Map<String, String>, referer: String, log: (String) -> Unit,
+        max: Int = 512 * 1024, timeoutMs: Int = 4000, onError: ((Exception) -> Unit)? = null,
+    ): Resp? {
         var conn: HttpURLConnection? = null
         return try {
             conn = ChromeNet.open(url)
-            conn.connectTimeout = 4000
-            conn.readTimeout = 4000
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
             conn.instanceFollowRedirects = true
             for ((k, v) in headers) {
                 if (k.equals("Referer", true) || k.equals("Origin", true) || k.equals("X-Requested-With", true)) continue
@@ -362,10 +444,11 @@ object Verifier {
             }
             val code = conn.responseCode
             val stream: InputStream? = if (code in 200..299) conn.inputStream else conn.errorStream
-            val body = stream?.use { readUpTo(it, 512 * 1024) } ?: ByteArray(0)
+            val body = stream?.use { readUpTo(it, max) } ?: ByteArray(0)
             Resp(code, body, conn.url.toString())
         } catch (e: Exception) {
             log("  ${Report.short(url)}: ${e.javaClass.simpleName}")
+            onError?.invoke(e)
             null
         } finally {
             conn?.disconnect()

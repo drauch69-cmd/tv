@@ -713,10 +713,13 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 val silent = sources.count { NoAnswer.isFinal(it) }
                 // Every referer got a 403: the player would only retry the same refused requests. Treated like offline (other sources, else site player).
                 val refused = sources.count { Refusal.isRefusedSource(it) }
-                val kept = if (gone > 0 || silent > 0 || refused > 0) DeadStream.playable(sources).filter { !NoAnswer.isFinal(it) && !Refusal.isRefusedSource(it) } else sources
+                // Its server (or the server of its video pieces) has a broken secure connection: it can't play here (see DeadHosts).
+                val down = sources.count { DeadNotes.isDownSource(it) }
+                val kept = if (gone > 0 || silent > 0 || refused > 0 || down > 0) DeadStream.playable(sources).filter { !NoAnswer.isFinal(it) && !Refusal.isRefusedSource(it) && !DeadNotes.isDownSource(it) } else sources
                 val offline = (gone > 0 || refused > 0) && kept.isEmpty()
                 if (offline && gone == 0) { lastReason = "stream refused (server said 403)"; log(Refusal.REFUSED_LINE) }
                 else if (offline) { lastReason = "stream offline (server said 404)"; log(DeadStream.OFFLINE_LINE) }
+                else if (down > 0 && kept.isEmpty()) { lastReason = "the stream's server is down"; log("Every stream here uses a server that is down; not playing it") }
                 else if (silent > 0 && kept.isEmpty()) { lastReason = "no answer from the stream server"; log("The stream server gives no answer; not playing an unchecked stream") }
                 val set = result(kept).copy(pageUrl = page, offline = offline)
                 // Primary search that found a playable stream: one quick look for the page's own numbered addresses.

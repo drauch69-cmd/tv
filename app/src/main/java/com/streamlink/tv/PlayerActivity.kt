@@ -466,7 +466,7 @@ class PlayerActivity : Activity() {
         val p = ExoPlayer.Builder(this, renderers)
             .setTrackSelector(selector)
             .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource).setLoadErrorHandlingPolicy(NoRetryOnBrokenTls()))
             .build()
         player = p
         playerView.player = p
@@ -508,7 +508,7 @@ class PlayerActivity : Activity() {
                     DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS,
                 true,
             )
-            p.setMediaSource(HlsMediaSource.Factory(dataSource).setExtractorFactory(lenient).createMediaSource(item))
+            p.setMediaSource(HlsMediaSource.Factory(dataSource).setExtractorFactory(lenient).setLoadErrorHandlingPolicy(NoRetryOnBrokenTls()).createMediaSource(item))
         } else {
             p.setMediaItem(item)
         }
@@ -969,6 +969,13 @@ class PlayerActivity : Activity() {
     private fun pieceOnlyProblem(): Boolean {
         val r = route ?: return false
         val host = r.watch.pieceOnlyHost(1) ?: return false
+        // A broken secure connection is not a wedged engine: neither a fresh engine nor the other one helps (both fail
+        // the same way); go straight to another source.
+        if (DeadHosts.isDead(host)) {
+            Report.log("Video pieces from $host: its server is down; switching to another source instead of retrying")
+            switchForPieces()
+            return true
+        }
         // Refused (not timed out): no engine change helps; see refusedPieces.
         if (playingSince == 0L && r.watch.pieceRefused(host)) {
             refusedPieces(host, RefusedHosts.isRefused(host), 403)
@@ -997,22 +1004,27 @@ class PlayerActivity : Activity() {
                 play()
             }
             PieceStep.SWITCH_SOURCE -> {
-                if (AutoSwitch.canSwitch()) {
-                    val slow = {
-                        Report.log("Video pieces still failing; switching to another source instead of reloading the page")
-                        if (!tryAutoSwitch("video pieces failing")) {
-                            Report.log("No other source to switch to; reconnecting as usual")
-                            recover("stalled")
-                        }
-                    }
-                    if (playingSince != 0L && !episode.isOpen) episode.begin()
-                    if (!(playingSince != 0L && fastBackup("video pieces failing", slow))) slow()
-                } else {
-                    recover("stalled")
-                }
+                Report.log("Video pieces still failing; switching to another source instead of reloading the page")
+                switchForPieces()
             }
         }
         return true
+    }
+
+    /** The video pieces can't be had from their server: another source (a ready backup first while playing), else the usual recovery. */
+    private fun switchForPieces() {
+        if (AutoSwitch.canSwitch()) {
+            val slow = {
+                if (!tryAutoSwitch("video pieces failing")) {
+                    Report.log("No other source to switch to; reconnecting as usual")
+                    recover("stalled")
+                }
+            }
+            if (playingSince != 0L && !episode.isOpen) episode.begin()
+            if (!(playingSince != 0L && fastBackup("video pieces failing", slow))) slow()
+        } else {
+            recover("stalled")
+        }
     }
 
     /** Playing, but no picture ever appeared: a known tunneling bug on some boxes. */
@@ -1154,6 +1166,9 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** The latest error was a broken secure connection to a server already known as down. */
+    private var brokenAgain = false
+
     private fun handleError(error: PlaybackException) {
         val p = player ?: return
         if (fastChecking) return // a ready backup is being checked; it decides
@@ -1180,6 +1195,15 @@ class PlayerActivity : Activity() {
         httpError?.dataSpec?.uri?.let { Report.log("  …for ${Report.short(it.toString())}") }
         val detail = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.firstOrNull()?.take(200)
         Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
+        // A broken secure connection is the server itself (see DeadHosts): remember it so no source, on any site, uses it
+        // for a few minutes. Seen again right after a reload: reloading hands back the same server, so stop reloading.
+        brokenAgain = false
+        if (DeadHostText.brokenSecureLink(error)) {
+            BrokenTls.failingHost(error)?.let { h ->
+                brokenAgain = !DeadHosts.record(h)
+                Report.log(if (brokenAgain) "$h is still down (secure connection broken)" else "$h's secure connection is broken; remembering it as down for a few minutes")
+            }
+        }
 
         val src = set?.sources?.getOrNull(sourceIndex)
         // Refused while on standard networking: many stream servers only serve Chrome-like clients (the checker,
@@ -1314,6 +1338,11 @@ class PlayerActivity : Activity() {
     }
 
     private fun recoverSlow(why: String) {
+        if (brokenAgain && reconnects > 0) {
+            Report.log("Not reloading the page again: it hands back the same server, which is down")
+            if (tryAutoSwitch(why)) return
+            return openSitePlayer(why)
+        }
         if (reconnects < MAX_RECONNECTS) {
             reconnects++
             reconnect(why)

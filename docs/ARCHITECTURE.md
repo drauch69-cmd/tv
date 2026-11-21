@@ -465,6 +465,19 @@ Home featured card: photo box 636x212 dp (phone frames photos at 3:1), `Ui.photo
   networking. Such a host never gets standard networking for its playlist (stall branches skip it, line "This server
   refuses standard networking; not trying it") nor for its pieces, and a remembered "standard" engine is ignored for it.
   Not yet tested on the TV.
+  **Dead servers (broken TLS)** (`DeadHosts.kt`, `BrokenTls.kt`, `DeadHostsTest`; build after 261, not yet tested on the TV). A server
+  whose secure connection fails (Cronet `net::ERR_SSL_*`, or an `SSLException` on standard networking; `DeadHostText.brokenSecureLink`)
+  is remembered in `DeadHosts` for 5 min (preferences, survives restarts). Many sites share piece servers (e.g. one `a.newvegan…`
+  server behind three sites), so: `Verifier.check` fails a candidate at once when its host is dead ("its server is down (secure
+  connection broken)"), stops trying other referers on a broken handshake, and after a pass probes one level down (first quality
+  level of a master, then the first 16 KB of the first piece, 1.5 s timeouts); only a broken handshake fails it ("its video comes from
+  <host>, which is down…"), a timeout or HTTP error leaves it to the player. `StreamSniffer` drops such sources
+  (`DeadNotes.isDownSource`; "Every stream here uses a server that is down"). The player's `NoRetryOnBrokenTls` load-error policy
+  doesn't retry broken handshakes (Media3 default retried 3× over ~3 s). `handleError` records the failing host ("<host>'s secure
+  connection is broken…" / "<host> is still down…"); `pieceOnlyProblem` skips the engine restart and other-engine retry for a dead
+  piece host and switches source; `recoverSlow` stops reloading when the same dead server comes back after a reload ("Not reloading
+  the page again…") and auto-switches. Hosts seen in checks in the last 30 min (max 30) get one HEAD handshake when `MainActivity`
+  opens (`DeadHosts.recheckOnStart`; "Start-up server check: N down, M back up").
   **Refused pieces (403)** (`Refusal.kt`, `RefusalTest`; not yet tested on the TV). A refusal (401/403/451) is a server decision, not a
   timeout: `PieceWatch` counts refused and HTTP-answered failures per piece host (`pieceFailed(h, start, status)`, `pieceRefused`,
   `pieceAnswered`). The finder's check (`Verifier.check`) records a host in `RefusedHosts` (memory, 10 min) when EVERY referer got an HTTP

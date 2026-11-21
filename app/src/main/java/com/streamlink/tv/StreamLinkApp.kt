@@ -8,6 +8,7 @@ class StreamLinkApp : Application() {
         super.onCreate()
         ServerMemory.init(this)
         OfflineMarks.init(this)
+        DeadHosts.init(this)
         ReportLog.init(this)
         CrashRecorder.install(this)
         CrashRecorder.reportLast(this)
