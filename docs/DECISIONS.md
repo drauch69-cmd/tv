@@ -27,6 +27,8 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- Checked on the TV by the user (2026-11-21): the file split (steps 1 and 3), the signing-key build, the UI + playing
+  batch, the app logo / polished look and list reading performance. Removed from this list.
 - **City photos search city + state** (2026-11-21, user): "Chicago Illinois", "London England"; landscape-only filter
   was already on. Older saves (and their Next photo/framing fixes) are searched again once.
 - **Faster cold home, smarter low delay, quick fix for broken inner servers** (2026-11-21, user's go on A+B+E; build
@@ -158,21 +160,10 @@ file's git history (commit 3680843 and earlier).
   servers skipped from memory, yet the stream plays on the phone): when every stream is on a remembered-down server they
   are tried once anyway; secure-connection failures now say why (certificate not trusted by the TV / no shared security
   version / handshake failed). Next: read the reason in the next report, then decide on the other-engine retry.
-- **UI + playing batch** (2026-11-20, user's go): home featured card (small dark area, soft photo fade, clock moved up,
-  no stream pill, scores next to names); sport screen centered scores + side card (that sport's featured game, else
-  next up); OK on a game plays the best stream, hold OK = all streams; failures move to the next stream (max 3
-  switches, "Trying stream n of m"), never the site player by itself ("No working stream" screen with "Use site's
-  player"; that button is also on the loading screen); next stream prewarmed 4 s into the first search; running log
-  with "Download all logs" / "Clear saved logs" on the phone. Check: prewarm doesn't slow the first stream on the Onn,
-  how many "Next stream warmed up" lines appear, photo crop at the new 3:1 shape (re-crop on the phone if off).
 - **Featured card + Live games order by excitement, flame on games heating up** (2026-11-20): switch count on a busy
   Sunday/Saturday, focus never jumps, ESPN's live win probability actually arrives, basketball weights untested.
 - **Player ping pill** (2026-11-20): reads ~10–60 ms, turns yellow/red when the connection struggles.
 - **Referer order + habit taps** (2026-11-20): a 403 report line lists the site's own host first.
-- **App logo** (2026-11-20) and **polished look** (2026-11-20): logos stay on redraws, home scrolls smoothly, Watch
-  plays, home photo crop matches the phone's dashed box, speed pill and sport-row layout look right.
-- **List reading performance + recipe zone** (build 244): a sport screen with 4+ lists scrolls smoothly while reading;
-  a list screen left open 10 min doesn't flicker or move focus; "List: read N events … in X s" mostly under 10 s.
 - **Shipped habits** (build 245): the "Habit for recipes.json" line appears after playing a site twice; a reinstall
   still shows "Using this site's recipe".
 - **Other-games tiles in the player menu + new button order** (2026-11-19): look on a busy Sunday, D-pad into and out
@@ -214,21 +205,20 @@ file's git history (commit 3680843 and earlier).
 - Automatic retry of failed list reads after ~15 min; restyling the player's loading screen; pruning fixes never
   proven to help (needs TV reports, one at a time).
 
-### Splitting the big files (2026-11-20, user's go: option B, one step per build, code moved as is)
-- Step 1 done: the player's on-screen parts moved to `PlayerScreen`. Built in CI only; TV check needed: play a game,
-  open the menu, Audio & quality, Source, D-pad through the tiles, loading screen and Show details.
+### Splitting the big files (2026-11-20, user's go: option B, one step per build, code moved as is) — finished
+- Step 1 done: the player's on-screen parts moved to `PlayerScreen`. Checked on the TV (user, 2026-11-21).
 - Step 2 skipped (user, 2026-11-20): the finder's habit and tapping code has no clean edge.
 - Step 3 done: the decoder, tunneling and low-delay readings moved to `PlaybackSigns` (readings and verdicts only).
   The network/engine choices (pieces refused or timing out, engine restarts) stay in the player: they are recovery
-  decisions, not checks, and need the recovery redesign ("Offered, not approved") to move. Built in CI only; TV check
-  with step 1's.
+  decisions, not checks, and need the recovery redesign ("Offered, not approved") to move. Checked on the TV (user,
+  2026-11-21). The split is finished.
 
 ### Cleanup (2026-11-20, user's go: 1 housekeeping, 2 dead code, 3 signing key) — finished
 - Done: unused code removed (no behavior change); this file trimmed; docs say `sports` is the main line; signing key in secrets.
 - Branches done by the user (checked 2026-11-20 18:56): default branch is `sports`; only `sports` and `main` remain.
 - **Signing key moved to secrets** (user chose option A, same key, 2026-11-20): the user added the two Actions secrets;
   the build signs from them and checks the certificate is unchanged; the key file is gone from `sports` (still on
-  `main` for the TV Cleaner, and in history). Untested on the TV: the next Sports update should install normally.
+  `main` for the TV Cleaner, and in history). Updates install normally on the TV (user, 2026-11-21).
 - **TV Cleaner: DNS page + self-update** (user OK'd touching `cleaner/` and pushing `main` for this, 2026-11-21;
   build 9). DNS sets the hidden Private DNS (presets AdGuard/Cloudflare/Google/Quad9/Automatic/Off + custom name),
   probes port 853 first, then checks the internet and reverts by itself if it fails. Updates page checks
