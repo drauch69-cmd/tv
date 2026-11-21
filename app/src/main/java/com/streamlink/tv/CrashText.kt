@@ -138,6 +138,18 @@ object CrashText {
     const val TRIM_UI_HIDDEN = 20 // the app went to the background: not memory pressure
 
     /** True when this memory level should be logged now (once per level per minute); records the time when it is. */
+    /**
+     * The report line for an Android trim [level]. 40 only means the app went to the background (2026-11-21: it was
+     * logged as "system is low", which it is not); 10/15 are real pressure while open, 60/80 while in the background.
+     */
+    fun memoryText(level: Int): String = when (level) {
+        10, 15 -> "Memory: system is low while the app is open (level $level)"
+        40 -> "App moved to the background (Android trim level 40; not low memory)"
+        60 -> "Memory: system is getting low while the app is in the background (level 60)"
+        80 -> "Memory: system is very low; Android may close the app soon (level 80)"
+        else -> "Memory: Android trim level $level"
+    }
+
     fun shouldLogMemory(last: MutableMap<Int, Long>, level: Int, now: Long): Boolean {
         if (level < TRIM_RUNNING_LOW || level == TRIM_UI_HIDDEN) return false
         val prev = last[level]

@@ -18,11 +18,11 @@ class StreamLinkApp : Application() {
     @Suppress("DEPRECATION")
     override fun onLowMemory() {
         super.onLowMemory()
-        CrashRecorder.memory(ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
+        CrashRecorder.memory(this, ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        CrashRecorder.memory(level)
+        CrashRecorder.memory(this, level)
     }
 }

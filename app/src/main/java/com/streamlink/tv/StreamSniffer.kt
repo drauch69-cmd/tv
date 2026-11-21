@@ -93,6 +93,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     /** A background run beside a playing stream (BackupKeeper): writes nothing to the report. */
     @Volatile var quiet = false
     private fun log(m: String) { if (!quiet) Report.log(if (light) "Links: · $m" else m) }
+    /** One line per frame that reported (see [frameNotes]), the player frames first and the page last. */
+    private fun logFrameNotes() {
+        if (frameNotes.isEmpty()) { log("Frames: none reported what they showed"); return }
+        frameNotes.entries.sortedBy { it.key.endsWith("(page)") }.forEach { (h, n) -> log("Frame $h: $n") }
+    }
     private var webView: WebView? = null
     private var client: SafeWebViewClient? = null
     private var done = true
@@ -100,6 +105,12 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     private var generation = 0
     private var pageUrl = ""
     private var nudgeCount = 0
+    /**
+     * What each frame showed, as last reported by [FRAME_NOTE_JS] (host -> one short line). Logged when a search finds
+     * nothing, so a report says whether a player showed an error ("authorization failed"), a black box or nothing
+     * (2026-11-21, strikeout). Main thread only.
+     */
+    private val frameNotes = LinkedHashMap<String, String>()
     private val frameUrls = Collections.synchronizedList(mutableListOf<String>())
     private val candidates = LinkedHashMap<String, StreamCandidate>()
     /** Possible playlists (disguised addresses) seen in this run, and the ones whose content turned out not to be a playlist. */
@@ -142,6 +153,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         if (candidates.isEmpty()) {
             lastReason = "no video stream found within ${timeoutMs / 1000}s"
             log("No video stream found within ${timeoutMs / 1000}s")
+            logFrameNotes()
             val wv = webView
             if (!light && wv != null) {
                 // Snapshot what the page showed for "Save sample", then finish (2 s at most).
@@ -412,6 +424,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         }
         timeoutMs = if (ref != null) base + CLICK_EXTRA_MS else base
         nudgeCount = 0
+        frameNotes.clear()
+        if (!quiet && !light) MemStat.log(context, "search start")
         sourceScheduled = false
         sourceNext = 0
         sourcePresses = 0
@@ -823,6 +837,23 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
                 log("Start helper not added: ${e.javaClass.simpleName}")
             }
         }
+        // Frame notes (see [frameNotes]): every frame reports its size, videos and first visible text a few times.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) &&
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) {
+            try {
+                WebViewCompat.addWebMessageListener(wv, "slFrameNote", setOf("*")) { view, message, origin, isMain, _ ->
+                    if (view !== webView) return@addWebMessageListener
+                    val note = message.data?.take(300) ?: return@addWebMessageListener
+                    val host = origin.host ?: origin.toString()
+                    if (AdBlock.isBlockedHost(host)) return@addWebMessageListener
+                    frameNotes.remove(host)
+                    frameNotes[if (isMain) "$host (page)" else host] = note
+                    while (frameNotes.size > 8) frameNotes.remove(frameNotes.keys.first())
+                }
+                WebViewCompat.addDocumentStartJavaScript(wv, FRAME_NOTE_JS, setOf("*"))
+            } catch (_: Exception) {}
+        }
         val c = object : SafeWebViewClient(url, quiet = { quiet }) {
             override fun onRendererGone(view: WebView?, didCrash: Boolean) {
                 main.post {
@@ -1091,6 +1122,24 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
     companion object {
         const val TIMEOUT_MS = 25_000L
+        /**
+         * In every frame: reports (to [frameNotes]) the frame's size, its frames and videos (with the first video's
+         * state) and its first visible text, 4, 12 and 22 s after it starts. Text only; nothing on the page changes.
+         */
+        val FRAME_NOTE_JS = """
+            (function(){try{
+              if(window.__slNote)return; window.__slNote=1;
+              var send=function(){try{
+                if(typeof slFrameNote==='undefined'||!document.body)return;
+                var t=(document.body.innerText||'').replace(/\s+/g,' ').trim().slice(0,160);
+                var v=document.querySelector('video'), vs='';
+                if(v){vs=', video '+(v.currentSrc?'has a source':'has no source')+', state '+v.readyState+(v.error?', error '+v.error.code:'')+(v.paused?', paused':', playing');}
+                slFrameNote.postMessage(innerWidth+'x'+innerHeight+', frames '+document.querySelectorAll('iframe').length+
+                  ', videos '+document.querySelectorAll('video').length+vs+(t?', text: "'+t+'"':', no text'));
+              }catch(e){}};
+              [4000,12000,22000].forEach(function(ms){setTimeout(send,ms);});
+            }catch(e){}})();
+        """.trimIndent()
         private const val HABIT_TAP_GAP_MS = 1_500L
         private const val KIND_PLAYER_TAP = SiteHabits.KIND_PLAYER
         /** Extra time for click-only events: the list page has to settle (<= 12s) before the click. */

@@ -608,3 +608,14 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   desktop app's browser pane.
 
 **Engine restart rules (not yet tested on the TV).** `Verifier.rankWithRestart(allowRestart)`: light/quiet runs (backup keeper, access-code renewal, prefetcher) never restart Chrome's engine (`allowRestart = !light && !quiet` in `StreamSniffer`). When all candidates are silent and the engine was restarted less than a minute ago, they are marked final at once (no unchecked play; line "Still no answer from the stream server (the engine was restarted a moment ago)").
+
+## Frame notes and memory lines (2026-11-21)
+
+- `StreamSniffer.FRAME_NOTE_JS` runs in every frame (document-start script) and posts to the `slFrameNote` web-message
+  listener 4, 12 and 22 s after the frame starts: size, frame/video counts, first video state, first 160 chars of
+  text. `frameNotes` keeps the last note per host (ad hosts skipped, max 8); `logFrameNotes` logs them when a search
+  times out with no stream ("Frame <host>: ...", page last).
+- `MemStat.log(ctx, why)` (off the main thread): app PSS, Java heap used/max, box free/total, Android's low-memory
+  flag; called at search start (not quiet/light runs), "Playback started" and on trims (`CrashRecorder.memory`).
+  `CrashText.memoryText(level)` words trim levels (40 = went to the background, not pressure).
+

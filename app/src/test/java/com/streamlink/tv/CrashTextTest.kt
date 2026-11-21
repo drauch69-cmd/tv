@@ -78,6 +78,21 @@ class CrashTextTest {
         assertTrue(CrashText.mainThreadStack("nothing").isEmpty())
     }
 
+    @Test fun memoryText() {
+        assertTrue(CrashText.memoryText(40).startsWith("App moved to the background"))
+        assertTrue(CrashText.memoryText(15).contains("low while the app is open"))
+        assertTrue(CrashText.memoryText(80).contains("very low"))
+        assertTrue(CrashText.memoryText(7).contains("level 7"))
+    }
+
+    @Test fun memoryLine() {
+        assertEquals(
+            "Memory (playing): app uses 310 MB (Java 40 of 256 MB); box has 420 of 1950 MB free; Android says memory is low",
+            MemText.line("playing", 310, 40, 256, 420, 1950, true),
+        )
+        assertFalse(MemText.line("x", 1, 1, 1, 1, 1, false).contains("Android says"))
+    }
+
     @Test fun memoryThrottle() {
         val m = HashMap<Int, Long>()
         assertFalse(CrashText.shouldLogMemory(m, 5, 0))

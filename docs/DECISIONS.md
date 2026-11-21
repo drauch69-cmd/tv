@@ -104,6 +104,12 @@ file's git history (commit 3680843 and earlier).
   servers with a broken secure connection are remembered 5 min across sites and re-checked when the app opens; the player
   doesn't retry them and stops reloading a page that hands back the same dead server. Not done (held): trying the other
   network engine first on SSL errors (both engines failed on the same server in the 2026-11-20 report).
+- **Strikeout + memory diagnostics** (user's go, 2026-11-21): (1) every frame of the hidden browser reports its size,
+  videos and first visible text; a search that finds nothing logs one "Frame <host>: ..." line per frame (strikeout's
+  posamari player fetches nothing on the TV, even on the VPN, while a desktop browser loads the stream before play; the
+  line shows whether it's the bot check). (2) Trim level 40 now reads "App moved to the background", not "system is low".
+  (3) "Memory (<why>): app uses N MB ...; box has N of N MB free" at search start, playback start and Android trims.
+  Diagnostics only. Next: read the lines, then decide on a strikeout fix and whether hidden browsers need trimming.
 - **Dead-server memory is log only** (user, 2026-11-21, after a log audit): `DeadHosts.ENFORCE = false`. Broken secure
   connections are still recorded, logged ("noted (log only)") and re-checked at start-up, but nothing is skipped, failed
   early, retried less or kept from reloading because of them; every referer is tried again. Why: the same servers failed in

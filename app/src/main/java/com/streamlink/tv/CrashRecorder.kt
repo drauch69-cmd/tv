@@ -77,10 +77,13 @@ object CrashRecorder {
         } catch (_: Throwable) {}
     }
 
-    fun memory(level: Int) {
+    fun memory(ctx: Context, level: Int) {
         try {
             val log = synchronized(memLast) { CrashText.shouldLogMemory(memLast, level, System.currentTimeMillis()) }
-            if (log) Report.log("Memory: system is low (level $level)")
+            if (log) {
+                Report.log(CrashText.memoryText(level))
+                MemStat.log(ctx, "trim level $level")
+            }
         } catch (_: Throwable) {}
     }
 }

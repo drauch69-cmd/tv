@@ -519,6 +519,7 @@ class PlayerActivity : Activity() {
                     if (playingSince == 0L) {
                         playingSince = System.currentTimeMillis()
                         Report.log("Playback started")
+                        MemStat.log(this@PlayerActivity, "playing")
                     }
                     AppStatus.text = "Playing ${Session.title}"
                 }
