@@ -1801,7 +1801,7 @@ class PlayerActivity : Activity() {
 
     private val screenHost = object : PlayerScreen.Host {
         override val player get() = this@PlayerActivity.player
-        override val streamSet get() = set
+        override val streamSet get() = this@PlayerActivity.set
         override val sourceIndex get() = this@PlayerActivity.sourceIndex
         override val qualityChoice get() = this@PlayerActivity.qualityChoice
         override val tunneling get() = this@PlayerActivity.tunneling
