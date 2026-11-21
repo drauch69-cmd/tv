@@ -454,6 +454,13 @@ object ScoreFeed {
     /** Pure: is a fetch made at [lastOk] still good at [now]? */
     fun isFresh(lastOk: Long?, now: Long): Boolean = lastOk != null && now - lastOk <= MAX_AGE_MS
 
+    /** Leagues fetched after the others, so their big answers don't slow the first draw (college basketball, 2026-11-20). */
+    val LATE_LEAGUES = setOf("cbb")
+
+    /** Pure: the order today's due leagues are fetched in: the quick ones together first, then the late ones. */
+    fun todayWaves(due: List<String>): List<List<String>> =
+        listOf(due.filter { it !in LATE_LEAGUES }, due.filter { it in LATE_LEAGUES }).filter { it.isNotEmpty() }
+
     private val lock = Any()
     private var todayByLeague: Map<String, List<Game>> = emptyMap()
     private var futureByLeague: Map<String, List<Game>> = emptyMap()
@@ -589,12 +596,12 @@ object ScoreFeed {
             }
             val before = shown
             try {
-                // 1) Today, all due leagues at once; each draws when it lands.
+                // 1) Today: the quick leagues at once (each draws when it lands), then college basketball.
                 val todayDue = due.filter { it.second }.map { it.first }
-                if (todayDue.isNotEmpty()) {
+                for (wave in todayWaves(todayDue)) {
                     val t0 = System.currentTimeMillis()
-                    val took = runParallel(todayDue) { lg -> fetchToday(lg).also { showIfChanged() } }
-                    recordTiming("today", todayDue, took, System.currentTimeMillis() - t0, first)
+                    val took = runParallel(wave) { lg -> fetchToday(lg).also { showIfChanged() } }
+                    recordTiming("today", wave, took, System.currentTimeMillis() - t0, first)
                 }
                 // 2) Then the next two days.
                 val futureDue = due.filter { it.third }.map { it.first }

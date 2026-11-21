@@ -289,7 +289,8 @@ Home featured card: photo box 636x212 dp (phone frames photos at 3:1), `Ui.photo
   `groups=50&limit=500`; halves read H1/H2, then OT, 2OT; only "Halftime" is the break) for today in New York time (also yesterday before 5 am), every 30 s
   while a game is live, else every 5 min, 2 min back-off after a failure; no key. The next two days are fetched too
   (schedule for the sports folders), cached separately and refreshed at most every 30 min; a failure there never
-  discards today's data. `ScoreFeed.latest()` returns all of it (3 days), merged by game id. `ScoreMatch` matches a list title to
+  discards today's data. Today's fetch runs in waves (`ScoreFeed.todayWaves`, 2026-11-20): NFL, college football and NBA
+  together, then college basketball (`LATE_LEAGUES`, the biggest answer), so the first draw isn't slowed. `ScoreFeed.latest()` returns all of it (3 days), merged by game id. `ScoreMatch` matches a list title to
   a game only if BOTH teams are named (full name, school/city, nickname or abbreviation, whole words; a name inside a
   longer team name doesn't count; a city shared by two teams of the same pro league (NFL or NBA, e.g. Los Angeles) is ignored as a name, worked out per league), within 18 h of the event's start; if
   several games fit, the one starting within 90 min wins, else nothing is shown. Rows get a short line ("WSH 24 – NYG 21

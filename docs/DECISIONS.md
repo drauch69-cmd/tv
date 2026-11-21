@@ -9,6 +9,10 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **College basketball scores load last** (2026-11-20, user's go; home took ~17 s to show games): NFL, college football
+  and NBA download first, then college basketball. Works with the other session's saved scores + loading screen.
+  Check: "Scores timing" shows two "today" lines and the loading screen clears sooner. Offered, not built: an always-on
+  background service (advised against: RAM/CPU on the Onn); a 15-min background refresh.
 - **Home polish batch** (2026-11-20, user's go): fade sliders per photo on the phone (width + darkness, live preview;
   home card only, sport-screen side card keeps the fixed fade); last scores saved to disk and put back on start (today's
   up to 15 min old, coming days 3 h); "Loading games…" screen on a fresh start until first scores or 3 s (not on first
