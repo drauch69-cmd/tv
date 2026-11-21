@@ -57,12 +57,9 @@ file's git history (commit 3680843 and earlier).
 - Automatic retry of failed list reads after ~15 min; restyling the player's loading screen; pruning fixes never
   proven to help (needs TV reports, one at a time).
 
-### Cleanup (2026-11-20, user's go: 1 housekeeping, 2 dead code, 3 signing key)
+### Cleanup (2026-11-20, user's go: 1 housekeeping, 2 dead code, 3 signing key) — finished
 - Done: unused code removed (no behavior change); this file trimmed; docs say `sports` is the main line; signing key in secrets.
-- **Waiting on the user (GitHub website):** this session's GitHub access can push to `sports` only. It cannot delete
-  branches, create tags, change the default branch, or set Actions secrets. The user does (status unknown): default branch -> `sports`;
-  delete `test`, `integrate`, `sports-int` and all `agent/*` (all already contained in `sports`, except one docs commit
-  on `test`); keep `main` (the TV Cleaner app builds from it).
+- Branches done by the user (checked 2026-11-20 18:56): default branch is `sports`; only `sports` and `main` remain.
 - **Signing key moved to secrets** (user chose option A, same key, 2026-11-20): the user added the two Actions secrets;
   the build signs from them and checks the certificate is unchanged; the key file is gone from `sports` (still on
   `main` for the TV Cleaner, and in history). Untested on the TV: the next Sports update should install normally.
