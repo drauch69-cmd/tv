@@ -525,7 +525,8 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   networking. Such a host never gets standard networking for its playlist (stall branches skip it, line "This server
   refuses standard networking; not trying it") nor for its pieces, and a remembered "standard" engine is ignored for it.
   Not yet tested on the TV.
-  **Dead servers (broken TLS)** (`DeadHosts.kt`, `BrokenTls.kt`, `DeadHostsTest`; build after 261, not yet tested on the TV). A server
+  **Dead servers (broken TLS)** (`DeadHosts.kt`, `BrokenTls.kt`, `DeadHostsTest`; build after 261, not yet tested on the TV).
+  **Log only since 2026-11-21 (`DeadHosts.ENFORCE = false`): everything below is recorded and logged but blocks nothing.** A server
   whose secure connection fails (Cronet `net::ERR_SSL_*`, or an `SSLException` on standard networking; `DeadHostText.brokenSecureLink`)
   is remembered in `DeadHosts` for 5 min (preferences, survives restarts). Many sites share piece servers (e.g. one `a.newvegan…`
   server behind three sites), so: `Verifier.check` fails a candidate at once when its host is dead ("its server is down (secure

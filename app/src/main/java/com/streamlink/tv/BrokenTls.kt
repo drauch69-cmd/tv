@@ -8,11 +8,12 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 /**
  * The player's retry rule: as Media3's default, except that a broken secure connection (see [DeadHostText.brokenSecureLink])
  * is not retried. The server can't speak TLS to us, so the default 3 retries over ~3 s only delay the recovery; the error
- * reaches the player at once and it moves on (see PlayerActivity.handleError).
+ * reaches the player at once and it moves on (see PlayerActivity.handleError). While [DeadHosts.ENFORCE] is off, the
+ * default retries apply to every error.
  */
 class NoRetryOnBrokenTls : DefaultLoadErrorHandlingPolicy() {
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
-        if (DeadHostText.brokenSecureLink(loadErrorInfo.exception)) C.TIME_UNSET else super.getRetryDelayMsFor(loadErrorInfo)
+        if (DeadHosts.ENFORCE && DeadHostText.brokenSecureLink(loadErrorInfo.exception)) C.TIME_UNSET else super.getRetryDelayMsFor(loadErrorInfo)
 }
 
 object BrokenTls {

@@ -20,6 +20,13 @@ import java.net.URL
 // Lint: holds only the application context, not a leak.
 @SuppressLint("StaticFieldLeak")
 object DeadHosts {
+    /**
+     * Off (user, 2026-11-21): the memory is log only. Broken secure connections are still recorded, reported and
+     * re-checked at start-up, but nothing is skipped, failed early or retried less because of them (the same servers
+     * also failed in the TV's own browser, so the memory was making the app give up, not fixing anything).
+     * Set true to let the memory block servers again.
+     */
+    const val ENFORCE = false
     const val DEAD_MS = 5 * 60_000L
     const val SEEN_MS = 30 * 60_000L
     const val MAX_SEEN = 30
@@ -83,7 +90,11 @@ object DeadHosts {
         }
     }
 
-    fun isDead(host: String?, now: Long = System.currentTimeMillis()): Boolean {
+    /** [host] is remembered as down and the memory may act on it (see [ENFORCE]; false while log only). */
+    fun isDead(host: String?, now: Long = System.currentTimeMillis()): Boolean = ENFORCE && remembered(host, now)
+
+    /** [host] is remembered as down, whether or not the memory acts on it (for report lines). */
+    fun remembered(host: String?, now: Long = System.currentTimeMillis()): Boolean {
         val k = ServerMemory.key(host) ?: return false
         synchronized(lock) {
             val at = dead[k] ?: return false
@@ -115,13 +126,13 @@ object DeadHosts {
             var back = 0
             for (h in hosts) {
                 when (handshake(h)) {
-                    true -> if (isDead(h)) { clear(h); back++ }
+                    true -> if (remembered(h)) { clear(h); back++ }
                     false -> { if (record(h)) down++ }
                     null -> {}
                 }
             }
             if (down > 0 || back > 0) {
-                Report.log("Start-up server check: $down down, $back back up (of ${hosts.size} seen recently)")
+                Report.log("Start-up server check: $down down, $back back up (of ${hosts.size} seen recently)" + if (ENFORCE) "" else " (log only)")
             }
         }, "dead-host-check").apply { isDaemon = true }.start()
     }

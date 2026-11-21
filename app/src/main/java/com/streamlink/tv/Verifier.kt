@@ -267,6 +267,7 @@ object Verifier {
         val remembered = ServerMemory.refererFor(host)?.takeUnless { AdBlock.isBlockedHost(Report.host(it)) }
         val refs = ServerMemory.refererOrder(c.referers, remembered)
         if (remembered != null && refs.firstOrNull() == remembered) log("Trying the referer this server accepted last time")
+        if (!DeadHosts.ENFORCE && DeadHosts.remembered(host)) log("$host was remembered as down; checking it anyway (log only)")
         if (!ignoreDead && DeadHosts.isDead(host)) {
             answers.add(0)
             log("✗ ${Report.short(c.url)}: ${DeadNotes.SERVER_DOWN}")
@@ -281,6 +282,7 @@ object Verifier {
         for (ref in refs) {
             if (over.get() || DeadStream.enough(synchronized(answers) { answers.toList() })) break
             tried.add(Headers.describeReferer(ref))
+            broken = false // per try: another referer may fail for another reason
             var r = fetch(c.url, c.headers, ref, log) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
             if (r == null && broken && ChromeNet.engine != null) {
                 // Chrome's engine was refused: the page's browser often still gets through, so try Android's own
@@ -301,7 +303,14 @@ object Verifier {
                 answers.add(0)
                 // A broken secure connection is the server, not the referer: the other referers would fail the same way.
                 if (broken) {
-                    if (DeadHosts.record(host) || ignoreDead) log("$host's secure connection is broken ($why); remembering it as down for a few minutes")
+                    val fresh = DeadHosts.record(host)
+                    if (!DeadHosts.ENFORCE) {
+                        // Log only: noted, and the other referers are still tried, as before the memory existed.
+                        if (fresh) log("$host's secure connection is broken ($why); noted (log only)")
+                        note = "no response"
+                        continue
+                    }
+                    if (fresh || ignoreDead) log("$host's secure connection is broken ($why); remembering it as down for a few minutes")
                     note = DeadNotes.SERVER_DOWN
                     break
                 }
@@ -450,7 +459,13 @@ object Verifier {
         }
         if (r == null) {
             if (!broken) return Probe.NoVerdict
-            if (DeadHosts.record(h) || ignoreDead) log("$h's secure connection is broken ($why); remembering it as down for a few minutes")
+            val fresh = DeadHosts.record(h)
+            if (!DeadHosts.ENFORCE) {
+                // Log only: the player gets to try it (it may still fail there, with the normal recovery).
+                if (fresh) log("$h's secure connection is broken ($why); noted, the player still tries it (log only)")
+                return Probe.NoVerdict
+            }
+            if (fresh || ignoreDead) log("$h's secure connection is broken ($why); remembering it as down for a few minutes")
             return Probe.Down(DeadNotes.downstreamDown(h))
         }
         if (r.code !in 200..299) return Probe.NoVerdict

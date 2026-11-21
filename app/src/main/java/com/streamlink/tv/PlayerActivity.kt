@@ -1125,8 +1125,14 @@ class PlayerActivity : Activity() {
         brokenAgain = false
         if (DeadHostText.brokenSecureLink(error)) {
             BrokenTls.failingHost(error)?.let { h ->
-                brokenAgain = !DeadHosts.record(h)
-                Report.log(if (brokenAgain) "$h is still down (secure connection broken)" else "$h's secure connection is broken (${DeadHostText.sslReason(error)}); remembering it as down for a few minutes")
+                val again = !DeadHosts.record(h)
+                // Log only (DeadHosts.ENFORCE off): noted, but reloads and recovery run as usual.
+                brokenAgain = again && DeadHosts.ENFORCE
+                Report.log(
+                    if (!DeadHosts.ENFORCE) "$h's secure connection is broken (${DeadHostText.sslReason(error)})" + (if (again) ", again" else "") + "; noted (log only)"
+                    else if (again) "$h is still down (secure connection broken)"
+                    else "$h's secure connection is broken (${DeadHostText.sslReason(error)}); remembering it as down for a few minutes"
+                )
             }
         }
 
