@@ -71,8 +71,10 @@ file's git history (commit 3680843 and earlier).
 ### Splitting the big files (2026-11-20, user's go: option B, one step per build, code moved as is)
 - Step 1 done: the player's on-screen parts moved to `PlayerScreen`. Built in CI only; TV check needed: play a game,
   open the menu, Audio & quality, Source, D-pad through the tiles, loading screen and Show details.
-- Next: step 2 (finder's habit replay and page tapping out of `StreamSniffer`), step 3 (network/decoder problem checks
-  out of the player). Wait for the user's TV check before step 3.
+- Step 2 on hold: the finder's habit replay and page tapping read ~15 pieces of the search's live state (run number,
+  done/verifying, found streams, the page, tap helper), so there is no clean edge; moving them would mean a wide
+  interface for little gain. Put to the user: skip it, or do it anyway. Step 3 (problem checks out of the player) waits
+  for the user's TV check of step 1.
 
 ### Cleanup (2026-11-20, user's go: 1 housekeeping, 2 dead code, 3 signing key) — finished
 - Done: unused code removed (no behavior change); this file trimmed; docs say `sports` is the main line; signing key in secrets.
