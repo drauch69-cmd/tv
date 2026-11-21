@@ -9,6 +9,10 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **AdScore no longer blocked** (2026-11-21, user's go on A; build 283 strikeout ESPN report): the posamari.me player
+  needs AdScore's (c.adsco.re) bot-check pass; blocked, it said "authorization failed please reload the page" and the
+  finder saw no stream. Removed from the block list everywhere (no popups/redirects come from it). Check on TV: the
+  stream is found; if AdScore still rejects the TV's browser, the same message returns and needs another fix.
 - **Player frame beats a chat box under it** (2026-11-21, user's go): on narrow pages (the TV's hidden browser is
   ~640 px wide) a chat frame stacked under the player can be bigger and still wider than tall, so the tap hit the chat
   (StreamFree Willow: no stream in 25 s). NUDGE_JS now weights frames: video-shaped (1.3–2.4) ×1 else ×0.15, and an
