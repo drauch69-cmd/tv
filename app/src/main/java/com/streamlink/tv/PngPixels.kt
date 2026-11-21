@@ -170,6 +170,51 @@ object PngPixels {
         return "PNG $info; chunks: $list; $tail bytes after the end"
     }
 
+    private val STANDARD_CHUNKS = setOf(
+        "IHDR", "PLTE", "IDAT", "IEND", "tRNS", "cHRM", "gAMA", "iCCP", "sBIT", "sRGB", "cICP", "mDCV", "cLLI",
+        "tEXt", "zTXt", "iTXt", "bKGD", "hIST", "pHYs", "sPLT", "eXIf", "tIME", "acTL", "fcTL", "fdAT",
+    )
+
+    /** A non-standard section of the picture: its type, where its data starts and how long it is. */
+    class Section(val type: String, val at: Int, val len: Int)
+
+    /**
+     * The picture's non-standard sections (a site's own chunk type, e.g. "tsDa" on streamfree Willow, 2026-11-21:
+     * a 1x1 picture carrying a 3 MB section), largest first. These can hold the video as is.
+     */
+    fun privateSections(b: ByteArray, n: Int): List<Section> {
+        if (n < 33 || (b[0].toInt() and 0xFF) != 0x89 || b[1] != 'P'.code.toByte()) return emptyList()
+        val out = ArrayList<Section>()
+        var pos = 8
+        while (pos + 8 <= n) {
+            val len = int32(b, pos)
+            if (len < 0 || pos + 12L + len > n) break
+            val type = String(b, pos + 4, 4, Charsets.ISO_8859_1)
+            if (type == "IEND") break
+            if (type !in STANDARD_CHUNKS && len > 0) out.add(Section(type, pos + 8, len))
+            pos += 12 + len
+        }
+        return out.sortedByDescending { it.len }
+    }
+
+    /** Inflate [len] bytes at [at] if they are zlib data; null if not (or too big). */
+    fun inflate(b: ByteArray, at: Int, len: Int): ByteArray? {
+        if (len < 2 || (b[at].toInt() and 0x0F) != 8) return null
+        val inf = Inflater()
+        return try {
+            inf.setInput(b, at, len)
+            val out = java.io.ByteArrayOutputStream(len * 2)
+            val buf = ByteArray(64 * 1024)
+            while (!inf.finished()) {
+                val r = inf.inflate(buf)
+                if (r == 0 && (inf.needsInput() || inf.needsDictionary())) break
+                out.write(buf, 0, r)
+                if (out.size() > MAX_OUT) return null
+            }
+            if (out.size() == 0) null else out.toByteArray()
+        } catch (_: Exception) { null } finally { inf.end() }
+    }
+
     /** Reads the picture's size/format and where its compressed image data sits, without copying it. */
     private fun header(b: ByteArray, n: Int): Header? {
         if (n < 33 || (b[0].toInt() and 0xFF) != 0x89 || b[1] != 'P'.code.toByte()) return null

@@ -538,6 +538,10 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   piece host and switches source; `recoverSlow` stops reloading when the same dead server comes back after a reload ("Not reloading
   the page again…") and auto-switches. Hosts seen in checks in the last 30 min (max 30) get one HEAD handshake when `MainActivity`
   opens (`DeadHosts.recheckOnStart`; "Start-up server check: N down, M back up").
+  **Standard-networking retry** (2026-11-21): when Chrome's engine hits a broken handshake in `Verifier` (playlist fetch or
+  `probe`), it retries once with `URL.openConnection()`; success records `FastStart.STANDARD` for that host and clears it
+  from `DeadHosts`. `NetDiag.once` logs engine/WebView versions (once per run) and the host's system DNS answer (once per host).
+  PNG private sections (`PngPixels.privateSections`, e.g. "tsDa") are tried by `UnwrapDataSource` before pixel decoding.
   When every candidate in a `Verifier.rank` is on a remembered-down server (`DeadHostText.allRemembered`), the memory is
   ignored for that run (prechecked results dropped, playlist + probes fetched for real): "Every stream here is on a server
   remembered as down; trying them once anyway" (2026-11-21, not yet tested on the TV). Failure lines carry

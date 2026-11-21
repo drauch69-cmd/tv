@@ -281,7 +281,22 @@ object Verifier {
         for (ref in refs) {
             if (over.get() || DeadStream.enough(synchronized(answers) { answers.toList() })) break
             tried.add(Headers.describeReferer(ref))
-            val r = fetch(c.url, c.headers, ref, log) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
+            var r = fetch(c.url, c.headers, ref, log) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
+            if (r == null && broken && ChromeNet.engine != null) {
+                // Chrome's engine was refused: the page's browser often still gets through, so try Android's own
+                // networking once before calling the server down (crackstreams ESPN, build 287).
+                NetDiag.once(host, log)
+                val s = fetch(c.url, c.headers, ref, log, standard = true)
+                if (s != null) {
+                    log("$host refused Chrome's network engine but answered standard networking; the player will use that")
+                    FastStart.recordEngine(host, FastStart.STANDARD)
+                    DeadHosts.clear(host)
+                    broken = false
+                    r = s
+                } else {
+                    log("$host refused standard networking too")
+                }
+            }
             if (r == null) {
                 answers.add(0)
                 // A broken secure connection is the server, not the referer: the other referers would fail the same way.
@@ -420,7 +435,19 @@ object Verifier {
         if (!ignoreDead && DeadHosts.isDead(h)) return Probe.Down(DeadNotes.downstreamDown(h))
         var broken = false
         var why: String? = null
-        val r = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
+        var r = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS) { e -> if (DeadHostText.brokenSecureLink(e)) { broken = true; why = DeadHostText.sslReason(e) } }
+        if (r == null && broken && ChromeNet.engine != null) {
+            NetDiag.once(h, log)
+            val s = fetch(url, headers, ref, log, max, PROBE_TIMEOUT_MS, standard = true)
+            if (s != null) {
+                log("$h refused Chrome's network engine but answered standard networking; the player will use that")
+                FastStart.recordEngine(h, FastStart.STANDARD)
+                broken = false
+                r = s
+            } else {
+                log("$h refused standard networking too")
+            }
+        }
         if (r == null) {
             if (!broken) return Probe.NoVerdict
             if (DeadHosts.record(h) || ignoreDead) log("$h's secure connection is broken ($why); remembering it as down for a few minutes")
@@ -435,10 +462,11 @@ object Verifier {
     private fun fetch(
         url: String, headers: Map<String, String>, referer: String, log: (String) -> Unit,
         max: Int = 512 * 1024, timeoutMs: Int = 4000, onError: ((Exception) -> Unit)? = null,
+        standard: Boolean = false,
     ): Resp? {
         var conn: HttpURLConnection? = null
         return try {
-            conn = ChromeNet.open(url)
+            conn = if (standard) java.net.URL(url).openConnection() as HttpURLConnection else ChromeNet.open(url)
             conn.connectTimeout = timeoutMs
             conn.readTimeout = timeoutMs
             conn.instanceFollowRedirects = true
@@ -455,7 +483,7 @@ object Verifier {
             val body = stream?.use { readUpTo(it, max) } ?: ByteArray(0)
             Resp(code, body, conn.url.toString())
         } catch (e: Exception) {
-            log("  ${Report.short(url)}: ${DeadHostText.sslReason(e) ?: e.javaClass.simpleName}")
+            log("  ${Report.short(url)}${if (standard) " (standard networking)" else ""}: ${DeadHostText.sslReason(e) ?: e.javaClass.simpleName}")
             onError?.invoke(e)
             null
         } finally {

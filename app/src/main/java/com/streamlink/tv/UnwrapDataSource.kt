@@ -141,6 +141,42 @@ class UnwrapDataSource(private val upstream: DataSource) : DataSource {
             }
         }
 
+        // Still nothing: the video may sit in a section of the picture's own type (streamfree Willow: "tsDa").
+        if (image != null && !looksLikeMedia(head, n, skip)) {
+            fill(MAX_PEEK)
+            for (sec in PngPixels.privateSections(head, n)) {
+                val raw = head.copyOfRange(sec.at, sec.at + sec.len)
+                var how = "as is"
+                var data: ByteArray = raw
+                var at: Int? = if (looksLikeMedia(raw, raw.size, 0)) 0 else findMedia(raw, raw.size, 0)
+                if (at == null) {
+                    val z = PngPixels.inflate(raw, 0, raw.size)
+                    if (z != null) {
+                        val zAt = if (looksLikeMedia(z, z.size, 0)) 0 else findMedia(z, z.size, 0)
+                        if (zAt != null) { data = z; at = zAt; how = "unzipped" }
+                    }
+                }
+                if (at == null) {
+                    val hex = (0 until minOf(raw.size, 16)).joinToString(" ") { String.format("%02X", raw[it]) }
+                    Report.logOnce("pngsec-fail-${sec.type}", "The picture's \"${sec.type}\" section (${sec.len} bytes) " +
+                        "has no recognisable video; starts [$hex]")
+                    continue
+                }
+                val end = tsEnd(data, at)
+                Report.logOnce("pngsec", "Decoded video hidden in the picture's \"${sec.type}\" section ($how, " +
+                    "${end - at} bytes of video)")
+                buf = data
+                bufPos = at
+                bufEnd = end
+                bufOnly = true
+                sample {
+                    t?.decision = "video decoded from the picture's \"${sec.type}\" section ($how, ${end - at} bytes)"
+                    t?.received(head, 0, n)
+                }
+                return C.LENGTH_UNSET.toLong()
+            }
+        }
+
         // Still nothing: the video may be hidden in the picture's pixels.
         if (image != null && !looksLikeMedia(head, n, skip)) {
             fill(MAX_PEEK)

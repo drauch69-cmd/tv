@@ -69,4 +69,33 @@ class PngPixelsTest {
     @Test fun rgbaPng() = check(png(rgba = true), "RGB, alpha dropped")
 
     @Test fun notPng() = assertTrue(PngPixels.decode(ByteArray(100), 100).isEmpty())
+
+    /** streamfree Willow (2026-11-21): a 1x1 picture whose own "tsDa" section holds the video as is. */
+    @Test
+    fun privateSectionHoldsVideo() {
+        val out = ByteArrayOutputStream()
+        out.write(byteArrayOf(0x89.toByte(), 'P'.code.toByte(), 'N'.code.toByte(), 'G'.code.toByte(), 0x0D, 0x0A, 0x1A, 0x0A))
+        chunk(out, "IHDR", byteArrayOf(0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0))
+        chunk(out, "IDAT", byteArrayOf(0x78, 0x01, 0x63, 0x60, 0, 0, 0, 5, 0, 1, 0))
+        chunk(out, "tEXt", "a\u0000b".toByteArray())
+        chunk(out, "tsDa", video)
+        chunk(out, "IEND", ByteArray(0))
+        val b = out.toByteArray()
+        val secs = PngPixels.privateSections(b, b.size)
+        assertEquals(listOf("tsDa"), secs.map { it.type })
+        val s = secs[0]
+        assertEquals(video.size, s.len)
+        assertTrue(UnwrapDataSource.looksLikeMedia(b.copyOfRange(s.at, s.at + s.len), s.len, 0))
+        assertTrue(PngPixels.describe(b, b.size)!!.contains("tsDa"))
+    }
+
+    @Test
+    fun inflateUnzipsSection() {
+        val def = Deflater().apply { setInput(video); finish() }
+        val z = ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        while (!def.finished()) z.write(buf, 0, def.deflate(buf))
+        val zb = z.toByteArray()
+        assertTrue(PngPixels.inflate(zb, 0, zb.size)!!.contentEquals(video))
+    }
 }

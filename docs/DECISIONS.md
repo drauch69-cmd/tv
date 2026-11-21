@@ -9,11 +9,16 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
-- **Picture-chunk diagnostics** (2026-11-21, user's go; build 285 streamfree Willow: chunks are ~3 MB PNGs on a TikTok
-  CDN, nothing after IEND, pixel unpack found no video). On the first undecodable picture the report now adds
-  "Picture layout:" (size, bit depth, colour type, interlace, chunk list) and one "Picture unpacked ..." line per packing
-  (failure reason, or first bytes + 0x47 sync-mark count/spacing). Next: run Willow on the TV, send the report, then
-  write the real unpacker from it. A Save sample of that play would also carry the raw chunk.
+- **Willow: video in the picture's own section** (2026-11-21, user's go; build 287 report: 1x1 PNG + 3 MB "tsDa"
+  chunk). Build 285's diagnostics ("Picture layout:" / "Picture unpacked ..." lines) found it; the unpacker now reads
+  non-standard PNG sections (as is, or unzipped) before trying pixels. Check on TV: Willow plays in the app; report says
+  "Decoded video hidden in the picture's ... section".
+- **Chrome engine refused, standard networking retried** (2026-11-21, user's go; build 287 crackstreams ESPN: Chrome's
+  engine gets ERR_SSL_PROTOCOL_ERROR from both servers, the page's browser loads their playlists, phone plays on the
+  same Wi-Fi; DNS Off + restart ruled out). The check (playlist and first piece) now retries once with Android's
+  standard networking; if that answers, the server is remembered as "standard" for the player. First refusal per run logs
+  "Network versions:" (Chrome engine + WebView) and "<host> looks up as:" (addresses). Not done: retry through the
+  WebView itself, or a bundled Cronet, if standard networking is refused too.
 - **AdScore no longer blocked** (2026-11-21, user's go on A; build 283 strikeout ESPN report): the posamari.me player
   needs AdScore's (c.adsco.re) bot-check pass; blocked, it said "authorization failed please reload the page" and the
   finder saw no stream. Removed from the block list everywhere (no popups/redirects come from it). Check on TV: the
