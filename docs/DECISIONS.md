@@ -7,9 +7,14 @@ Newest open items first. When an item closes, move it to "Decisions" (or delete 
 - **Short live playlists: play point kept inside the list** (2026-11-22, user's go; logs 2026-11-21/22, 206 of 223 failures
   "fell behind live"). Relays often list only 3-4 pieces (12-20 s); smooth's 20 s (and its 12 s minimum) were clamped to the
   oldest listed piece, which the server deletes moments later (404 pieces, then jump-to-live loops: 40 stalls in 10 min).
-  Now, after each (re)prepare, the first fresh live playlist is checked (`LiveWindow`): the play point stays 1.5 pieces
-  after the oldest piece and 2 from the newest (middle of the list when too short). Smooth's 12 s minimum is gone. Line:
-  "Live delay: the playlist holds only Ns of video; playing Xs behind live instead of Ys…". Not tested on the TV. Check:
+  Build 313 moved the play point with a seek when the playlist arrived: that cut the first piece's download and EVERY
+  start failed ("Unexpected read attempt", user's 15:46 report), and it turned tunneling off for good. Build 314: the
+  first fresh playlist's length is remembered per stream (`LiveWindow`, this app run); if the start is unsafe the play
+  restarts at once (~0.1 s in, before any picture) with the delay set up front, and later starts/jumps to live use it
+  directly. Play point: 1.5 pieces after the oldest piece, 2 from the newest (middle when too short). Smooth's 12 s
+  minimum is gone. Tunneling is turned back on once ("Tunneled playback: back on…"). Line: "Live delay: the playlist
+  holds only Ns of video; starting again Xs behind live…". Not tested on the TV. Rule: never seek while a live stream's
+  first pieces load. Check:
   fewer "fell behind live" and piece 404s on ntv.st / thetvapp. Next round (agreed list): 44-byte pieces, clean player
   "media sequence mismatch", network-engine shutdown leak, frame counter, marking manual source switches.
 - **Home stays current while a stream plays** (2026-11-21, user's go on B): home no longer freezes under the player.

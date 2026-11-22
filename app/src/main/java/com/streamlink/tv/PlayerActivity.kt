@@ -465,16 +465,21 @@ class PlayerActivity : Activity() {
         val item = MediaItem.Builder().setUri(src.url).apply {
             if (isHls) setMimeType(MimeTypes.APPLICATION_M3U8)
             else if (isDash) setMimeType(MimeTypes.APPLICATION_MPD)
+            // A short playlist seen before: a delay that stays inside it ([LiveWindow]); otherwise ~20 s (smooth) or Media3's own.
+            val fit = LiveWindow.offsetFor(src.url, smoothLive)
+            liveFitUsed = fit != null
             if (smoothLive) {
                 // Play ~20s behind live (a few seconds more than usual) so there's room to buffer, and never speed up to catch up
                 // (that drains the cushion); only slow down imperceptibly to rebuild it.
                 setLiveConfiguration(
                     MediaItem.LiveConfiguration.Builder()
-                        .setTargetOffsetMs(20_000)
+                        .setTargetOffsetMs(fit ?: 20_000)
                         .setMinPlaybackSpeed(0.97f)
                         .setMaxPlaybackSpeed(1.0f)
                         .build()
                 )
+            } else if (fit != null) {
+                setLiveConfiguration(MediaItem.LiveConfiguration.Builder().setTargetOffsetMs(fit).build())
             }
         }.build()
 
@@ -512,6 +517,8 @@ class PlayerActivity : Activity() {
 
     /** After a (re)prepare: check the play point against the first fresh live playlist once ([LiveWindow]). */
     private var liveSpotCheck = false
+    /** This play's live delay came from [LiveWindow]'s memory of the stream. */
+    private var liveFitUsed = false
 
     /** A short live playlist: move the play point off its oldest pieces (they're deleted before they load). */
     private fun checkLiveSpot(timeline: Timeline) {
@@ -526,10 +533,14 @@ class PlayerActivity : Activity() {
         val now = p.currentPosition
         val offset = windowMs - now
         val want = if (smoothLive) 20_000L else offset
-        val to = LiveWindow.correctedOffsetMs(windowMs, pieceMs, offset, want) ?: return
-        Report.log("Live delay: the playlist holds only ${"%.0f".format(windowMs / 1000.0)}s of video; playing " +
+        val to = LiveWindow.correctedOffsetMs(windowMs, pieceMs, offset, want)
+        LiveWindow.remember(set?.sources?.getOrNull(sourceIndex)?.url, windowMs, pieceMs)
+        if (to == null || liveFitUsed) return  // fine, or already set up from what was seen (the next start uses the update)
+        // Never seek here (build 313: cutting the first download broke every start). Start again with the delay set up front;
+        // this is ~0.1 s after the start, before any picture.
+        Report.log("Live delay: the playlist holds only ${"%.0f".format(windowMs / 1000.0)}s of video; starting again " +
             "${"%.1f".format(to / 1000.0)}s behind live instead of ${"%.1f".format(offset / 1000.0)}s, so pieces aren't deleted before they load")
-        p.seekTo(windowMs - to)
+        main.post { play() }
     }
 
     private val listener = object : Player.Listener {
@@ -1001,7 +1012,13 @@ class PlayerActivity : Activity() {
      */
     private fun tunnelingAllowed(): Boolean {
         if (tunnelOffThisRun) return false
-        return getSharedPreferences("streamlink", MODE_PRIVATE).getBoolean("tunnel_on", true)
+        val prefs = getSharedPreferences("streamlink", MODE_PRIVATE)
+        // Build 313's start bug made tunneling look broken and turned it off for good: undo that once.
+        if (!prefs.getBoolean("tunnel_reset_314", false)) {
+            prefs.edit().putBoolean("tunnel_reset_314", true).putBoolean("tunnel_on", true).remove("tunnel_strikes").apply()
+            Report.log("Tunneled playback: back on (build 313 turned it off by mistake)")
+        }
+        return prefs.getBoolean("tunnel_on", true)
     }
 
     /** For the report: is it the connection or the stream? */

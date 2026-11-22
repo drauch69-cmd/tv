@@ -31,4 +31,17 @@ class LiveWindowTest {
         assertNull(LiveWindow.correctedOffsetMs(0, 3_000, 10_000, 20_000))
         assertNull(LiveWindow.correctedOffsetMs(12_000, 0, 10_000, 20_000))
     }
+
+    @Test fun rememberedShortListSetsTheDelayUpFront() {
+        LiveWindow.clearMemory()
+        val url = "https://a.example/hls/mono.ts.m3u8?t=1"
+        assertNull(LiveWindow.offsetFor(url, true))
+        LiveWindow.remember(url, 16_000, 5_000)
+        assertEquals(8_000L, LiveWindow.offsetFor(url, true))   // 16 - 7.5 = 8.5 < 10 (2 pieces): the middle
+        assertEquals(8_000L, LiveWindow.offsetFor(url, false))
+        LiveWindow.remember(url, 60_000, 6_000)
+        assertEquals(20_000L, LiveWindow.offsetFor(url, true))  // long list: smooth keeps 20 s
+        assertEquals(18_000L, LiveWindow.offsetFor(url, false)) // low delay: 3 pieces
+        LiveWindow.clearMemory()
+    }
 }
