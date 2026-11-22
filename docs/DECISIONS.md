@@ -219,6 +219,14 @@ file's git history (commit 3680843 and earlier).
   (was ~3.5 s each) and the main playlist may be asked up to 4 times (was 2). Check: plays and recoveries behave as
   before or faster; reports show Failure + Rescue lines; with the VPN off, blocked servers move on within ~1 s.
   Next (1c): remove the code the old routines no longer need.
+- **Lab build 304** (2026-11-21, user's go; builds 302/303 logs): (A) re-asks of the main playlist wait 1, 2, then 3 s
+  (303 asked every 0.2 s and got the same blocked server 4 times); (B) the 3rd blocked server in a watch shows "Your
+  network is blocking this stream's servers. The VPN usually fixes it." + a "Network block" line; (C) before rescuing a
+  network-like failure (network, stalled, other, server error) the player checks 1.1.1.1/8.8.8.8: down -> "Failure:
+  internet connection down", "Rescue: wait for the internet", cover text, polls every 3 s up to 2 min, then continues
+  (19:24 outage used up every source); (D) the finder's check stops on a broken secure connection instead of trying
+  every referer (was 6 tries). Check: VPN off -> note appears, re-asks spaced, some games start without a reload;
+  pull the router's cable mid-game -> waiting cover, picture returns by itself.
 
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the
