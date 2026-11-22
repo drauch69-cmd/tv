@@ -430,9 +430,9 @@ class PlayerActivity : Activity() {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(30_000, 60_000, 2_500, 8_000)
             .build()
-        if (!smoothLiveAllowed() && !smoothThisRun && LowDelayMemory.wantsSmooth(this, Report.host(src.url))) {
+        if (!smoothLiveAllowed() && !smoothThisRun && LowDelayMemory.wantsSmooth(this, src.url)) {
             smoothThisRun = true
-            Report.log("Low delay ran out of video on this server recently; starting on the smooth delay")
+            Report.log("Low delay ran out of video on this stream recently; starting on the smooth delay")
         }
         smoothLive = smoothLiveAllowed() || smoothThisRun
         Report.logOnce("delay-$smoothLive", "Live delay: ${if (smoothLive) "smooth (~20s behind live)" else "low delay"}")
@@ -1094,8 +1094,8 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         if (signs.lowDelayRanDry(p, System.currentTimeMillis())) {
             smoothThisRun = true
-            set?.sources?.getOrNull(sourceIndex)?.let { LowDelayMemory.markDry(this, Report.host(it.url)) }
-            Report.log("Low delay keeps running out of video; using the smooth delay for this stream (remembered for this server)")
+            set?.sources?.getOrNull(sourceIndex)?.let { LowDelayMemory.markDry(this, it.url) }
+            Report.log("Low delay keeps running out of video; using the smooth delay for this stream (remembered for this stream)")
             play()
         }
     }

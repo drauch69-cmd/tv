@@ -27,6 +27,15 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Picked source fails -> back to the stream underneath** (2026-11-21, user's go; Lab logs: a failed Source-panel pick
+  opened another copy of the playing stream each time, stacking players so Back replayed them all). A page the viewer
+  picked (not an automatic switch) with no stream now closes, toast + "going back to the stream you were watching", and
+  the player underneath resumes at live. Check: pick a dead source, land back on the game, one Back leaves the player.
+- **Low delay memory per stream, not per server** (2026-11-21, user's go): one slow Michigan stream had put every
+  thetvapp game (same main server) on smooth for 6 h. Key = server + path of the main playlist; old entries no longer
+  match. Check: other thetvapp games start on low delay again; if they still say "ran out of video on this stream
+  recently", those streams share one address path and the key needs another part.
+- **Restore restart not reported as a crash** (2026-11-21): "Last exit: restarted to apply a settings backup".
 - **Settings backup/restore** (2026-11-21, user): phone page "Download settings backup" (zip: every settings file,
   sport/city photos, saved game matches; not logs) and "Restore from a backup…" (checked, staged, swapped in at the next
   start; the app restarts itself). Works Sports -> Lab. Check on TV: download from Sports, restore into Lab, lists,

@@ -130,6 +130,7 @@ class WaitingActivity : Activity() {
             failMode = false
             val why = intent.getStringExtra(EXTRA_FAILED) ?: "no stream"
             if (auto && tryNextAuto()) return
+            if (backToPlayer(why)) return
             tryAlternatives(item.url, why) { showFailed(item.url, why) }
             return
         }
@@ -228,6 +229,7 @@ class WaitingActivity : Activity() {
                 if (auto && tryNextAuto()) return
                 // Started a while ago (or no time and still nothing): the next stream, else the choice screen.
                 if (noTimeGiveUp && !linkPage && !offline) Report.log("No start time and no stream after $checkCount checks")
+                if (backToPlayer(why)) return
                 tryAlternatives(pageUrl, why) { showFailed(pageUrl, why) }
                 return
             }
@@ -340,6 +342,22 @@ class WaitingActivity : Activity() {
                 }
             }
         }
+    }
+
+    /**
+     * A source the viewer picked in the player's Source panel (a link page, not an automatic switch) has no stream:
+     * go back to the stream still waiting underneath (it resumes at live) instead of opening another copy of it,
+     * which stacked players and made Back replay each one (user's logs, 2026-11-21).
+     */
+    private fun backToPlayer(why: String): Boolean {
+        if (!linkPage || auto) return false
+        AutoSwitch.markDead(item.url, System.currentTimeMillis())
+        Report.log("No stream there ($why); going back to the stream you were watching")
+        android.widget.Toast.makeText(applicationContext, "No stream there. Back to the stream you were watching.", android.widget.Toast.LENGTH_LONG).show()
+        handedOff = true
+        main.removeCallbacksAndMessages(null)
+        finish()
+        return true
     }
 
     /** An automatic page had no stream: continue with the next remembered candidate (this screen is replaced). */
