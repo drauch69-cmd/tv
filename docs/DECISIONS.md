@@ -27,6 +27,9 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Massive underdog within a score = upset** (2026-11-21, user's go on defaults; Lab first): football only, a 14+ point
+  underdog within 7 (trailing or tied) in the 2nd half gets +8 "upset" (and the flame); leading keeps +8/+12. Basketball
+  left out. Check on the TV: flame shows on such games, featured card doesn't switch too eagerly.
 - **Picked source fails -> back to the stream underneath** (2026-11-21, user's go; Lab logs: a failed Source-panel pick
   opened another copy of the playing stream each time, stacking players so Back replayed them all). A page the viewer
   picked (not an automatic switch) with no stream now closes, toast + "going back to the stream you were watching", and

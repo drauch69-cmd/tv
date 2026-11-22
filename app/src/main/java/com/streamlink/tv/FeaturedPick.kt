@@ -186,7 +186,12 @@ object FeaturedPick {
             val favRanked = (if (dog == 'h') g.away.rank else g.home.rank) != null
             if (!favRanked && !bigDog) dog = null
         }
-        if (dog != null && played >= 0.5 && (if (dog == 'h') h > a else a > h)) { drama += if (bigDog) 12.0 else 8.0; why.add("upset") }
+        val dogLead = if (dog == 'h') h - a else a - h
+        if (dog != null && played >= 0.5 && dogLead > 0) { drama += if (bigDog) 12.0 else 8.0; why.add("upset") }
+        // massive underdog (14+, football only) still within a score in the second half (user, 2026-11-21)
+        else if (dog != null && played >= 0.5 && !s.basketball && spread != null && abs(spread) >= 14 && dogLead >= -7) {
+            drama += 8; why.add("upset")
+        }
         if (!s.basketball && g.redZone && doubt >= 0.4 && played >= 0.5) { drama += 5; why.add("red zone") }
         drama = min(25.0, drama)
 
