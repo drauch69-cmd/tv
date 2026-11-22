@@ -63,16 +63,18 @@ object SiteKey {
     }
 
     /** [url] with its host replaced by [newHost] (scheme, path, query and fragment kept). Null if [url] can't be read. */
-    fun withHost(url: String, newHost: String): String? = try {
-        val u = java.net.URI(url.trim())
-        val scheme = u.scheme ?: return null
-        if (u.host == null) return null
-        val path = u.rawPath?.ifEmpty { null } ?: "/"
-        val q = u.rawQuery?.let { "?$it" } ?: ""
-        val f = u.rawFragment?.let { "#$it" } ?: ""
-        val port = if (u.port > 0) ":${u.port}" else ""
-        "$scheme://$newHost$port$path$q$f"
-    } catch (_: Exception) { null }
+    fun withHost(url: String, newHost: String): String? {
+        return try {
+            val u = java.net.URI(url.trim())
+            val scheme = u.scheme ?: return null
+            if (u.host == null) return null
+            val path = u.rawPath?.ifEmpty { null } ?: "/"
+            val q = u.rawQuery?.let { "?$it" } ?: ""
+            val f = u.rawFragment?.let { "#$it" } ?: ""
+            val port = if (u.port > 0) ":${u.port}" else ""
+            "$scheme://$newHost$port$path$q$f"
+        } catch (_: Exception) { null }
+    }
 }
 
 /** Moving every list of one site to a new domain. Pure; SavedLists.moveSite saves the result. */
