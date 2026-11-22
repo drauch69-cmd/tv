@@ -227,6 +227,14 @@ file's git history (commit 3680843 and earlier).
   (19:24 outage used up every source); (D) the finder's check stops on a broken secure connection instead of trying
   every referer (was 6 tries). Check: VPN off -> note appears, re-asks spaced, some games start without a reload;
   pull the router's cable mid-game -> waiting cover, picture returns by itself.
+- **Lab build 305** (2026-11-21, user's go; build 304 logs: with the VPN off one Miami try ran 95+ s through re-asks, 3
+  reloads and other sites that all use the same blocked main server). NetBlock remembers main servers whose servers
+  were blocked 3+ times in 10 min: a new player for one skips re-asks and reloads ("Network block: … skipping"); after
+  the 3rd block in a watch only one reload is allowed. "No working stream" now says "Your network is blocking this
+  game's servers. Turn on the VPN, then press Try again" when a block is known, and has a Try again button (fresh search).
+  Step 1c done: piece failures and refused pieces run through the one order (Rescue.PIECES_FAILING /
+  afterRefusedPieces); Refusal.afterRefusal and BrokenTls.refetchMain removed. Check: VPN off -> no working stream
+  within ~20 s with the VPN text; VPN on + Try again plays; normal plays unchanged.
 
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the
