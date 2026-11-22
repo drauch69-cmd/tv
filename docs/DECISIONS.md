@@ -4,6 +4,14 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Short live playlists: play point kept inside the list** (2026-11-22, user's go; logs 2026-11-21/22, 206 of 223 failures
+  "fell behind live"). Relays often list only 3-4 pieces (12-20 s); smooth's 20 s (and its 12 s minimum) were clamped to the
+  oldest listed piece, which the server deletes moments later (404 pieces, then jump-to-live loops: 40 stalls in 10 min).
+  Now, after each (re)prepare, the first fresh live playlist is checked (`LiveWindow`): the play point stays 1.5 pieces
+  after the oldest piece and 2 from the newest (middle of the list when too short). Smooth's 12 s minimum is gone. Line:
+  "Live delay: the playlist holds only Ns of video; playing Xs behind live instead of Ys…". Not tested on the TV. Check:
+  fewer "fell behind live" and piece 404s on ntv.st / thetvapp. Next round (agreed list): 44-byte pieces, clean player
+  "media sequence mismatch", network-engine shutdown leak, frame counter, marking manual source switches.
 - **Home stays current while a stream plays** (2026-11-21, user's go on B): home no longer freezes under the player.
   It refreshes scores about once a minute and quietly redoes its rows (low priority; forced every 5 min for clock text),
   so Back shows current rows at once. No list re-reads during playback (hidden browser could stutter the Onn). Report

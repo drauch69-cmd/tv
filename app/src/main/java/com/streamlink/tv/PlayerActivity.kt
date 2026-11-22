@@ -24,6 +24,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
@@ -33,6 +34,7 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.LenientHlsExtractorFactory
+import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -469,7 +471,6 @@ class PlayerActivity : Activity() {
                 setLiveConfiguration(
                     MediaItem.LiveConfiguration.Builder()
                         .setTargetOffsetMs(20_000)
-                        .setMinOffsetMs(12_000)
                         .setMinPlaybackSpeed(0.97f)
                         .setMaxPlaybackSpeed(1.0f)
                         .build()
@@ -504,11 +505,38 @@ class PlayerActivity : Activity() {
         signs.resetStarve()
         main.removeCallbacks(audioStarveCheck)
         main.postDelayed(audioStarveCheck, 2_000)
+        liveSpotCheck = true
         p.prepare()
         p.playWhenReady = true
     }
 
+    /** After a (re)prepare: check the play point against the first fresh live playlist once ([LiveWindow]). */
+    private var liveSpotCheck = false
+
+    /** A short live playlist: move the play point off its oldest pieces (they're deleted before they load). */
+    private fun checkLiveSpot(timeline: Timeline) {
+        val p = player ?: return
+        if (timeline.isEmpty) return
+        val w = timeline.getWindow(p.currentMediaItemIndex, Timeline.Window())
+        if (!w.isLive() || !w.isDynamic || w.durationMs == C.TIME_UNSET) return
+        liveSpotCheck = false
+        val list = (p.currentManifest as? HlsManifest)?.mediaPlaylist ?: return
+        val pieceMs = list.targetDurationUs / 1000
+        val windowMs = w.durationMs
+        val now = p.currentPosition
+        val offset = windowMs - now
+        val want = if (smoothLive) 20_000L else offset
+        val to = LiveWindow.correctedOffsetMs(windowMs, pieceMs, offset, want) ?: return
+        Report.log("Live delay: the playlist holds only ${"%.0f".format(windowMs / 1000.0)}s of video; playing " +
+            "${"%.1f".format(to / 1000.0)}s behind live instead of ${"%.1f".format(offset / 1000.0)}s, so pieces aren't deleted before they load")
+        p.seekTo(windowMs - to)
+    }
+
     private val listener = object : Player.Listener {
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            if (liveSpotCheck && reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) checkLiveSpot(timeline)
+        }
+
         override fun onPlaybackStateChanged(playbackState: Int) {
             main.removeCallbacks(stallCheck)
             when (playbackState) {
@@ -1228,7 +1256,7 @@ class PlayerActivity : Activity() {
             RescueStep.JUMP_TO_LIVE -> {
                 val p = player ?: return false
                 go(); Report.log("Fell behind the live point; jumping back to live")
-                p.seekToDefaultPosition(); p.prepare()
+                p.seekToDefaultPosition(); liveSpotCheck = true; p.prepare()
                 return true
             }
             RescueStep.NO_TUNNEL -> { go(); retryWithoutTunneling(error?.errorCodeName ?: why); return true }

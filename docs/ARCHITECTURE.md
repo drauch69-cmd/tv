@@ -492,6 +492,9 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   (0 of 5 lost), this quality needs ≈ X Mbps, Ys of video was buffered".
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
+  Short live playlists (`LiveWindow`, 2026-11-22): after each prepare the first fresh live playlist is checked and the play
+  point moved to 1.5 pieces after the oldest listed piece / 2 from the newest (middle if too short), for smooth and low
+  delay alike; smooth has no 12 s minimum (it pinned short lists to their oldest piece).
   Low-delay mode switches to smooth after 2 empty stalls in 3 min (`PlaybackSigns.DRY_WINDOW_MS`; was 60 s) and
   remembers the main playlist's server for 6 h (`LowDelayMemory`): its next plays start on smooth ("Low delay ran out of
   video on this server recently; starting on the smooth delay"). A broken secure connection on a server named inside the
