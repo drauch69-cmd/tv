@@ -49,7 +49,10 @@ object CrashRecorder {
                     val am = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                     val e = am.getHistoricalProcessExitReasons(app.packageName, 0, 3).firstOrNull()
                     if (e != null && CrashText.shouldReport(e.timestamp, last)) {
-                        lines.add(CrashText.exitLine(e.reason, e.importance, time(e.timestamp), e.description, e.status))
+                        // The restart that applies a settings backup ends the old process on purpose: not a crash.
+                        lines.add(if (StreamLinkApp.restoredBackup && e.reason == ApplicationExitInfo.REASON_SIGNALED)
+                            "Last exit: restarted to apply a settings backup (${time(e.timestamp)})"
+                        else CrashText.exitLine(e.reason, e.importance, time(e.timestamp), e.description, e.status))
                         newest = e.timestamp
                         if (e.reason == ApplicationExitInfo.REASON_ANR) {
                             try {

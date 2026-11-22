@@ -5,7 +5,8 @@ import android.content.Context
 /**
  * Stream servers on which low delay ran dry (2026-11-21: West Virginia vs Houston stalled 6 times at low delay, fell back to
  * smooth, then stalled the same way on every reopen). Remembered for [KEEP_MS], so the next play of that server starts on
- * the smooth delay right away. Keyed by the main playlist's host ([ServerMemory.key]).
+ * the smooth delay right away. Keyed per stream ([streamKey]: server + path of the main playlist, no query), not per
+ * server: on 2026-11-21 one slow Michigan stream put every thetvapp game (all behind the same main server) on smooth.
  */
 object LowDelayMemory {
     const val KEEP_MS = 6 * 60 * 60 * 1000L
@@ -41,13 +42,21 @@ object LowDelayMemory {
         return out
     }
 
+    /** The stream's key: [ServerMemory.key] of its host plus its path (query dropped), without ";" or "=". Pure. */
+    internal fun streamKey(url: String?): String? {
+        val u = url?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val host = ServerMemory.key(Report.host(u)) ?: return null
+        val path = try { java.net.URI(u).rawPath ?: "" } catch (_: Exception) { "" }
+        return (host + path).replace(';', '_').replace('=', '_')
+    }
+
     private fun prefs(ctx: Context) = ctx.getSharedPreferences("streamlink", Context.MODE_PRIVATE)
 
-    fun wantsSmooth(ctx: Context, host: String?): Boolean =
-        wants(parse(prefs(ctx).getString(PREF, null)), ServerMemory.key(host), System.currentTimeMillis())
+    fun wantsSmooth(ctx: Context, streamUrl: String?): Boolean =
+        wants(parse(prefs(ctx).getString(PREF, null)), streamKey(streamUrl), System.currentTimeMillis())
 
-    fun markDry(ctx: Context, host: String?) {
-        val k = ServerMemory.key(host) ?: return
+    fun markDry(ctx: Context, streamUrl: String?) {
+        val k = streamKey(streamUrl) ?: return
         val next = marked(parse(prefs(ctx).getString(PREF, null)), k, System.currentTimeMillis())
         prefs(ctx).edit().putString(PREF, format(next)).apply()
     }

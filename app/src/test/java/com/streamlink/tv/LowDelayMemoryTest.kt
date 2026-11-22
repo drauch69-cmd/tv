@@ -38,4 +38,16 @@ class LowDelayMemoryTest {
         assertFalse(BrokenTls.refetchMain("chatgpt.hereisman.net", "chatgpt.hereisman.net", 0))
         assertFalse(BrokenTls.refetchMain(null, "chatgpt.hereisman.net", 0))
     }
+
+    @Test fun keyedPerStreamNotPerServer() {
+        val a = LowDelayMemory.streamKey("https://chatgpt.hereisman.net/playlist/111/load-playlist?t=1")
+        val b = LowDelayMemory.streamKey("https://chatgpt.hereisman.net/playlist/222/load-playlist?t=1")
+        assertTrue(a != null && b != null && a != b)
+        assertEquals(a, LowDelayMemory.streamKey("https://chatgpt.hereisman.net/playlist/111/load-playlist?t=2"))
+        val m = LowDelayMemory.marked(emptyMap(), a!!, now)
+        assertTrue(LowDelayMemory.wants(m, a, now))
+        assertFalse(LowDelayMemory.wants(m, b, now))
+        assertFalse(a.contains(';') || a.contains('='))
+        assertEquals(null, LowDelayMemory.streamKey(null))
+    }
 }
