@@ -1129,6 +1129,11 @@ class PlayerActivity : Activity() {
         }
         // Memory only (no decision): broken secure connections (DeadHosts, log only), dead addresses, link lifetimes.
         brokenAgain = false
+        if (failure == Failure.BROKEN_SECURE && ++blockedServers == Rescue.BLOCKS_BEFORE_NOTE) {
+            Report.log("Network block: $blockedServers blocked servers this watch (broken secure connection on both engines); the VPN usually fixes it")
+            android.widget.Toast.makeText(applicationContext,
+                "Your network is blocking this stream's servers. The VPN usually fixes it.", android.widget.Toast.LENGTH_LONG).show()
+        }
         if (failure == Failure.BROKEN_SECURE) {
             BrokenTls.failingHost(error)?.let { h ->
                 val again = !DeadHosts.record(h)
@@ -1147,16 +1152,74 @@ class PlayerActivity : Activity() {
             ServerMemory.recordAge(Report.host(src.url), System.currentTimeMillis() - addressSince, false)
         }
         val again = failure == Failure.BEHIND_LIVE && playingSince != 0L && signs.behindLiveRepeated(System.currentTimeMillis())
-        rescue(Rescue.order(failure, again), why, error)
+        rescue(Rescue.order(failure, again), why, error, checkNet = Rescue.checksNetwork(failure))
+    }
+
+    /** Blocked servers seen in this watch (Rescue.BLOCKS_BEFORE_NOTE). */
+    private var blockedServers = 0
+    /** A spaced-out re-ask of the main playlist is waiting (Rescue.reaskDelayMs): no other rescue meanwhile. */
+    private var reaskPending = false
+    /** The player is waiting for the internet to come back (waitForNetwork). */
+    private var netWaiting = false
+
+    /**
+     * Lab: before running the order for a failure a dead connection also causes, check the internet (a quick connect to
+     * 1.1.1.1 / 8.8.8.8). Down: show it on screen and wait for it to come back (at most [Rescue.NET_WAIT_MS]) instead of
+     * using up reloads and other sites (2026-11-21 19:24: the connection dropped and every source was tried in vain).
+     */
+    private fun checkNetThen(why: String, go: () -> Unit) {
+        val gen = linkGen
+        kotlin.concurrent.thread(isDaemon = true, name = "net-check") {
+            val up = Pinger.reachable()
+            main.post {
+                if (isDestroyed || gen != linkGen) return@post
+                if (up) go() else waitForNetwork(why, System.currentTimeMillis(), gen, go)
+            }
+        }
+    }
+
+    private fun waitForNetwork(why: String, since: Long, gen: Int, go: () -> Unit) {
+        if (!netWaiting) {
+            netWaiting = true
+            Report.log("Failure: internet connection down (no answer from 1.1.1.1 or 8.8.8.8); waiting for it to come back")
+            Report.log("Rescue: wait for the internet")
+            screen.showCover("Your internet connection looks down.\nWaiting for it to come back…")
+            AppStatus.text = "Waiting for the internet…"
+        }
+        main.postDelayed({
+            if (isDestroyed || gen != linkGen) { netWaiting = false; return@postDelayed }
+            kotlin.concurrent.thread(isDaemon = true, name = "net-wait") {
+                val up = Pinger.reachable()
+                main.post {
+                    if (isDestroyed || gen != linkGen) { netWaiting = false; return@post }
+                    val waited = System.currentTimeMillis() - since
+                    when {
+                        up -> {
+                            netWaiting = false
+                            Report.log("Internet is back after ${waited / 1000} s; continuing ($why)")
+                            reconnects = 0
+                            go()
+                        }
+                        waited >= Rescue.NET_WAIT_MS -> {
+                            netWaiting = false
+                            Report.log("Still no internet after ${waited / 1000} s; running the usual rescue anyway")
+                            go()
+                        }
+                        else -> waitForNetwork(why, since, gen, go)
+                    }
+                }
+            }
+        }, Rescue.NET_POLL_MS)
     }
 
     /**
      * Lab step 1b: runs the first step of [steps] (from [from]) that applies now. A step that hands off to something
      * asynchronous (a ready backup's check) continues with the steps after it when that comes back empty.
      */
-    private fun rescue(steps: List<RescueStep>, why: String, error: PlaybackException? = null, from: Int = 0) {
-        if (fastChecking) return
+    private fun rescue(steps: List<RescueStep>, why: String, error: PlaybackException? = null, from: Int = 0, checkNet: Boolean = false) {
+        if (fastChecking || reaskPending || netWaiting) return
         if (set == null) return finish()
+        if (from == 0 && checkNet) return checkNetThen(why) { rescue(steps, why, error) }
         // It had been playing fine for a while: this is a fresh problem, not a repeat.
         if (from == 0 && playingSince != 0L && System.currentTimeMillis() - playingSince > 60_000) reconnects = 0
         for (i in from until steps.size) {
@@ -1191,9 +1254,15 @@ class PlayerActivity : Activity() {
                 if (failing == null || mainHost == null || failing.equals(mainHost, true) || mainRefetches >= Rescue.MAX_MAIN_REFETCHES) return false
                 mainRefetches++
                 go()
+                val wait = Rescue.reaskDelayMs(mainRefetches)
                 Report.log("$failing (named by the main playlist) has a broken secure connection; asking $mainHost again for another server " +
-                    "(try $mainRefetches of ${Rescue.MAX_MAIN_REFETCHES})")
-                play()
+                    "in ${wait / 1000} s (try $mainRefetches of ${Rescue.MAX_MAIN_REFETCHES})")
+                reaskPending = true
+                val gen = linkGen
+                main.postDelayed({
+                    reaskPending = false
+                    if (!isDestroyed && gen == linkGen && set != null) play()
+                }, wait)
                 return true
             }
             RescueStep.PIECE_ENGINE -> {
@@ -1355,7 +1424,7 @@ class PlayerActivity : Activity() {
     private fun recover(why: String) {
         if (fastChecking) return // a ready backup is being checked; it decides
         if (set == null) return finish()
-        rescue(Rescue.AFTER_STALL, why)
+        rescue(Rescue.AFTER_STALL, why, checkNet = true)
     }
 
     /**

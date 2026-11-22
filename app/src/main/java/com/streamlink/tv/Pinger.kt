@@ -16,6 +16,17 @@ class Pinger(private val onResult: (Long?) -> Unit) {
         const val TIMEOUT_MS = 2_000
         /** Cloudflare, then Google if the first doesn't answer (some networks block one). IP literals: no DNS lookup. */
         private val SERVERS = listOf("1.1.1.1", "8.8.8.8")
+
+        /** One quick check, on the calling (background) thread: does either server answer at all? */
+        fun reachable(timeoutMs: Int = 1_500): Boolean = SERVERS.any { probe(it, timeoutMs) != null }
+
+        private fun probe(host: String, timeoutMs: Int): Long? = try {
+            Socket().use { s ->
+                val t0 = System.nanoTime()
+                s.connect(InetSocketAddress(host, 443), timeoutMs)
+                (System.nanoTime() - t0) / 1_000_000
+            }
+        } catch (_: Exception) { null }
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -42,11 +53,5 @@ class Pinger(private val onResult: (Long?) -> Unit) {
         t.interrupt()
     }
 
-    private fun once(host: String): Long? = try {
-        Socket().use { s ->
-            val t0 = System.nanoTime()
-            s.connect(InetSocketAddress(host, 443), TIMEOUT_MS)
-            (System.nanoTime() - t0) / 1_000_000
-        }
-    } catch (_: Exception) { null }
+    private fun once(host: String): Long? = probe(host, TIMEOUT_MS)
 }

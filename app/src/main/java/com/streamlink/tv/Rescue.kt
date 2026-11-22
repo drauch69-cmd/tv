@@ -52,4 +52,21 @@ object Rescue {
 
     /** Lab: quick re-asks of the main playlist before a page reload (was 2; each costs ~0.2 s, a reload ~9 s). */
     const val MAX_MAIN_REFETCHES = 4
+
+    /**
+     * Wait before re-ask number [tryNo] (1-based): 1 s, 2 s, then 3 s. Build 303 asked every 0.2 s and the site handed
+     * back the same blocked server 4 times in a row; it seems to change its answer only every few seconds.
+     */
+    fun reaskDelayMs(tryNo: Int): Long = (tryNo.coerceIn(1, 3) * 1_000).toLong()
+
+    /** Failures that a dead internet connection also produces: check the connection before running the order. */
+    fun checksNetwork(f: Failure?): Boolean =
+        f == null || f == Failure.NETWORK || f == Failure.STALLED || f == Failure.OTHER || f == Failure.SERVER_ERROR
+
+    /** How long the player waits for the internet to come back before running the order anyway, and how often it looks. */
+    const val NET_WAIT_MS = 120_000L
+    const val NET_POLL_MS = 3_000L
+
+    /** Blocked servers (broken secure connection) in one watch before the TV suggests the VPN. */
+    const val BLOCKS_BEFORE_NOTE = 3
 }

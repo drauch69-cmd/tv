@@ -30,4 +30,20 @@ class RescueTest {
         assertEquals(RescueStep.NEXT_SOURCE, Rescue.AFTER_STALL.first())
         assertEquals(RescueStep.READY_BACKUP, Rescue.AFTER_EMPTY_RENEWAL.first())
     }
+
+    @Test fun reasksAreSpacedOut() {
+        assertEquals(1_000L, Rescue.reaskDelayMs(1))
+        assertEquals(2_000L, Rescue.reaskDelayMs(2))
+        assertEquals(3_000L, Rescue.reaskDelayMs(3))
+        assertEquals(3_000L, Rescue.reaskDelayMs(4))
+    }
+
+    @Test fun onlyConnectionLikeFailuresCheckTheInternet() {
+        assertTrue(Rescue.checksNetwork(Failure.NETWORK))
+        assertTrue(Rescue.checksNetwork(Failure.STALLED))
+        assertTrue(Rescue.checksNetwork(null))
+        assertTrue(!Rescue.checksNetwork(Failure.BROKEN_SECURE))
+        assertTrue(!Rescue.checksNetwork(Failure.REFUSED))
+        assertTrue(!Rescue.checksNetwork(Failure.BEHIND_LIVE))
+    }
 }
