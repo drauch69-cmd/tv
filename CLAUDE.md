@@ -60,7 +60,9 @@ In practice:
 - `test`, `integrate`, `sports-int` and `agent/*` are retired (2026-11-20); don't use or revive them. `main` stays only
   because the TV Cleaner app builds from it (`cleaner.yml`, hands off); StreamLink's `latest`/`test-latest` releases are
   frozen.
-- This session's GitHub access may only push to `sports`: deleting branches, tags, repo settings and Actions secrets
+- `lab` (2026-11-21): "StreamLink Lab" (`com.streamlink.tv.lab`, release `lab-latest`) for big redesigns; push it
+  directly, merge `sports` into it regularly, bring proven changes to `sports` as their own builds (see DECISIONS "Lab app").
+- This session's GitHub access may only push to `sports` and `lab`: deleting branches, tags, repo settings and Actions secrets
   are refused. Hand those to the user.
 - CI (`.github/workflows/build.yml`): every push builds and runs unit tests; `sports` publishes `sports-latest`;
   versionCode = run number. Lint is separate and never blocks. Transient Maven 429: `gh run rerun <id> --failed`.
