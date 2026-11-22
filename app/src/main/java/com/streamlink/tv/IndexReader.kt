@@ -102,7 +102,7 @@ class IndexReader(private val context: Context, private val holder: ViewGroup) {
     private fun feedTried(url: String, callback: (ListResult) -> Unit): Boolean {
         val recipe = try { ListRecipes.match(ListRecipes.saved(context), Uri.parse(url).host) } catch (_: Exception) { null }
         val feed = recipe?.feed ?: return false
-        val feedUrl = FeedRecipe.feedUrl(feed, url)
+        val feedUrl = FeedRecipe.feedUrl(feed, url)?.let { ListRecipes.followMove(it, recipe?.host ?: "", Uri.parse(url).host) }
         if (feedUrl == null) { Report.log("List: data file address for ${Report.host(url)} needs a part this list's address doesn't have; reading the page"); return false }
         done = false
         generation++
@@ -1025,11 +1025,27 @@ object ListRecipes {
         return try { ZoneId.of(t) } catch (_: Exception) { null }
     }
 
-    /** The recipe for this page host (exact or a parent domain of it); the most specific one wins. */
+    /**
+     * The recipe for this page host (exact or a parent domain of it); the most specific one wins. With none, a recipe
+     * for the same site name on another ending (the site moved, e.g. crackstreams.mx -> crackstreams.to; SiteKey).
+     */
     fun match(recipes: List<Recipe>, pageHost: String?): Recipe? {
         val h = normHost(pageHost)
         if (h.isEmpty()) return null
-        return recipes.filter { h == it.host || h.endsWith("." + it.host) }.maxByOrNull { it.host.length }
+        recipes.filter { h == it.host || h.endsWith("." + it.host) }.maxByOrNull { it.host.length }?.let { return it }
+        return recipes.firstOrNull { SiteKey.sameName(h, it.host) }
+    }
+
+    /**
+     * A data-file address written for the recipe's own host, pointed at [pageHost] when the recipe was matched by
+     * name on another ending (the site moved). Addresses on other hosts (a separate data server) stay as they are.
+     */
+    fun followMove(feedUrl: String, recipeHost: String, pageHost: String?): String {
+        val page = normHost(pageHost)
+        if (page.isEmpty() || page == recipeHost || page.endsWith(".$recipeHost")) return feedUrl
+        val fh = SiteKey.of(SiteKey.hostOf(feedUrl)) ?: return feedUrl
+        if (fh != recipeHost) return feedUrl
+        return SiteKey.withHost(feedUrl, page) ?: feedUrl
     }
 
     /**

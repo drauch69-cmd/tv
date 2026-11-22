@@ -23,7 +23,7 @@ object SiteHabits {
     const val KIND_PLAYER = "player"
     const val KIND_PAGE = "page"
     private const val PREFS = "streamlink"
-    private const val KEY = "site_habits_1"
+    internal const val KEY = "site_habits_1"
 
     /** [tapKind] is "" when no tap is part of the habit; [srcIndex] is -1 when no source button is. [taps] is 1 or 2 (2 = two or more). */
     data class Habit(

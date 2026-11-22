@@ -25,6 +25,8 @@ class StreamLinkApp : Application() {
         OfflineMarks.init(this)
         DeadHosts.init(this)
         ReportLog.init(this)
+        FailureTally.init(this)
+        SiteHealth.init(this)
         ScoreFeed.init(this)
         CrashRecorder.install(this)
         if (restoredBackup) Report.pin("Settings restored from a backup file")

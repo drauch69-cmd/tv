@@ -25,7 +25,7 @@ object SiteMemory {
     const val EXPIRE_MS = 7 * 24 * 60 * 60 * 1000L
     private const val PREFS = "streamlink"
     // "_2": forgets misses recorded while builds 153–156 gave up early on other sites' players.
-    private const val KEY = "site_memory_2"
+    internal const val KEY = "site_memory_2"
     private const val MAX_SITES = 80
 
     data class Entry(val fails: Int, val at: Long)
