@@ -203,7 +203,8 @@ file's git history (commit 3680843 and earlier).
 - **Lab build 1: games show before streams** (built): right after start, live games whose sport still has an unread
   list show in Live games / featured with "Finding streams…" (OK: "Still finding streams"); stream-only again once every
   list is read (or failed), a list read <5 min ago counts as read, never past 60 s. Check: a cold start fills home in a
-  few seconds, cards switch to normal as streams arrive, nothing stream-less after a minute.
+  few seconds, cards switch to normal as streams arrive, nothing stream-less after a minute. Build 302 adds the report line
+  "Home: N live game(s) shown while their streams are found (...)" / "Home: every shown game has a stream now".
 - **Lab build 1: playing brain step 1a** (built, log only): every rescue start logs "Failure: <name> (while playing /
   before the picture; detail)" (fell behind live, tunneled audio, broken secure connection, link expired, server refused,
   stream gone, server error, network, unreadable data, decoder, stalled, video pieces failing, other). Next (1b): those
