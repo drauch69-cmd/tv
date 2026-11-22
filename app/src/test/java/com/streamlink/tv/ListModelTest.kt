@@ -96,7 +96,8 @@ class ListModelTest {
         assertEquals("b", ListRecipes.match(r, "live.example.com")?.item) // most specific wins
         assertEquals("b", ListRecipes.match(r, "x.live.example.com")?.item)
         assertNull(ListRecipes.match(r, "notexample.com"))
-        assertNull(ListRecipes.match(r, "example.org"))
+        assertEquals("a", ListRecipes.match(r, "example.org")?.item) // same site name on another ending (site moves, 2026-11-22)
+        assertNull(ListRecipes.match(r, "other.org"))
         assertNull(ListRecipes.match(r, null))
     }
 

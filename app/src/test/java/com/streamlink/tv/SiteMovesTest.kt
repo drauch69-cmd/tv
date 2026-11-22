@@ -76,34 +76,35 @@ class SiteMovesTest {
     // ---- site health ----
 
     private val h = 60 * 60_000L
+    private val t = 1_700_000_000_000L // a real clock time (0 means "never" in the entries)
 
     @Test fun notWorkingAfterADayOfFailedLoads() {
         var e: SiteHealth.Entry? = null
-        e = SiteHealth.after(e, SiteHealth.Read.FAILED, 0)
-        e = SiteHealth.after(e, SiteHealth.Read.FAILED, 2 * h)
-        e = SiteHealth.after(e, SiteHealth.Read.FAILED, 4 * h)
-        assertFalse(SiteHealth.notWorking(e, 4 * h)) // one bad evening is not enough
-        assertTrue(SiteHealth.notWorking(e, 25 * h))
-        assertFalse(SiteHealth.notWorking(SiteHealth.after(e, SiteHealth.Read.OK, 26 * h), 26 * h))
+        e = SiteHealth.after(e, SiteHealth.Read.FAILED, t + 0)
+        e = SiteHealth.after(e, SiteHealth.Read.FAILED, t + 2 * h)
+        e = SiteHealth.after(e, SiteHealth.Read.FAILED, t + 4 * h)
+        assertFalse(SiteHealth.notWorking(e, t + 4 * h)) // one bad evening is not enough
+        assertTrue(SiteHealth.notWorking(e, t + 25 * h))
+        assertFalse(SiteHealth.notWorking(SiteHealth.after(e, SiteHealth.Read.OK, t + 26 * h), t + 26 * h))
     }
 
     @Test fun emptyReadsNeedThreeDays() {
         var e: SiteHealth.Entry? = null
-        repeat(4) { e = SiteHealth.after(e, SiteHealth.Read.EMPTY, it * 10 * h) }
-        assertFalse(SiteHealth.notWorking(e, 30 * h))
-        assertTrue(SiteHealth.notWorking(e, 73 * h))
+        repeat(4) { e = SiteHealth.after(e, SiteHealth.Read.EMPTY, t + it * 10 * h) }
+        assertFalse(SiteHealth.notWorking(e, t + 30 * h))
+        assertTrue(SiteHealth.notWorking(e, t + 73 * h))
     }
 
     @Test fun moveCheckAfterAFailOrTwoEmptiesAndNotTooOften() {
-        val one = SiteHealth.after(null, SiteHealth.Read.FAILED, 7 * h)
-        assertTrue(SiteHealth.wantsMoveCheck(one, SiteHealth.Read.FAILED, 7 * h))
-        val empty1 = SiteHealth.after(null, SiteHealth.Read.EMPTY, 7 * h)
-        assertFalse(SiteHealth.wantsMoveCheck(empty1, SiteHealth.Read.EMPTY, 7 * h))
-        val empty2 = SiteHealth.after(empty1, SiteHealth.Read.EMPTY, 8 * h)
-        assertTrue(SiteHealth.wantsMoveCheck(empty2, SiteHealth.Read.EMPTY, 8 * h))
-        val checked = one.copy(moveCheckAt = 7 * h)
-        assertFalse(SiteHealth.wantsMoveCheck(SiteHealth.after(checked, SiteHealth.Read.FAILED, 8 * h), SiteHealth.Read.FAILED, 8 * h))
-        assertTrue(SiteHealth.wantsMoveCheck(SiteHealth.after(checked, SiteHealth.Read.FAILED, 14 * h), SiteHealth.Read.FAILED, 14 * h))
+        val one = SiteHealth.after(null, SiteHealth.Read.FAILED, t + 7 * h)
+        assertTrue(SiteHealth.wantsMoveCheck(one, SiteHealth.Read.FAILED, t + 7 * h))
+        val empty1 = SiteHealth.after(null, SiteHealth.Read.EMPTY, t + 7 * h)
+        assertFalse(SiteHealth.wantsMoveCheck(empty1, SiteHealth.Read.EMPTY, t + 7 * h))
+        val empty2 = SiteHealth.after(empty1, SiteHealth.Read.EMPTY, t + 8 * h)
+        assertTrue(SiteHealth.wantsMoveCheck(empty2, SiteHealth.Read.EMPTY, t + 8 * h))
+        val checked = one.copy(moveCheckAt = t + 7 * h)
+        assertFalse(SiteHealth.wantsMoveCheck(SiteHealth.after(checked, SiteHealth.Read.FAILED, t + 8 * h), SiteHealth.Read.FAILED, t + 8 * h))
+        assertTrue(SiteHealth.wantsMoveCheck(SiteHealth.after(checked, SiteHealth.Read.FAILED, t + 14 * h), SiteHealth.Read.FAILED, t + 14 * h))
     }
 
     @Test fun readKinds() {
@@ -114,9 +115,9 @@ class SiteMovesTest {
     }
 
     @Test fun movedNoteFades() {
-        val e = SiteHealth.Entry(movedFrom = "old.example", movedAt = 0)
-        assertEquals("old.example", SiteHealth.movedNote(e, 10 * h))
-        assertNull(SiteHealth.movedNote(e, 4 * 24 * h))
+        val e = SiteHealth.Entry(movedFrom = "old.example", movedAt = t)
+        assertEquals("old.example", SiteHealth.movedNote(e, t + 10 * h))
+        assertNull(SiteHealth.movedNote(e, t + 4 * 24 * h))
     }
 
     // ---- memory carried over ----
