@@ -1142,6 +1142,8 @@ class PlayerActivity : Activity() {
     private var reaskPending = false
     /** The player is waiting for the internet to come back (waitForNetwork). */
     private var netWaiting = false
+    /** The internet check before a rescue is running; another failure (stall timer, start check) must not start a second rescue meanwhile. */
+    private var netChecking = false
 
     /**
      * Lab: before running the order for a failure a dead connection also causes, check the internet (a quick connect to
@@ -1150,9 +1152,11 @@ class PlayerActivity : Activity() {
      */
     private fun checkNetThen(why: String, go: () -> Unit) {
         val gen = linkGen
+        netChecking = true
         kotlin.concurrent.thread(isDaemon = true, name = "net-check") {
             val up = Pinger.reachable()
             main.post {
+                netChecking = false
                 if (isDestroyed || gen != linkGen) return@post
                 if (up) go() else waitForNetwork(why, System.currentTimeMillis(), gen, go)
             }
@@ -1198,7 +1202,7 @@ class PlayerActivity : Activity() {
      * asynchronous (a ready backup's check) continues with the steps after it when that comes back empty.
      */
     private fun rescue(steps: List<RescueStep>, why: String, error: PlaybackException? = null, from: Int = 0, checkNet: Boolean = false) {
-        if (fastChecking || reaskPending || netWaiting) return
+        if (fastChecking || reaskPending || netWaiting || netChecking) return
         if (set == null) return finish()
         if (from == 0 && checkNet) return checkNetThen(why) { rescue(steps, why, error) }
         // It had been playing fine for a while: this is a fresh problem, not a repeat.

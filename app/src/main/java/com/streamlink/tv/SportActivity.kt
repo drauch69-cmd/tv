@@ -335,6 +335,7 @@ class SportActivity : Activity() {
         val summary = GameFolders.summary(f)
         Report.logOnce(summary, summary)
 
+        val focusedSlot = if (hadFocusInRows) RowEdges.slotOf(rows, focus) else -1
         rows.removeAllViews()
         var firstRow: View? = null
         var focusTarget: View? = null
@@ -359,6 +360,7 @@ class SportActivity : Activity() {
         }
         when {
             focusTarget != null -> focusTarget!!.requestFocus()
+            hadFocusInRows && RowEdges.rowAtSlot(rows, focusedSlot) != null -> RowEdges.rowAtSlot(rows, focusedSlot)!!.requestFocus()
             hadFocusInRows || currentFocus == null -> (firstRow ?: allChip).requestFocus()
         }
         alignSide(firstRow)

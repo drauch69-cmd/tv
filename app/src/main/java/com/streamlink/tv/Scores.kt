@@ -814,6 +814,9 @@ object ScoreFeed {
 
     private fun download(address: String): String {
         val c = URL(address).openConnection() as HttpURLConnection
+        // A fully read answer is NOT disconnect()ed: closing the stream returns the socket to the keep-alive pool, so the
+        // next ESPN request (same host: other leagues, the 2nd future day, the next poll) skips a TLS handshake.
+        var reusable = false
         try {
             c.connectTimeout = 8000
             c.readTimeout = 8000
@@ -830,11 +833,12 @@ object ScoreFeed {
                     if (buf.size() > 8 * 1024 * 1024) throw IOException("answer too large")
                 }
             }
+            reusable = true
             val body = buf.toString("UTF-8")
             if (!body.contains("\"events\"")) throw IOException("unexpected answer")
             return body
         } finally {
-            c.disconnect()
+            if (!reusable) c.disconnect()
         }
     }
 }

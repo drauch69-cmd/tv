@@ -27,8 +27,10 @@ class StreamLinkApp : Application() {
         ReportLog.init(this)
         ScoreFeed.init(this)
         CrashRecorder.install(this)
-        CrashRecorder.reportLast(this)
         if (restoredBackup) Report.pin("Settings restored from a backup file")
+        // Reading Android's exit records (a binder call, plus an ANR trace) and two synchronous prefs commits would
+        // otherwise hold up the first frame; Report.pin is synchronized and the lines only matter once a report is read.
+        Thread({ CrashRecorder.reportLast(this) }, "crash-report-last").apply { isDaemon = true }.start()
     }
 
     @Suppress("DEPRECATION")

@@ -235,6 +235,12 @@ file's git history (commit 3680843 and earlier).
   Step 1c done: piece failures and refused pieces run through the one order (Rescue.PIECES_FAILING /
   afterRefusedPieces); Refusal.afterRefusal and BrokenTls.refetchMain removed. Check: VPN off -> no working stream
   within ~20 s with the VPN text; VPN on + Try again plays; normal plays unchanged.
+- **Lab sweep, 10 small fixes** (2026-11-21, user asked; uncommitted in the lab working tree, not built): no double
+  rescue during the internet check (netChecking); phone page server survives accept() errors; hidden browser teardown
+  guarded after a renderer crash; crash/exit report read off the start-up thread; ESPN requests reuse connections;
+  player overlay and list 30 s refresh skip unchanged views; card photos scaled to exact size; focus keeps its slot
+  when the focused row vanishes; two dead helpers removed. Follow-ups: shared prefs keys, deferred WebView creation,
+  Sport/Streams/home per-row updates, ESPN ETags.
 
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the

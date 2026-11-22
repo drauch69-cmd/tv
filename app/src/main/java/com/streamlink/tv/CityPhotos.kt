@@ -103,7 +103,11 @@ object CityPhotos {
         BitmapFactory.decodeFile(f.path, o)
         if (o.outWidth <= 0) return null
         val opts = BitmapFactory.Options().apply { inSampleSize = PhotoFrame.sampleSize(o.outWidth, o.outHeight, w, h) }
-        val b = try { BitmapFactory.decodeFile(f.path, opts) } catch (_: OutOfMemoryError) { null } ?: return null
+        var b = try { BitmapFactory.decodeFile(f.path, opts) } catch (_: OutOfMemoryError) { null } ?: return null
+        // Decode steps are powers of two; trim to the exact size so the GPU uploads and draws fewer pixels.
+        PhotoFrame.coverSize(b.width, b.height, w, h)?.let { (tw, th) ->
+            try { Bitmap.createScaledBitmap(b, tw, th, true).also { if (it !== b) b.recycle() } } catch (_: OutOfMemoryError) { null }
+        }?.let { b = it }
         cached = Triple(f.path, b, stamp)
         return b
     }

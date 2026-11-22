@@ -35,8 +35,6 @@ object Refusal {
     /** A page reload handed back only the stream (same address ignoring the query) whose pieces were refused. */
     fun sameRefusedStream(refusedUrl: String?, freshUrls: List<String>): Boolean =
         refusedUrl != null && freshUrls.isNotEmpty() && freshUrls.all { DeadStream.samePath(it, refusedUrl) }
-
-    const val NO_CYCLE_NOTE = "pieces refused; not trying the other referers"
 }
 
 /**

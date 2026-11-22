@@ -147,14 +147,9 @@ object Ui {
         GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
             PhotoFade.alphas(width, dark).map { (it shl 24) or (FADE_BOTTOM and 0xFFFFFF) }.toIntArray())
 
-    /** Same fade, top to bottom, for a photo that sits above the text (the sport screen's side card). */
     /** Dark from the bottom up over a whole-card photo, so text at the bottom reads (sport screen side card). */
     fun photoFadeUp(): GradientDrawable = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(
         FADE_BOTTOM, 0xF014181E.toInt(), 0xD814181E.toInt(), 0xA014181E.toInt(), 0x5014181E, 0x1014181E, 0x0014181E,
-    ))
-
-    fun photoFadeDown(): GradientDrawable = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(
-        FADE_BOTTOM, 0xB014181E.toInt(), 0x5014181E, 0x1814181E, 0x0014181E, 0x0014181E,
     ))
 
     /** Card look: a subtle dark-to-less-dark fade, a shade lighter when focused, with the accent ring on top. */

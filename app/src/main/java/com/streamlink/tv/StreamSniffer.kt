@@ -551,10 +551,11 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         val wv = webView ?: return
         webView = null
         client = null
-        wv.stopLoading()
-        wv.loadUrl("about:blank")
-        holder.removeView(wv)
-        wv.destroy()
+        // Each step guarded: after a renderer crash the view is already destroyed and these calls can throw,
+        // which would skip destroy() (leak) and the caller's result callback.
+        try { wv.stopLoading(); wv.loadUrl("about:blank") } catch (_: Throwable) {}
+        try { holder.removeView(wv) } catch (_: Throwable) {}
+        try { wv.destroy() } catch (_: Throwable) {}
     }
 
     /** Called on the main thread for each stream the page asks for. */
