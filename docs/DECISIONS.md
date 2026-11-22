@@ -210,6 +210,16 @@ file's git history (commit 3680843 and earlier).
   stream gone, server error, network, unreadable data, decoder, stalled, video pieces failing, other). Next (1b): those
   names feed one fixed fallback order. Check: reports show one Failure line per problem and nothing else changed.
 
+- **Lab: playing brain step 1b** (built, 2026-11-21, user's go): the player's separate rescue routines are replaced by
+  one order (Rescue): the failure name picks the first steps (broken secure connection: ask the main playlist again;
+  refused: piece engine, Chrome engine, fresh link, next referer, refused pieces; tunneled audio: tunneling off; behind
+  live: jump, or on the 2nd time a backup / another site), then every failure falls through the same tail: engine
+  restart, piece fix, next source (before the picture), ready backup (while playing), reload page (max 3), another
+  site, browser player. Each step taken logs "Rescue: <step>". Also in Lab: broken secure connections are not retried
+  (was ~3.5 s each) and the main playlist may be asked up to 4 times (was 2). Check: plays and recoveries behave as
+  before or faster; reports show Failure + Rescue lines; with the VPN off, blocked servers move on within ~1 s.
+  Next (1c): remove the code the old routines no longer need.
+
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the
   TV's zone. Fix per site with a recipe entry: its host + `"zone": "UTC"`. ESPN still fixes matched games.
