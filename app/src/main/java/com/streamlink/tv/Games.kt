@@ -144,9 +144,9 @@ object LiveGames {
      * basketball; within a sport, most exciting first ([scores]: FeaturedPick ratings by game id, user 2026-11-20),
      * then earliest start.
      */
-    fun sample(folders: List<SportFolders>, max: Int = 8, scores: Map<String, Double> = emptyMap()): List<GameFolder> =
+    fun sample(folders: List<SportFolders>, max: Int = 8, scores: Map<String, Double> = emptyMap(), finding: Set<String> = emptySet()): List<GameFolder> =
         folders.flatMap { it.games }
-            .filter { it.game.state == "in" && it.streams.isNotEmpty() }
+            .filter { it.game.state == "in" && HomeFinding.shows(it, finding) }
             .sortedWith(compareBy<GameFolder>({ leaguePriority(it.game.league) }, { -(scores[it.game.id] ?: 0.0) }, { it.game.startMillis }))
             .take(max)
 

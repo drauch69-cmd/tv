@@ -7,6 +7,8 @@ class StreamLinkApp : Application() {
     companion object {
         /** True on the first start after a settings restore (for the report). */
         @Volatile var restoredBackup = false
+        /** When this app process started (HomeFinding). */
+        @Volatile var startedAt = System.currentTimeMillis()
     }
 
     private fun processName(): String =

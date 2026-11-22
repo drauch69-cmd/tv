@@ -128,7 +128,8 @@ class MainActivity : Activity() {
             lists = lists + DemoGames.list()
             byId[DemoGames.LIST_ID] = DemoGames.cached(demo, now)
         }
-        return HomeModel.build(lists, byId, all, now, java.time.ZoneId.systemDefault())
+        val finding = HomeFinding.leagues(lists, { ListReads.readThisRun(it) }, { byId[it]?.readAt ?: 0L }, now, StreamLinkApp.startedAt)
+        return HomeModel.build(lists, byId, all, now, java.time.ZoneId.systemDefault(), finding)
     }
 
     /** [computeHome] with a report line for the first 3 calculations and any one over 1.5 s. */
@@ -587,14 +588,14 @@ class MainActivity : Activity() {
 
     /** The "Live games" row (RedZone first while it airs, then games) and the "Sports" row. */
     private fun renderSports(m: HomeModel) {
-        val pick = FeaturedPick.choose(m.folders, System.currentTimeMillis(), featured.hasFocus(), featState)
+        val pick = FeaturedPick.choose(m.folders, System.currentTimeMillis(), featured.hasFocus(), featState, finding = m.finding)
         val feat = pick?.folder
         if (pick != null && pick.reason != "kept" && pick.reason != "protected" && pick.reason != "focused") {
             Report.log("Featured: ${SportsText.matchup(pick.folder.game)} (${pick.reason}, score ${pick.rating.score.toInt()}" +
                 (if (pick.rating.why.isEmpty()) ")" else ", ${pick.rating.why.joinToString(", ")})"))
         }
         renderFeatured(feat)
-        renderLiveGames(m.folders, m.redZone, feat?.game?.id)
+        renderLiveGames(m.folders, m.redZone, feat?.game?.id, m.finding)
         renderSportTiles(m)
     }
 
@@ -709,6 +710,7 @@ class MainActivity : Activity() {
         featTeams.addView(teamLine(g.away, away >= home, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         featTeams.addView(teamLine(g.home, home >= away, nameW), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
         featStatus.text = (if (FeaturedPick.heating(featState.ratings[g.id])) "${FeaturedPick.FLAME} " else "") + (ScoreText.status(g) ?: "")
+        featWatch.text = if (gf.streams.isEmpty()) FINDING_TEXT else "Watch"
         featWatch.contentDescription = "Watch ${SportsText.matchup(g)}"
         loadPhoto(g)
     }
@@ -761,7 +763,11 @@ class MainActivity : Activity() {
     }
 
     /** Watch: plays the game's best stream, like picking the game. */
-    private fun watchFeatured() { featGame?.let { playBest(it) } }
+    private fun watchFeatured() { featGame?.let { if (it.streams.isEmpty()) stillFinding() else playBest(it) } }
+
+    /** OK on a game shown before its streams were found (HomeFinding). */
+    private fun stillFinding() =
+        Toast.makeText(this, "Still finding streams for this game. Try again in a few seconds.", Toast.LENGTH_SHORT).show()
 
     /** Plays [gf]'s best stream (best-ranked list first, skipping ones marked Offline or just failed); false with none. */
     private fun playBest(gf: GameFolder): Boolean {
@@ -776,11 +782,11 @@ class MainActivity : Activity() {
         return true
     }
 
-    private fun renderLiveGames(folders: List<SportFolders>, redZone: HomeFeed.Entry?, featuredId: String?) {
+    private fun renderLiveGames(folders: List<SportFolders>, redZone: HomeFeed.Entry?, featuredId: String?, finding: Set<String> = emptySet()) {
         val focusedId = liveGamesRow.focusedChild?.tag as? String
         liveGamesRow.removeAllViews()
         val ratings = featState.ratings
-        val games = LiveGames.sample(folders, 9, ratings.mapValues { it.value.score }).filter { it.game.id != featuredId }.take(8)
+        val games = LiveGames.sample(folders, 9, ratings.mapValues { it.value.score }, finding).filter { it.game.id != featuredId }.take(8)
         val vis = if (games.isEmpty() && redZone == null) View.GONE else View.VISIBLE
         liveGamesHeader.visibility = vis
         liveGamesScroll.visibility = vis
@@ -833,7 +839,10 @@ class MainActivity : Activity() {
                 tag = g.id
                 contentDescription = SportsText.matchup(g)
                 // OK plays the best stream; holding OK opens the game's full stream list (user, 2026-11-20).
-                setOnClickListener { if (!playBest(gf)) startActivity(StreamsActivity.gameIntent(this@MainActivity, g.league, g.id)) }
+                setOnClickListener {
+                    if (gf.streams.isEmpty()) stillFinding()
+                    else if (!playBest(gf)) startActivity(StreamsActivity.gameIntent(this@MainActivity, g.league, g.id))
+                }
                 setOnLongClickListener { startActivity(StreamsActivity.gameIntent(this@MainActivity, g.league, g.id)); true }
             }
             val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
@@ -852,7 +861,8 @@ class MainActivity : Activity() {
             val foot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
             foot.addView(Ui.text(this, ScoreText.status(g) ?: "", 11f, Ui.LIVE_TEXT, bold = true).apply { maxLines = 1 },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            foot.addView(Ui.streamChip(this, gf.streams.size))
+            if (gf.streams.isEmpty()) foot.addView(Ui.text(this, FINDING_TEXT, 11f, Ui.TEXT_3).apply { maxLines = 1 })
+            else foot.addView(Ui.streamChip(this, gf.streams.size))
             card.addView(foot)
             val lp = LinearLayout.LayoutParams(dp(TILE_W), dp(TILE_H))
             lp.marginEnd = dp(16)
@@ -1094,6 +1104,8 @@ class MainActivity : Activity() {
         const val STALE_MS = 10 * 60_000L
         const val ALWAYS_ON_TAG = "always-on"
         const val REDZONE_TAG = "redzone"
+        /** Shown on a game whose streams aren't found yet (HomeFinding). */
+        const val FINDING_TEXT = "Finding streams…"
         const val LOADING_MAX_MS = 15_000L
         /** Featured card height (dp); the photo covers the whole card. Side padding of the home page (dp). */
         const val FEAT_H = 260

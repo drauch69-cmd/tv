@@ -255,8 +255,10 @@ object FeaturedPick {
      *   overtime game in its final minute takes over from one led by 4 or more.
      * Null when no live game has a stream.
      */
-    fun choose(folders: List<SportFolders>, now: Long, focused: Boolean, state: State, week: Int = nflWeek(now)): Pick? {
-        val live = folders.flatMap { it.games }.filter { it.game.state == "in" && it.streams.isNotEmpty() }
+    fun choose(folders: List<SportFolders>, now: Long, focused: Boolean, state: State, week: Int = nflWeek(now), finding: Set<String> = emptySet()): Pick? {
+        val inGames = folders.flatMap { it.games }.filter { it.game.state == "in" }
+        // Games with a stream first; right after start, games still being searched may stand in (HomeFinding).
+        val live = inGames.filter { it.streams.isNotEmpty() }.ifEmpty { inGames.filter { HomeFinding.shows(it, finding) } }
         for (f in live) state.record(f.game, now)
         state.forget(folders.flatMap { it.games }.filter { it.game.state == "in" }.map { it.game.id }.toSet())
         if (live.isEmpty()) { state.currentId = null; state.ratings = emptyMap(); return null }
