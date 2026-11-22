@@ -27,6 +27,10 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Settings backup/restore** (2026-11-21, user): phone page "Download settings backup" (zip: every settings file,
+  sport/city photos, saved game matches; not logs) and "Restore from a backup…" (checked, staged, swapped in at the next
+  start; the app restarts itself). Works Sports -> Lab. Check on TV: download from Sports, restore into Lab, lists,
+  ranks and photos all there; report says "Settings restored from a backup file".
 - Checked on the TV by the user (2026-11-21): the file split (steps 1 and 3), the signing-key build, the UI + playing
   batch, the app logo / polished look and list reading performance. Removed from this list.
 - **City photos search city + state** (2026-11-21, user): "Chicago Illinois", "London England"; landscape-only filter
@@ -180,6 +184,21 @@ file's git history (commit 3680843 and earlier).
 - **Empty player box pages** ("pressing source button" lines), **live scores** (college `groups=80` and ESPN's live
   clock wording unverified) and **ESPN-driven Live/Final** on every screen.
 - **Crisp focus ring** and the **crash/freeze recorder** ("Last exit:" / "Crash:" lines).
+
+### Lab app (2026-11-21, user's go): big redesigns tried here first
+- `lab` branch builds "StreamLink Lab" (`com.streamlink.tv.lab`, orange icon, release `lab-latest`), installed next to
+  Sports. Big changes go to Lab, bolder (old code can be removed); a change proven on the TV is brought to Sports as its
+  own build. Small fixes go to Sports; merge `sports` into `lab` regularly. Run one app at a time on the Onn.
+- Order (user's go): games show right away -> playing brain 1a/1b/1c -> one shared hidden browser if memory lines need it;
+  then small items (network workarounds out, old switches pruned, sample replay rig, one settings store, leftovers).
+- **Lab build 1: games show before streams** (built): right after start, live games whose sport still has an unread
+  list show in Live games / featured with "Finding streams…" (OK: "Still finding streams"); stream-only again once every
+  list is read (or failed), a list read <5 min ago counts as read, never past 60 s. Check: a cold start fills home in a
+  few seconds, cards switch to normal as streams arrive, nothing stream-less after a minute.
+- **Lab build 1: playing brain step 1a** (built, log only): every rescue start logs "Failure: <name> (while playing /
+  before the picture; detail)" (fell behind live, tunneled audio, broken secure connection, link expired, server refused,
+  stream gone, server error, network, unreadable data, decoder, stalled, video pieces failing, other). Next (1b): those
+  names feed one fixed fallback order. Check: reports show one Failure line per problem and nothing else changed.
 
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the
