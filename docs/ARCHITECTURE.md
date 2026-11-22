@@ -395,7 +395,10 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   loads folders from caches.
 - **Home screen refresh and list cache.** `SavedLists.cached` / `all` keep the parsed lists in memory (`CacheMemo`; the same
   object until a read is saved or a list removed, so no screen re-parses JSON on every draw). `MainActivity` has ONE score
-  refresher: `scoreTick` (5 s) asks `ScoreFeed.refreshIfDue`; when data changed it calls `requestHome(false)`. Everything
+  refresher: `scoreTick` (5 s) asks `ScoreFeed.refreshIfDue`; when data changed it calls `requestHome(false)`. While a stream
+  plays on top (`HomeWarm`: modes player/clean/site) the tick keeps going: scores ~every 60 s, a forced redo every 5 min,
+  the home thread at background priority, rows drawn while hidden, no list re-reads; line "Home: updated in the
+  background while playing" (once per stream). Everything
   on home that depends on lists or scores (Live games row incl. the RedZone card, Sports tiles, list tile counts) comes from one
   `HomeModel` (`HomeModel.kt`, pure) built on a single background thread (`home-calc`) and drawn on the main thread;
   results from older requests are dropped (`homeGen`). A non-forced request (new scores) redraws only if `HomeModel.look`

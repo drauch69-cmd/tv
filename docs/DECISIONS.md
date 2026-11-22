@@ -4,6 +4,11 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Home stays current while a stream plays** (2026-11-21, user's go on B): home no longer freezes under the player.
+  It refreshes scores about once a minute and quietly redoes its rows (low priority; forced every 5 min for clock text),
+  so Back shows current rows at once. No list re-reads during playback (hidden browser could stutter the Onn). Report
+  line "Home: updated in the background while playing". Not yet tested on the TV. Check: smooth playback on a long game;
+  home current the moment you exit.
 - **Lists fixes: reedstreams home page, streamfree cards, strikeout source log** (2026-11-21, user's go; build 292 logs):
   reedstreams' list is the site's home page, so the data file's sport filter had no address part and dropped every
   event ("no events in it" every read, then a 19-24 s page read, once 0 events). Recipe now `{path:-1|*}` (`*` = no

@@ -48,6 +48,13 @@ class MainActivity : Activity() {
     private var shownLink: String? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     private var resumed = false
+    /** While a stream plays: when home last refreshed scores / last forced a redo (see [HomeWarm]). */
+    private var warmScoresAt = 0L
+    private var warmForceAt = 0L
+    /** The "updated while playing" report line is written once per stream. */
+    private var warmLogged = false
+    /** Home may redraw: it is in front, or a stream plays on top of it (see [HomeWarm]). */
+    private fun warm() = resumed || HomeWarm.playing(Session.mode)
     /**
      * The user has pressed a key on this screen. Until then, focus is the app's own pick and moves to the featured
      * card as soon as it appears (user, 2026-11-20: home opened with the Sports row focused because the card was not
@@ -78,10 +85,21 @@ class MainActivity : Activity() {
     /**
      * Every 5 s while the home screen is in front: lets the 30 s live-score cadence run. This is the only score
      * refresher on this screen; when the scores really changed it asks for one redraw of everything that depends on them.
+     * While a stream plays on top, it keeps running at [HomeWarm]'s slower pace so Back shows current rows at once.
      */
     private val scoreTick = object : Runnable {
         override fun run() {
-            if (resumed) ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && resumed) scoresLanded() }
+            if (resumed) {
+                ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && warm()) scoresLanded() }
+            } else {
+                val now = System.currentTimeMillis()
+                val due = HomeWarm.due(Session.mode, now, warmScoresAt, warmForceAt)
+                if (due != HomeWarm.Due.NONE) {
+                    warmScoresAt = now
+                    ScoreFeed.refreshIfDue { if (!isFinishing && !isDestroyed && warm()) scoresLanded() }
+                    if (due == HomeWarm.Due.SCORES_AND_FORCE) { warmForceAt = now; requestHome(true) }
+                }
+            }
             main.postDelayed(this, SCORE_TICK_MS)
         }
     }
@@ -91,7 +109,7 @@ class MainActivity : Activity() {
      * hides once that redo is drawn with games, see [applyHome]); otherwise the redraw waits [SCORE_SETTLE_MS] so the
      * leagues of one refresh round give one home redo, not one each (2026-11-20).
      */
-    private val scoreRedraw = Runnable { if (!isFinishing && !isDestroyed && resumed) requestHome(false) }
+    private val scoreRedraw = Runnable { if (!isFinishing && !isDestroyed && warm()) requestHome(false) }
     private fun scoresLanded() {
         if (loading != null) { requestHome(false); return }
         main.removeCallbacks(scoreRedraw)
@@ -183,8 +201,14 @@ class MainActivity : Activity() {
         val gen = ++homeGen
         val now = System.currentTimeMillis()
         val app = applicationContext
+        val behind = !resumed
         homeCalc.execute {
             if (gen != homeGen) return@execute // a newer request is queued: this one would be thrown away anyway
+            // Under a playing stream: low priority, so the redo never competes with playback (2026-11-21).
+            try {
+                android.os.Process.setThreadPriority(if (behind) android.os.Process.THREAD_PRIORITY_BACKGROUND
+                    else android.os.Process.THREAD_PRIORITY_DISPLAY)
+            } catch (_: Exception) {}
             val m = try { timedHome(app, games, now) } catch (_: Exception) { return@execute }
             main.post { if (gen == homeGen && !isFinishing && !isDestroyed) applyHome(m) }
         }
@@ -200,8 +224,9 @@ class MainActivity : Activity() {
     }
 
     private fun applyHome(m: HomeModel) {
-        val draw = homeForce || (m.look != homeLook && resumed)
+        val draw = homeForce || (m.look != homeLook && warm())
         if (draw) {
+            if (!resumed && !warmLogged) { warmLogged = true; Report.log("Home: updated in the background while playing") }
             homeForce = false
             homeLook = m.look
             renderSports(m)
@@ -365,7 +390,12 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         resumed = false
-        main.removeCallbacks(scoreTick)
+        // The score tick keeps running: while a stream plays it keeps home current at a slower pace ([HomeWarm]).
+        // The first background check comes a minute in, not while the stream is starting.
+        val now = System.currentTimeMillis()
+        warmScoresAt = now
+        warmForceAt = now
+        warmLogged = false
         prefetcher.setActive(false)
         super.onPause()
     }
