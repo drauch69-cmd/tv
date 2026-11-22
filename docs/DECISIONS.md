@@ -239,7 +239,7 @@ file's git history (commit 3680843 and earlier).
   afterRefusedPieces); Refusal.afterRefusal and BrokenTls.refetchMain removed. Check: VPN off -> no working stream
   within ~20 s with the VPN text; VPN on + Try again plays; normal plays unchanged.
 - **Lab merged into Sports** (2026-11-21, user's go, option 1): all of Lab through build 305 plus the underdog upset rule went to Sports in one build, before the Lab TV checks above were done. Those checks now apply to Sports.
-- **Lab sweep, 10 small fixes** (2026-11-21, user asked; uncommitted in the lab working tree, not built): no double
+- **Lab sweep, 10 small fixes** (2026-11-21, user asked; committed to lab, merged into Sports 2026-11-21, not yet checked on the TV): no double
   rescue during the internet check (netChecking); phone page server survives accept() errors; hidden browser teardown
   guarded after a renderer crash; crash/exit report read off the start-up thread; ESPN requests reuse connections;
   player overlay and list 30 s refresh skip unchanged views; card photos scaled to exact size; focus keeps its slot
