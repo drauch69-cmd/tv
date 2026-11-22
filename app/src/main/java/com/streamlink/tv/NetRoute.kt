@@ -186,7 +186,12 @@ class PieceWatch {
         lastPieceBytes += n
     }
 
-    @Synchronized fun progressing(now: Long): Boolean = lastPieceByteAt != 0L && now - lastPieceByteAt in 0..PROGRESS_MS
+    @Synchronized fun progressing(now: Long, withinMs: Long = PROGRESS_MS): Boolean =
+        lastPieceByteAt != 0L && now - lastPieceByteAt in 0..withinMs
+
+    /** The playlist answered within the last 15 s and hasn't failed since. */
+    @Synchronized fun playlistAnswering(now: Long): Boolean =
+        playlistOkAt != 0L && now - playlistOkAt in 0..15_000 && playlistFailAt <= playlistOkAt
 
     @Synchronized fun bytesSoFar(): Long = lastPieceBytes
 

@@ -492,6 +492,10 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   (0 of 5 lost), this quality needs ≈ X Mbps, Ys of video was buffered".
 - **Player overlay** buttons, in order: Pause/Play (first, focused), Audio & quality, Source, Jump to live, Try another player (no Back button: the remote's Back key; user, 2026-11-19). Up/Down/OK open the overlay; no channel surfing. Tunneling switches off
   automatically after audio-track errors, timeouts, or repeated stalls with a full buffer (saved after 2 strikes).
+  Server slowdowns (2026-11-22): `quickStallCheck` (8 s, playing, no piece bytes, `BackupRecovery` SWITCH_FAST) switches to
+  the ready backup early; `stallCheck` before the picture with the playlist answering and 0 piece bytes uses
+  `Rescue.PIECES_FAILING` (other site before reload). `videoNotArriving()` (<1.5 s buffered) suppresses the tunneling
+  audio-starve verdict; `lowDelayCheck` ignores stalls within 10 s of prepare or with no piece bytes for 4 s.
   Short live playlists (`LiveWindow`, 2026-11-22, build 314): the first fresh live playlist after each prepare is
   remembered per stream; if the play point is unsafe the play restarts (no seek: a seek mid-download broke every start
   in build 313) with the target offset set up front: 1.5 pieces after the oldest listed piece / 2 from the newest

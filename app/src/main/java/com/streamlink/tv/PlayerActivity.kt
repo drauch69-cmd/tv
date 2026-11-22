@@ -61,6 +61,8 @@ class PlayerActivity : Activity() {
 
     companion object {
         private const val STALL_MS = 20_000L
+        /** While playing: no video bytes for this long and a backup is ready -> switch now instead of waiting [STALL_MS]. */
+        private const val QUICK_STALL_MS = 8_000L
         /** A stall check that finds a piece still arriving waits this long and looks again, up to [MAX_STALL_EXTENSIONS] times. */
         private const val STALL_EXTENSION_MS = 10_000L
         private const val MAX_STALL_EXTENSIONS = 3
@@ -511,12 +513,15 @@ class PlayerActivity : Activity() {
         main.removeCallbacks(audioStarveCheck)
         main.postDelayed(audioStarveCheck, 2_000)
         liveSpotCheck = true
+        preparedAt = System.currentTimeMillis()
         p.prepare()
         p.playWhenReady = true
     }
 
     /** After a (re)prepare: check the play point against the first fresh live playlist once ([LiveWindow]). */
     private var liveSpotCheck = false
+    /** When the current play was prepared. */
+    private var preparedAt = 0L
     /** This play's live delay came from [LiveWindow]'s memory of the stream. */
     private var liveFitUsed = false
 
@@ -549,7 +554,7 @@ class PlayerActivity : Activity() {
         }
 
         override fun onPlaybackStateChanged(playbackState: Int) {
-            main.removeCallbacks(stallCheck)
+            main.removeCallbacks(stallCheck); main.removeCallbacks(quickStallCheck)
             when (playbackState) {
                 Player.STATE_READY -> {
                     if (audioOff && playingSince == 0L) {
@@ -574,6 +579,7 @@ class PlayerActivity : Activity() {
                     stallLogged = false
                     if (player?.playWhenReady == true) main.postDelayed(stallCheck, STALL_MS)
                     if (playingSince != 0L) {
+                        if (player?.playWhenReady == true) main.postDelayed(quickStallCheck, QUICK_STALL_MS)
                         lastStallAt = System.currentTimeMillis()
                         keeper?.noteStall()
                         logStall()
@@ -618,7 +624,7 @@ class PlayerActivity : Activity() {
 
         override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
             // A paused player isn't stalled; restart the clock when playback resumes.
-            main.removeCallbacks(stallCheck)
+            main.removeCallbacks(stallCheck); main.removeCallbacks(quickStallCheck)
             if (playWhenReady && player?.playbackState == Player.STATE_BUFFERING) main.postDelayed(stallCheck, STALL_MS)
         }
 
@@ -828,6 +834,33 @@ class PlayerActivity : Activity() {
     /** Tunneling was requested AND the player actually uses it for the current tracks. */
     private fun tunnelEngaged(): Boolean = tunneling && player?.isTunnelingEnabled == true
 
+    /**
+     * 2026-11-22 (build 314 report): the server slowed to a trickle mid-game; a backup had been ready for 9 minutes but the
+     * player sat out a 20 s stall (and restarted twice for the wrong reasons). Now: buffering while playing, no video bytes
+     * for [QUICK_STALL_MS], and a ready backup -> switch to it. No ready backup: the normal 20 s stall check decides.
+     */
+    private val quickStallCheck: Runnable = Runnable {
+        if (fastChecking || playingSince == 0L || player?.playbackState != Player.STATE_BUFFERING) return@Runnable
+        val watch = route?.watch ?: return@Runnable
+        if (watch.progressing(System.currentTimeMillis(), QUICK_STALL_MS)) return@Runnable
+        val k = keeper ?: return@Runnable
+        val d = BackupRecovery.decide(k.known(System.currentTimeMillis()), 0, AutoSwitch.canSwitch())
+        if (d.plan != BackupRecovery.Plan.SWITCH_FAST) return@Runnable
+        Report.log("No video from this server for ${QUICK_STALL_MS / 1000}s; switching to the ready backup now")
+        Report.log(Failure.line(Failure.STALLED, "", true))
+        logStall(fromCheck = true)
+        // The backup didn't answer its quick check: back to the normal stall clock for the rest of the 20 s.
+        fastBackup("stalled") {
+            if (player?.playbackState == Player.STATE_BUFFERING) main.postDelayed(stallCheck, STALL_MS - QUICK_STALL_MS)
+        }
+    }
+
+    /** Video arrives too slowly to keep up (or not at all) right now: an empty buffer is the server's doing, not tunneling's or the delay's. */
+    private fun videoNotArriving(): Boolean {
+        val p = player ?: return false
+        return p.bufferedPosition - p.currentPosition < 1_500
+    }
+
     private val stallCheck: Runnable = Runnable {
         // Slow but moving: a big piece is still arriving, so this is not a stall yet (recover only when no bytes come).
         if (fastChecking) return@Runnable // a ready backup is being checked; it decides
@@ -881,6 +914,11 @@ class PlayerActivity : Activity() {
             useChromeNet = false
             Report.log("No progress with Chrome's network engine; retrying with standard networking")
             play()
+        } else if (playingSince == 0L && route?.watch?.let { it.bytesSoFar() == 0L && it.playlistAnswering(System.currentTimeMillis()) } == true) {
+            // 2026-11-22: the playlist refreshed fine for 20 s but not one byte of video came. A page reload hands back the same
+            // piece servers, so another site first (then the usual order).
+            Report.log("The playlist works but no video came from its server in ${STALL_MS / 1000}s; trying another source before reloading the page")
+            switchForPieces()
         } else {
             if (playlistRefusesStandard() && playingSince == 0L && useChromeNet) {
                 Report.logOnce("refuses-std", "This server refuses standard networking; not trying it")
@@ -1099,6 +1137,12 @@ class PlayerActivity : Activity() {
         override fun run() {
             val p = player ?: return
             if (!tunnelEngaged()) return
+            if (videoNotArriving()) {
+                // The buffer is (nearly) empty: audio stopping is the stream running dry, not tunneling (build 314 report).
+                signs.resetStarve()
+                main.postDelayed(this, 2_000)
+                return
+            }
             if (signs.audioStarved(p, System.currentTimeMillis())) {
                 retryWithoutTunneling("the audio stopped while the video kept coming")
                 return
@@ -1111,7 +1155,12 @@ class PlayerActivity : Activity() {
     private fun lowDelayCheck() {
         if (smoothLive) return
         val p = player ?: return
-        if (signs.lowDelayRanDry(p, System.currentTimeMillis())) {
+        // A stall right after a (re)start is the start itself; a stall with no video bytes coming is the server. Neither
+        // says the delay is too tight (build 314 report: a dying server got a pointless restart on smooth).
+        val now = System.currentTimeMillis()
+        if (now - preparedAt < 10_000) return
+        if (route?.watch?.progressing(now, 4_000) == false) return
+        if (signs.lowDelayRanDry(p, now)) {
             smoothThisRun = true
             set?.sources?.getOrNull(sourceIndex)?.let { LowDelayMemory.markDry(this, it.url) }
             Report.log("Low delay keeps running out of video; using the smooth delay for this stream (remembered for this stream)")
@@ -1508,7 +1557,7 @@ class PlayerActivity : Activity() {
         if (d.plan != BackupRecovery.Plan.SWITCH_FAST) return false
         val best = k.ready(now).firstOrNull { it.url == d.url } ?: return false
         fastChecking = true
-        main.removeCallbacks(stallCheck)
+        main.removeCallbacks(stallCheck); main.removeCallbacks(quickStallCheck)
         k.pause()
         val gen = linkGen
         kotlin.concurrent.thread(isDaemon = true, name = "backup-switch") {
@@ -1773,7 +1822,7 @@ class PlayerActivity : Activity() {
         main.removeCallbacks(audioStarveCheck)
         main.removeCallbacks(audioBackOn)
         main.removeCallbacks(startCheck)
-        main.removeCallbacks(stallCheck)
+        main.removeCallbacks(stallCheck); main.removeCallbacks(quickStallCheck)
         main.removeCallbacks(firstFrameCheck)
         playerView.player = null
         player?.removeListener(listener)

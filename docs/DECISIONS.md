@@ -4,6 +4,13 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Server slowdowns: blame the server, switch sooner** (2026-11-22, user's go; build 314 reports). (1) An empty buffer no
+  longer counts as tunneling trouble ("audio stopped while the video kept coming" is skipped when under 1.5 s is
+  buffered), and low delay isn't switched to smooth for a stall within 10 s of a (re)start or while no video bytes came
+  for 4 s. (2) While playing: buffering with no video bytes for 8 s and a ready backup -> "No video from this server for
+  8s; switching to the ready backup now" (no backup: the usual 20 s check). Before the picture: 20 s with the playlist
+  answering but zero video bytes -> another source/site before a page reload ("The playlist works but no video came…").
+  Not tested on the TV. Check: a mid-game server slowdown switches within ~10 s; tunneling stays on.
 - **Short live playlists: play point kept inside the list** (2026-11-22, user's go; logs 2026-11-21/22, 206 of 223 failures
   "fell behind live"). Relays often list only 3-4 pieces (12-20 s); smooth's 20 s (and its 12 s minimum) were clamped to the
   oldest listed piece, which the server deletes moments later (404 pieces, then jump-to-live loops: 40 stalls in 10 min).
