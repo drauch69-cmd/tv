@@ -437,7 +437,7 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
     a one-score game in its final minute or overtime always counts as 1. Timing = 0.2 + 0.8 × played^1.5 (halftime
     × 0.6). Drama (cap 25): crunch +15, comeback +10 (14/15+ lead cut to one score within 15 min, from
     `FeaturedPick.State` score history; scores that go backwards are ignored), upset +8/+12 (college: only vs a ranked
-    team or a 7+ favorite), red zone +5 (2nd half). Booster: NFL quality/≥.500/division/spread (max 1.5); NBA
+    team or a 7+ favorite; football: a 14+ underdog within 7 in the 2nd half also counts, +8), red zone +5 (2nd half). Booster: NFL quality/≥.500/division/spread (max 1.5); NBA
     quality/national TV/spread (max 1.5); college rank (both .4, one .15, top-10 +.1 each), winning records, national
     TV .15, +.05 per Big Ten team, spread (max 2.0). Streams: min(5, 2.5 × log2 n). College games with no ranked team
     are used only when no other live game has a stream, except Big Ten vs Big Ten. Stickiness: 5 min hold; a challenger

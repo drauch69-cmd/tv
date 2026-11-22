@@ -305,10 +305,11 @@ object Verifier {
                 if (broken) {
                     val fresh = DeadHosts.record(host)
                     if (!DeadHosts.ENFORCE) {
-                        // Log only: noted, and the other referers are still tried, as before the memory existed.
+                        // Log only: noted, not skipped next time. But no other referer can fix a broken secure
+                        // connection (both engines failed), so this check stops here (Lab, 2026-11-21: was 6 tries).
                         if (fresh) log("$host's secure connection is broken ($why); noted (log only)")
                         note = "no response"
-                        continue
+                        break
                     }
                     if (fresh || ignoreDead) log("$host's secure connection is broken ($why); remembering it as down for a few minutes")
                     note = DeadNotes.SERVER_DOWN

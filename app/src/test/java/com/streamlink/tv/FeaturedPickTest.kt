@@ -75,6 +75,20 @@ class FeaturedPickTest {
         assertFalse("upset" in rate(game("a", side("A", 10), side("B", 17), 3, "5:00", spread = -7.5)).why)
     }
 
+    @Test fun massiveUnderdogWithinOneScoreCounts() {
+        // home is a 17-point underdog, down 7 in the 3rd: counts (+8, not the +12 for leading)
+        val close = rate(game("a", side("A", 24), side("B", 17), 3, "5:00", spread = 17.0))
+        assertTrue("upset" in close.why)
+        assertTrue(FeaturedPick.heating(close))
+        // down 8: no; 10-point underdog within 7: no; first half: no; basketball: no
+        assertFalse("upset" in rate(game("a", side("A", 25), side("B", 17), 3, "5:00", spread = 17.0)).why)
+        assertFalse("upset" in rate(game("a", side("A", 24), side("B", 17), 3, "5:00", spread = 10.0)).why)
+        assertFalse("upset" in rate(game("a", side("A", 24), side("B", 17), 2, "5:00", spread = 17.0)).why)
+        assertFalse("upset" in rate(game("a", side("A", 24), side("B", 17), 3, "5:00", league = "nba", spread = 17.0)).why)
+        // college: a 14-point line is enough even with no ranked favorite
+        assertTrue("upset" in rate(game("a", side("A", 21), side("B", 14), 3, "5:00", league = "cfb", spread = 14.0)).why)
+    }
+
     @Test fun collegeUpsetOnlyAgainstRankedOrBigFavorite() {
         // unranked favorite by 3, underdog leads: not an upset in college
         val small = game("a", side("A", 10), side("B", 17), 3, "5:00", league = "cfb", spread = 3.0)

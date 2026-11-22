@@ -13,4 +13,11 @@ class RowEdgesTest {
         assertTrue(RowEdges.blocked(0, 1, left = true) && RowEdges.blocked(0, 1, left = false))
         assertFalse(RowEdges.blocked(-1, 5, left = true))
     }
+
+    @Test fun nearestKeepsSlotOrClampsToLast() {
+        org.junit.Assert.assertEquals(2, RowEdges.nearest(2, 5))
+        org.junit.Assert.assertEquals(3, RowEdges.nearest(7, 4))
+        org.junit.Assert.assertEquals(-1, RowEdges.nearest(1, 0))
+        org.junit.Assert.assertEquals(-1, RowEdges.nearest(-1, 3))
+    }
 }

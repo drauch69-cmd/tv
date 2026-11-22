@@ -53,6 +53,17 @@ object PhotoFrame {
         return Placement(scale, dx, dy)
     }
 
+    /**
+     * The exact size to scale a decoded [imgW]x[imgH] bitmap down to so it just covers [viewW]x[viewH]; null if it is
+     * already within about 20% of that (not worth a copy). The power-of-two decode can leave up to ~4x the pixels needed.
+     */
+    fun coverSize(imgW: Int, imgH: Int, viewW: Int, viewH: Int): Pair<Int, Int>? {
+        if (imgW <= 0 || imgH <= 0 || viewW <= 0 || viewH <= 0) return null
+        val s = maxOf(viewW.toFloat() / imgW, viewH.toFloat() / imgH)
+        if (s >= 0.8f) return null
+        return maxOf(1, Math.ceil(imgW * s.toDouble()).toInt()) to maxOf(1, Math.ceil(imgH * s.toDouble()).toInt())
+    }
+
     /** Power-of-two shrink for decoding an [imgW]x[imgH] picture that will cover a [viewW]x[viewH] box. */
     fun sampleSize(imgW: Int, imgH: Int, viewW: Int, viewH: Int): Int {
         if (viewW <= 0 || viewH <= 0) return 1

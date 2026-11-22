@@ -54,7 +54,10 @@ object ListReads {
     private var startedAt = 0L
     private var token = 0
     /** When each list's last read finished (worked or not), so a failing list is not read again at once. */
-    private val lastDone = HashMap<String, Long>()
+    private val lastDone = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** True once [id] has finished a read (or failed one) since the app started. Any thread. */
+    fun readThisRun(id: String): Boolean = lastDone.containsKey(id)
     /** The read time a "skipped" line was last written for, per list: one line per skip, not per tick. */
     private val skipLogged = HashMap<String, Long>()
     private val listeners = LinkedHashSet<(String, ListResult?) -> Unit>()

@@ -216,6 +216,7 @@ class StreamsActivity : Activity() {
         val hadFocusInRows = focus?.parent === rows
         val focusedTag = if (hadFocusInRows) focus?.tag as? String else null
         itemsByKey.clear()
+        val focusedSlot = if (hadFocusInRows) RowEdges.slotOf(rows, focus) else -1
         rows.removeAllViews()
         cardHolder.removeAllViews()
 
@@ -252,6 +253,7 @@ class StreamsActivity : Activity() {
         }
         when {
             focusTarget != null -> focusTarget.requestFocus()
+            hadFocusInRows && RowEdges.rowAtSlot(rows, focusedSlot) != null -> RowEdges.rowAtSlot(rows, focusedSlot)!!.requestFocus()
             hadFocusInRows || currentFocus == null -> firstRow?.requestFocus()
         }
     }

@@ -19,10 +19,13 @@ class HomeModel(
     val alwaysOnCount: Int,
     /** A summary of what is on screen; two models with the same look draw the same thing. */
     val look: String,
+    /** Sports whose lists are still waiting for their first read since start (HomeFinding). */
+    val finding: Set<String> = emptySet(),
 ) {
     companion object {
         fun build(
             lists: List<SavedList>, cachedById: Map<String, CachedList>, games: List<Game>, now: Long, zone: ZoneId,
+            finding: Set<String> = emptySet(),
         ): HomeModel {
             val order = Ranking.order(lists)
             // Best-ranked list first: same game, same start time -> its event leads in the rows.
@@ -44,11 +47,12 @@ class HomeModel(
             for ((l, _) in cached) sb.append(HomeFeed.countsText(counts.getValue(l.id))).append(';')
             // ...plus what the sports rows show, so a score change redraws them.
             sb.append('#')
-            for (gf in LiveGames.sample(folders, 8)) sb.append(gf.game.id).append('|').append(ScoreText.rowLine(gf.game)).append('|').append(gf.streams.size).append(';')
+            sb.append("f:").append(finding.sorted().joinToString(",")).append('#')
+            for (gf in LiveGames.sample(folders, 8, finding = finding)) sb.append(gf.game.id).append('|').append(ScoreText.rowLine(gf.game)).append('|').append(gf.streams.size).append(';')
             sb.append('#')
             for (f in folders) sb.append(SportsText.sportTileLine(tagged.getValue(f.league), f)).append(';')
             sb.append(SportsText.alwaysOnLine(alwaysOn)).append('#')
-            return HomeModel(lists, cached, folders, redZone, counts, tagged, alwaysOn, sb.toString())
+            return HomeModel(lists, cached, folders, redZone, counts, tagged, alwaysOn, sb.toString(), finding)
         }
     }
 }

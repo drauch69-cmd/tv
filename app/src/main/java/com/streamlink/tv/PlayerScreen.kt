@@ -436,22 +436,33 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
         else String.format(java.util.Locale.US, "%d:%02d", t / 60, t % 60)
     }
 
+    // Last values written by refreshProgress (it ticks every 500 ms); setting identical text, a fresh rounded
+    // background or the same bar width would still force a measure/layout/draw pass on the weak TV CPU.
+    private var shownPause: String? = null
+    private var shownStatus: String? = null
+    private var shownNetText: String? = null
+    private var shownNetFill = 0
+    private var shownFillW = -1
+
     private fun refreshProgress() {
         val p = host.player
-        btnPause.text = if (p?.playWhenReady == false) "Play" else "Pause"
+        val pauseText = if (p?.playWhenReady == false) "Play" else "Pause"
+        if (pauseText != shownPause) { shownPause = pauseText; btnPause.text = pauseText }
         var fraction = 1f
+        var statusText = ""
         if (p == null) {
-            ovStatus.text = ""
+            statusText = ""
         } else if (p.isCurrentMediaItemLive) {
             val off = p.currentLiveOffset
-            ovStatus.text = if (off == C.TIME_UNSET) "Live" else if (off < 1000) "At live" else "${off / 1000} s behind live"
+            statusText = if (off == C.TIME_UNSET) "Live" else if (off < 1000) "At live" else "${off / 1000} s behind live"
             val dur = p.duration
             fraction = if (dur != C.TIME_UNSET && dur > 0) (p.currentPosition.toFloat() / dur) else if (off != C.TIME_UNSET) 1f - (off / 600_000f) else 1f
         } else {
             val dur = p.duration
-            ovStatus.text = if (dur != C.TIME_UNSET && dur > 0) "${mmss(p.currentPosition)} / ${mmss(dur)}" else mmss(p.currentPosition)
+            statusText = if (dur != C.TIME_UNSET && dur > 0) "${mmss(p.currentPosition)} / ${mmss(dur)}" else mmss(p.currentPosition)
             fraction = if (dur != C.TIME_UNSET && dur > 0) p.currentPosition.toFloat() / dur else 0f
         }
+        if (statusText != shownStatus) { shownStatus = statusText; ovStatus.text = statusText }
         if (p == null) ovNet.visibility = View.GONE else {
             // What the stream needs: what it announces if it does, else what its pieces measure.
             val announced = (p.videoFormat?.bitrate ?: -1).toLong()
@@ -467,14 +478,20 @@ class PlayerScreen(private val a: Activity, private val root: FrameLayout, priva
                 PlayerStats.Level.SLOW -> 0xFF33212A.toInt() to Ui.LIVE_TEXT
                 PlayerStats.Level.MEASURING -> Ui.CHIP to Ui.TEXT_2
             }
-            ovNet.text = line.text
-            ovNet.setTextColor(ink)
-            ovNet.background = Ui.rounded(a, fill, 8f)
+            if (line.text != shownNetText || fill != shownNetFill) {
+                shownNetText = line.text
+                shownNetFill = fill
+                ovNet.text = line.text
+                ovNet.setTextColor(ink)
+                ovNet.background = Ui.rounded(a, fill, 8f)
+            }
             ovNet.visibility = View.VISIBLE
         }
         val w = ovTrack.width
-        ovFill.layoutParams = (ovFill.layoutParams as FrameLayout.LayoutParams).apply {
-            width = (w * fraction.coerceIn(0f, 1f)).toInt()
+        val fillW = (w * fraction.coerceIn(0f, 1f)).toInt()
+        if (fillW != shownFillW) {
+            shownFillW = fillW
+            ovFill.layoutParams = (ovFill.layoutParams as FrameLayout.LayoutParams).apply { width = fillW }
         }
     }
 

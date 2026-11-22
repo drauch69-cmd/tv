@@ -545,6 +545,7 @@ class PlayerActivity : Activity() {
                 Player.STATE_ENDED -> {
                     if (player?.isCurrentMediaItemLive == true) {
                         Report.log("Live stream stopped unexpectedly")
+                        Report.log(Failure.line(Failure.OTHER, "live stream stopped", true))
                         recover("stream ended")
                     } else {
                         Report.log("Video finished")
@@ -685,6 +686,7 @@ class PlayerActivity : Activity() {
                 goneUrl = set?.sources?.getOrNull(sourceIndex)?.url
                 w.clearGone()
                 Report.log("The stream's playlist is gone (${(error as? HttpDataSource.InvalidResponseCodeException)?.let { "server said ${it.responseCode}" } ?: "no answer"}); getting a fresh one")
+                Report.log(Failure.line(Failure.GONE, "playlist gone", true))
                 main.post { if (player != null) recover("playlist gone") }
             }
         }
@@ -800,6 +802,7 @@ class PlayerActivity : Activity() {
             return@Runnable
         }
         Report.log("Stalled for ${(STALL_MS + stallExtensions * STALL_EXTENSION_MS) / 1000}s")
+        Report.log(Failure.line(Failure.STALLED, "", playingSince != 0L))
         logStall(fromCheck = true)
         val buffered = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
         if (tunnelEngaged() && !firstFrame) {
@@ -885,7 +888,7 @@ class PlayerActivity : Activity() {
     /**
      * The video pieces of [host] are refused by their server (401/403/451) before the first picture. The server decided who may
      * ask: other referers (already tried, or already refused in the finder's check), the other network engine, an engine restart
-     * and the clean browser player fetch the same pieces the same way, so none of them is tried. Instead (see [Refusal.afterRefusal]):
+     * and the clean browser player fetch the same pieces the same way, so none of them is tried. Instead (see [Rescue.afterRefusedPieces]):
      * another playable source of the page, an automatic switch, one page reload only when the finder had not seen this host refuse,
      * else the site's own player. [corroborated]: the finder's check had already seen this host refuse every referer.
      */
@@ -897,26 +900,7 @@ class PlayerActivity : Activity() {
         refusedUrl = src?.url
         Report.log("Video pieces from $host are refused (server said $status); this stream can't play here")
         AutoSwitch.markDead(src?.url, System.currentTimeMillis())
-        val next = LinkOrder.nextPlayable(s.sources, sourceIndex)
-        var step = Refusal.afterRefusal(next != null, AutoSwitch.canSwitch(), corroborated, reconnects)
-        if (step == Refusal.Step.AUTO_SWITCH && tryAutoSwitch("video pieces refused")) return
-        if (step == Refusal.Step.AUTO_SWITCH) step = Refusal.afterRefusal(next != null, false, corroborated, reconnects)
-        when (step) {
-            Refusal.Step.NEXT_SOURCE -> {
-                sourceIndex = next ?: return openSitePlayer("video pieces refused")
-                refererIndex = 0
-                Report.log("Trying the next source")
-                play()
-            }
-            Refusal.Step.RELOAD_ONCE -> {
-                reconnects++
-                reconnect("video pieces refused")
-            }
-            else -> {
-                Report.log("Not reloading the page: its stream would be refused the same way")
-                openSitePlayer("video pieces refused")
-            }
-        }
+        rescue(Rescue.afterRefusedPieces(corroborated), "video pieces refused")
     }
 
     /**
@@ -972,18 +956,8 @@ class PlayerActivity : Activity() {
 
     /** The video pieces can't be had from their server: another source (a ready backup first while playing), else the usual recovery. */
     private fun switchForPieces() {
-        if (AutoSwitch.canSwitch()) {
-            val slow = {
-                if (!tryAutoSwitch("video pieces failing")) {
-                    Report.log("No other source to switch to; reconnecting as usual")
-                    recover("stalled")
-                }
-            }
-            if (playingSince != 0L && !episode.isOpen) episode.begin()
-            if (!(playingSince != 0L && fastBackup("video pieces failing", slow))) slow()
-        } else {
-            recover("stalled")
-        }
+        Report.log(Failure.line(Failure.PIECES_FAILING, "", playingSince != 0L))
+        rescue(Rescue.PIECES_FAILING, "video pieces failing")
     }
 
     /** Playing, but no picture ever appeared: a known tunneling bug on some boxes. */
@@ -1106,57 +1080,42 @@ class PlayerActivity : Activity() {
     private var mainRefetches = 0
 
     private fun handleError(error: PlaybackException) {
-        val p = player ?: return
+        player ?: return
         if (fastChecking) return // a ready backup is being checked; it decides
-        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
-            // 2026-11-21 (Tennessee–LSU): 10 s pieces kept it falling behind; jumping back to live looped 3x until the
-            // viewer picked NTV by hand. On the 2nd jump in 2 min: a ready backup, else another source.
-            if (playingSince != 0L && signs.behindLiveRepeated(System.currentTimeMillis())) {
-                val why = "keeps falling behind the live point"
-                Report.log("Keeps falling behind the live point; trying another stream")
-                if (fastBackup(why) { if (!tryAutoSwitch(why)) player?.let { it.seekToDefaultPosition(); it.prepare() } }) return
-                if (tryAutoSwitch(why)) return
-                Report.log("No other stream to try; staying on this one")
-            }
-            Report.log("Fell behind the live point; jumping back to live")
-            p.seekToDefaultPosition()
-            p.prepare()
-            return
-        }
-        // Audio output errors under tunneling: the box's tunneled audio path refuses some streams (e.g.
-        // low sample rates) even after the picture started. Retry this same source with tunneling off.
-        val audioOut = error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
-            error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
-        // "Stuck playing with no progress": on this box, tunneled playback whose audio clock froze.
-        val stuck = error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT && tunnelEngaged()
-        if (stuck || (tunneling && (!firstFrame || audioOut) && error.errorCode in tunnelSuspects)) {
-            Report.log("Playback error: ${error.errorCodeName}")
-            retryWithoutTunneling(error.errorCodeName)
-            return
-        }
+        val failure = logFailure(error)
         val httpError = error.cause as? HttpDataSource.InvalidResponseCodeException
         val http = httpError?.responseCode
-        val why = if (http != null) "server said $http" else error.errorCodeName
-        httpError?.dataSpec?.uri?.let { Report.log("  …for ${Report.short(it.toString())}") }
-        val detail = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.firstOrNull()?.take(200)
-        Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
-        // A broken secure connection is the server itself (see DeadHosts): remember it so no source, on any site, uses it
-        // for a few minutes. Seen again right after a reload: reloading hands back the same server, so stop reloading.
+        val why = when {
+            failure == Failure.BEHIND_LIVE -> "keeps falling behind the live point"
+            http != null -> "server said $http"
+            else -> error.errorCodeName
+        }
+        if (failure != Failure.BEHIND_LIVE && failure != Failure.TUNNEL_AUDIO) {
+            httpError?.dataSpec?.uri?.let { Report.log("  …for ${Report.short(it.toString())}") }
+            val detail = generateSequence(error.cause) { it.cause }.mapNotNull { it.message }.firstOrNull()?.take(200)
+            Report.log("Playback error: $why" + if (detail != null) " ($detail)" else "")
+        } else if (failure == Failure.TUNNEL_AUDIO) {
+            Report.log("Playback error: ${error.errorCodeName}")
+        }
+        // Memory only (no decision): broken secure connections (DeadHosts, log only), dead addresses, link lifetimes.
         brokenAgain = false
-        if (DeadHostText.brokenSecureLink(error)) {
-            val failing = BrokenTls.failingHost(error)
-            val mainHost = set?.sources?.getOrNull(sourceIndex)?.url?.let { Report.host(it) }
-            if (BrokenTls.refetchMain(failing, mainHost, mainRefetches)) {
-                mainRefetches++
-                failing?.let { DeadHosts.record(it) }
-                Report.log("$failing (named by the main playlist) has a broken secure connection; asking $mainHost again for another server " +
-                    "(try $mainRefetches of ${BrokenTls.MAX_MAIN_REFETCHES})")
-                play()
-                return
+        val mainHost = set?.sources?.getOrNull(sourceIndex)?.url?.let { Report.host(it) }
+        if (failure == Failure.BROKEN_SECURE) {
+            val now = System.currentTimeMillis()
+            if (blockedOnArrival == null) {
+                blockedOnArrival = NetBlock.isBlocked(mainHost, now)
+                if (blockedOnArrival == true) Report.log("Network block: $mainHost's servers were blocked moments ago too; skipping re-asks and reloads")
             }
-            failing?.let { h ->
+            NetBlock.record(mainHost, now)
+        }
+        if (failure == Failure.BROKEN_SECURE && ++blockedServers == Rescue.BLOCKS_BEFORE_NOTE && blockedOnArrival != true) {
+            Report.log("Network block: $blockedServers blocked servers this watch (broken secure connection on both engines); the VPN usually fixes it")
+            android.widget.Toast.makeText(applicationContext,
+                "Your network is blocking this stream's servers. The VPN usually fixes it.", android.widget.Toast.LENGTH_LONG).show()
+        }
+        if (failure == Failure.BROKEN_SECURE) {
+            BrokenTls.failingHost(error)?.let { h ->
                 val again = !DeadHosts.record(h)
-                // Log only (DeadHosts.ENFORCE off): noted, but reloads and recovery run as usual.
                 brokenAgain = again && DeadHosts.ENFORCE
                 Report.log(
                     if (!DeadHosts.ENFORCE) "$h's secure connection is broken (${DeadHostText.sslReason(error)})" + (if (again) ", again" else "") + "; noted (log only)"
@@ -1165,57 +1124,251 @@ class PlayerActivity : Activity() {
                 )
             }
         }
-
         val src = set?.sources?.getOrNull(sourceIndex)
-        // Refused while on standard networking: many stream servers only serve Chrome-like clients (the checker,
-        // which uses Chrome's engine, passed). Go back to Chrome's engine instead of trying other referers.
         val failHost = httpError?.dataSpec?.uri?.host?.let { ServerMemory.key(it) }
-        val r = route
-        if (http == 403 && r != null && failHost != null && failHost != r.playlistHost && !r.usesChrome(failHost) && ChromeNet.engine != null) {
-            // A piece host refused standard networking: only its pieces go back to Chrome's engine.
-            r.setPieceEngine(failHost, true)
-            ServerMemory.recordRefusesStandard(failHost)
-            Report.log("Video pieces from $failHost refused standard networking; using Chrome's network engine for them")
-            play()
-            return
-        }
-        if (http == 403 && !useChromeNet && ChromeNet.engine != null) {
-            src?.let { ServerMemory.recordRefusesStandard(Report.host(it.url)) }
-            useChromeNet = true
-            chromeForced = true
-            refererIndex = 0
-            engineRemembered = null
-            src?.let { ServerMemory.recordEngine(Report.host(it.url), ServerMemory.CHROME) }
-            Report.log("Server refused standard networking; going back to Chrome's network engine")
-            play()
-            return
-        }
-        // "Not found" on the playlist host after it had played: remember the dead address (a reload handing it back is not used).
         if ((http == 404 || http == 410) && playingSince != 0L && src != null && failHost != null && failHost == route?.playlistHost) goneUrl = src.url
-        // A signed address that played fine and is now refused: its access code probably expired. How old it was teaches the server's lifetime.
         if (http == 403 && playingSince != 0L && src != null && src.url == addressUrl && StreamUrls.hasQuery(src.url)) {
             ServerMemory.recordAge(Report.host(src.url), System.currentTimeMillis() - addressSince, false)
         }
-        if (http == 403 && playingSince != 0L && src != null && StreamUrls.hasQuery(src.url) && LinkOrder.canRenew(src) && renewAccess(src)) return
-        // Only "not allowed" answers can be fixed by claiming a different page; "not found" can't.
-        // The exception: the video pieces (another host) are refused and that host already refused every referer in the finder's
-        // check, so the remaining referers would be refused again.
-        val pieceRefused = Refusal.isRefusal(http) && r != null && failHost != null && failHost != r.playlistHost
-        val hostKnown = pieceRefused && RefusedHosts.isRefused(failHost)
-        if ((http == 401 || http == 403) && playingSince == 0L &&
-            src != null && Refusal.cycleReferers(refererIndex + 1 < src.referers.size, hostKnown)
-        ) {
-            refererIndex++
-            play()
-            return
+        val again = failure == Failure.BEHIND_LIVE && playingSince != 0L && signs.behindLiveRepeated(System.currentTimeMillis())
+        rescue(Rescue.order(failure, again), why, error, checkNet = Rescue.checksNetwork(failure))
+    }
+
+    /** Blocked servers seen in this watch (Rescue.BLOCKS_BEFORE_NOTE). */
+    private var blockedServers = 0
+    /** At this watch's first blocked server: was its main server already blocked (NetBlock)? null until then. */
+    private var blockedOnArrival: Boolean? = null
+    /** A spaced-out re-ask of the main playlist is waiting (Rescue.reaskDelayMs): no other rescue meanwhile. */
+    private var reaskPending = false
+    /** The player is waiting for the internet to come back (waitForNetwork). */
+    private var netWaiting = false
+    /** The internet check before a rescue is running; another failure (stall timer, start check) must not start a second rescue meanwhile. */
+    private var netChecking = false
+
+    /**
+     * Lab: before running the order for a failure a dead connection also causes, check the internet (a quick connect to
+     * 1.1.1.1 / 8.8.8.8). Down: show it on screen and wait for it to come back (at most [Rescue.NET_WAIT_MS]) instead of
+     * using up reloads and other sites (2026-11-21 19:24: the connection dropped and every source was tried in vain).
+     */
+    private fun checkNetThen(why: String, go: () -> Unit) {
+        val gen = linkGen
+        netChecking = true
+        kotlin.concurrent.thread(isDaemon = true, name = "net-check") {
+            val up = Pinger.reachable()
+            main.post {
+                netChecking = false
+                if (isDestroyed || gen != linkGen) return@post
+                if (up) go() else waitForNetwork(why, System.currentTimeMillis(), gen, go)
+            }
         }
-        if (pieceRefused && playingSince == 0L && src != null && failHost != null) {
-            refusedPieces(failHost, hostKnown, http ?: 403)
-            return
+    }
+
+    private fun waitForNetwork(why: String, since: Long, gen: Int, go: () -> Unit) {
+        if (!netWaiting) {
+            netWaiting = true
+            Report.log("Failure: internet connection down (no answer from 1.1.1.1 or 8.8.8.8); waiting for it to come back")
+            Report.log("Rescue: wait for the internet")
+            screen.showCover("Your internet connection looks down.\nWaiting for it to come back…")
+            AppStatus.text = "Waiting for the internet…"
         }
-        if (playingSince == 0L && playlistSilentProblem()) return
-        if (playingSince == 0L && pieceOnlyProblem()) return
-        recover(why)
+        main.postDelayed({
+            if (isDestroyed || gen != linkGen) { netWaiting = false; return@postDelayed }
+            kotlin.concurrent.thread(isDaemon = true, name = "net-wait") {
+                val up = Pinger.reachable()
+                main.post {
+                    if (isDestroyed || gen != linkGen) { netWaiting = false; return@post }
+                    val waited = System.currentTimeMillis() - since
+                    when {
+                        up -> {
+                            netWaiting = false
+                            Report.log("Internet is back after ${waited / 1000} s; continuing ($why)")
+                            reconnects = 0
+                            go()
+                        }
+                        waited >= Rescue.NET_WAIT_MS -> {
+                            netWaiting = false
+                            Report.log("Still no internet after ${waited / 1000} s; running the usual rescue anyway")
+                            go()
+                        }
+                        else -> waitForNetwork(why, since, gen, go)
+                    }
+                }
+            }
+        }, Rescue.NET_POLL_MS)
+    }
+
+    /**
+     * Lab step 1b: runs the first step of [steps] (from [from]) that applies now. A step that hands off to something
+     * asynchronous (a ready backup's check) continues with the steps after it when that comes back empty.
+     */
+    private fun rescue(steps: List<RescueStep>, why: String, error: PlaybackException? = null, from: Int = 0, checkNet: Boolean = false) {
+        if (fastChecking || reaskPending || netWaiting || netChecking) return
+        if (set == null) return finish()
+        if (from == 0 && checkNet) return checkNetThen(why) { rescue(steps, why, error) }
+        // It had been playing fine for a while: this is a fresh problem, not a repeat.
+        if (from == 0 && playingSince != 0L && System.currentTimeMillis() - playingSince > 60_000) reconnects = 0
+        for (i in from until steps.size) {
+            if (runStep(steps[i], why, error) { rescue(steps, why, error, i + 1) }) return
+        }
+        Report.log("Rescue: nothing left to try")
+        openSitePlayer(why)
+    }
+
+    /** One rescue step: false when it doesn't apply right now (nothing done). [next] continues the order later. */
+    private fun runStep(step: RescueStep, why: String, error: PlaybackException?, next: () -> Unit): Boolean {
+        val s = set ?: return false
+        val src = s.sources.getOrNull(sourceIndex)
+        val playing = playingSince != 0L
+        val httpError = error?.cause as? HttpDataSource.InvalidResponseCodeException
+        val http = httpError?.responseCode
+        val failHost = httpError?.dataSpec?.uri?.host?.let { ServerMemory.key(it) }
+        val r = route
+        fun go(): Boolean { Report.log("Rescue: ${step.text}"); return true }
+        return when (step) {
+            RescueStep.JUMP_TO_LIVE -> {
+                val p = player ?: return false
+                go(); Report.log("Fell behind the live point; jumping back to live")
+                p.seekToDefaultPosition(); p.prepare()
+                return true
+            }
+            RescueStep.NO_TUNNEL -> { go(); retryWithoutTunneling(error?.errorCodeName ?: why); return true }
+            RescueStep.REASK_MAIN -> {
+                if (error == null || !DeadHostText.brokenSecureLink(error) || blockedOnArrival == true) return false
+                val failing = BrokenTls.failingHost(error)
+                val mainHost = src?.url?.let { Report.host(it) }
+                if (failing == null || mainHost == null || failing.equals(mainHost, true) || mainRefetches >= Rescue.MAX_MAIN_REFETCHES) return false
+                mainRefetches++
+                go()
+                val wait = Rescue.reaskDelayMs(mainRefetches)
+                Report.log("$failing (named by the main playlist) has a broken secure connection; asking $mainHost again for another server " +
+                    "in ${wait / 1000} s (try $mainRefetches of ${Rescue.MAX_MAIN_REFETCHES})")
+                reaskPending = true
+                val gen = linkGen
+                main.postDelayed({
+                    reaskPending = false
+                    if (!isDestroyed && gen == linkGen && set != null) play()
+                }, wait)
+                return true
+            }
+            RescueStep.PIECE_ENGINE -> {
+                if (http != 403 || r == null || failHost == null || failHost == r.playlistHost || r.usesChrome(failHost) || ChromeNet.engine == null) return false
+                go()
+                r.setPieceEngine(failHost, true)
+                ServerMemory.recordRefusesStandard(failHost)
+                Report.log("Video pieces from $failHost refused standard networking; using Chrome's network engine for them")
+                play()
+                return true
+            }
+            RescueStep.CHROME_ENGINE -> {
+                if (http != 403 || useChromeNet || ChromeNet.engine == null) return false
+                go()
+                src?.let { ServerMemory.recordRefusesStandard(Report.host(it.url)) }
+                useChromeNet = true
+                chromeForced = true
+                refererIndex = 0
+                engineRemembered = null
+                src?.let { ServerMemory.recordEngine(Report.host(it.url), ServerMemory.CHROME) }
+                Report.log("Server refused standard networking; going back to Chrome's network engine")
+                play()
+                return true
+            }
+            RescueStep.RENEW_LINK -> {
+                if (http != 403 || !playing || src == null || !StreamUrls.hasQuery(src.url) || !LinkOrder.canRenew(src)) return false
+                if (!renewAccess(src)) return false
+                Report.log("Rescue: ${step.text}")
+                return true
+            }
+            RescueStep.NEXT_REFERER -> {
+                if ((http != 401 && http != 403) || playing || src == null) return false
+                val pieceRefused = Refusal.isRefusal(http) && r != null && failHost != null && failHost != r.playlistHost
+                val hostKnown = pieceRefused && RefusedHosts.isRefused(failHost!!)
+                if (!Refusal.cycleReferers(refererIndex + 1 < src.referers.size, hostKnown)) return false
+                go()
+                refererIndex++
+                play()
+                return true
+            }
+            RescueStep.REFUSED_PIECES -> {
+                if (playing || src == null || r == null || failHost == null || failHost == r.playlistHost || !Refusal.isRefusal(http)) return false
+                go()
+                refusedPieces(failHost, RefusedHosts.isRefused(failHost), http ?: 403)
+                return true
+            }
+            RescueStep.ENGINE_RESTART -> {
+                if (playing || error == null || !playlistSilentProblem()) return false
+                return go()
+            }
+            RescueStep.PIECE_FIX -> {
+                if (playing || error == null || !pieceOnlyProblem()) return false
+                return go()
+            }
+            RescueStep.NEXT_SOURCE -> {
+                if (playing) return false
+                val n = LinkOrder.nextPlayable(s.sources, sourceIndex) ?: return false
+                go()
+                AutoSwitch.markDead(src?.url, System.currentTimeMillis())
+                sourceIndex = n
+                refererIndex = 0
+                Report.log("Trying the next source")
+                play()
+                return true
+            }
+            RescueStep.READY_BACKUP -> {
+                if (!playing) return false
+                if (!episode.isOpen) episode.begin()
+                if (!fastBackup(why, next)) return false
+                return go()
+            }
+            RescueStep.RELOAD_PAGE -> {
+                if (brokenAgain && reconnects > 0) {
+                    Report.log("Not reloading the page again: it hands back the same server, which is down")
+                    return false
+                }
+                // Lab: a network block (Rescue.BLOCKS_BEFORE_NOTE) allows one reload at most; none if it was known on arrival.
+                if (blockedOnArrival == true || (blockedServers >= Rescue.BLOCKS_BEFORE_NOTE && reconnects >= 1)) {
+                    Report.log("Not reloading the page: your network blocks this stream's servers")
+                    return false
+                }
+                if (reconnects >= MAX_RECONNECTS) return false
+                go()
+                reconnects++
+                reconnect(why)
+                return true
+            }
+            RescueStep.RELOAD_ONCE -> {
+                if (reconnects > 0) return false
+                go()
+                reconnects++
+                reconnect(why)
+                return true
+            }
+            RescueStep.OTHER_SITE -> {
+                if (!tryAutoSwitch(why)) return false
+                return go()
+            }
+            RescueStep.LAST_RESORT -> {
+                go()
+                // The clean browser player would fetch the same refused pieces.
+                if (brokenAgain || !Refusal.cleanPlayerCanHelp(refusedUrl != null)) openSitePlayer(why) else openCleanPlayer(why)
+                return true
+            }
+        }
+    }
+
+    /** Lab step 1a: one failure name per error, logged before the usual rescue runs (Failure). */
+    private fun logFailure(error: PlaybackException): Failure {
+        return try {
+            val audioOut = error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_WRITE_FAILED
+            val tunnelSuspect = (error.errorCode == PlaybackException.ERROR_CODE_TIMEOUT && tunnelEngaged()) ||
+                (tunneling && (!firstFrame || audioOut) && error.errorCode in tunnelSuspects)
+            val http = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
+            val src = set?.sources?.getOrNull(sourceIndex)
+            val signed = src != null && src.url == addressUrl && StreamUrls.hasQuery(src.url)
+            val f = Failure.of(error.errorCode, http, DeadHostText.brokenSecureLink(error), tunnelSuspect, playingSince != 0L, signed)
+            Report.log(Failure.line(f, if (http != null) "server said $http" else error.errorCodeName, playingSince != 0L))
+            f
+        } catch (_: Exception) { Failure.OTHER }
     }
 
     /**
@@ -1264,25 +1417,11 @@ class PlayerActivity : Activity() {
         return true
     }
 
+    /** A stall, a stopped live stream or a gone playlist: the common rescue order (Rescue.AFTER_STALL). */
     private fun recover(why: String) {
         if (fastChecking) return // a ready backup is being checked; it decides
-        val s = set ?: return finish()
-        val now = System.currentTimeMillis()
-        // It had been playing fine for a while: this is a fresh problem, not a repeat.
-        if (playingSince != 0L && now - playingSince > 60_000) reconnects = 0
-
-        val nextPlayable = LinkOrder.nextPlayable(s.sources, sourceIndex)
-        if (playingSince == 0L && nextPlayable != null) {
-            AutoSwitch.markDead(s.sources.getOrNull(sourceIndex)?.url, now)
-            sourceIndex = nextPlayable
-            refererIndex = 0
-            Report.log("Trying the next source")
-            play()
-            return
-        }
-        if (playingSince != 0L && !episode.isOpen) episode.begin()
-        if (playingSince != 0L && fastBackup(why) { recoverSlow(why) }) return
-        recoverSlow(why)
+        if (set == null) return finish()
+        rescue(Rescue.AFTER_STALL, why, checkNet = true)
     }
 
     /**
@@ -1292,27 +1431,7 @@ class PlayerActivity : Activity() {
     private fun recoverAfterEmptyRenewal(why: String) {
         if (fastChecking) return
         if (set == null) return finish()
-        if (playingSince != 0L && !episode.isOpen) episode.begin()
-        val noBackup = { if (!tryAutoSwitch(why)) recoverSlow(why) }
-        if (playingSince != 0L && fastBackup(why, noBackup)) return
-        noBackup()
-    }
-
-    private fun recoverSlow(why: String) {
-        if (brokenAgain && reconnects > 0) {
-            Report.log("Not reloading the page again: it hands back the same server, which is down")
-            if (tryAutoSwitch(why)) return
-            return openSitePlayer(why)
-        }
-        if (reconnects < MAX_RECONNECTS) {
-            reconnects++
-            reconnect(why)
-            return
-        }
-        if (tryAutoSwitch(why)) return
-        // The clean browser player would fetch the same refused pieces.
-        if (!Refusal.cleanPlayerCanHelp(refusedUrl != null)) return openSitePlayer(why)
-        openCleanPlayer(why)
+        rescue(Rescue.AFTER_EMPTY_RENEWAL, why)
     }
 
     private fun backupHealth(now: Long): BackupTiming.Health {

@@ -51,7 +51,11 @@ class ListActivity : Activity() {
     /** The rows' look when they were last built (ListReadLogic.listLook); null = rebuild next time. */
     private var drawnLook: String? = null
     /** Each drawn row's views by link, so the 30 s refresh can change texts in place. */
-    private class RowViews(val item: ListItem, val meta: TextView, val right: FrameLayout, val score: TextView)
+    private class RowViews(val item: ListItem, val meta: TextView, val right: FrameLayout, val score: TextView) {
+        /** What the meta line and badge show now, so the 30 s refresh only touches views whose content changed. */
+        var shownMeta: String? = null
+        var shownBadge: ListSections.Badge? = null
+    }
     private val rowViews = LinkedHashMap<String, RowViews>()
     private var beats = 0
     private var errorText: String? = null
@@ -331,6 +335,7 @@ class ListActivity : Activity() {
         val focus = currentFocus
         val hadFocusInRows = focus?.parent === rows
         val focusedUrl = if (hadFocusInRows) focus?.tag as? String else null
+        val focusedSlot = if (hadFocusInRows) RowEdges.slotOf(rows, focus) else -1
         rows.removeAllViews()
         scoreViews.clear()
         rowLook.clear()
@@ -370,6 +375,7 @@ class ListActivity : Activity() {
         showDetails(keep, now)
         when {
             focusTarget != null -> focusTarget.requestFocus()
+            hadFocusInRows && RowEdges.rowAtSlot(rows, focusedSlot) != null -> RowEdges.rowAtSlot(rows, focusedSlot)!!.requestFocus()
             hadFocusInRows || currentFocus == null -> firstRow?.requestFocus()
         }
     }
@@ -377,11 +383,20 @@ class ListActivity : Activity() {
     /** Same rows as drawn: refresh each row's meta line, badge and score, and the details panel, without touching focus. */
     private fun refreshInPlace(now: Long) {
         for (rv in rowViews.values) {
+            // Only touch a view whose content changed: setText / removeAllViews+addView each request a layout pass,
+            // and doing that for every row every 30 s is wasted work on the box's weak CPU.
             val meta = ListSections.meta(rv.item, now, games = games())
-            rv.meta.text = meta
-            rv.meta.visibility = if (meta.isEmpty()) View.GONE else View.VISIBLE
-            rv.right.removeAllViews()
-            rv.right.addView(badgeView(rv.item, now))
+            if (meta != rv.shownMeta) {
+                rv.shownMeta = meta
+                rv.meta.text = meta
+                rv.meta.visibility = if (meta.isEmpty()) View.GONE else View.VISIBLE
+            }
+            val b = ListSections.badge(rv.item, now, games())
+            if (b != rv.shownBadge) {
+                rv.shownBadge = b
+                rv.right.removeAllViews()
+                rv.right.addView(badgeView(rv.item, now))
+            }
             applyScore(rv.item, rv.score)
         }
         selected?.let { sel -> showDetails(rowViews[sel.url]?.item ?: sel, now) }
@@ -429,7 +444,7 @@ class ListActivity : Activity() {
         val g = gameFor(item)
         val line = g?.let { ScoreText.rowLine(it) }
         if (g == null || line == null) { v.visibility = View.GONE; return }
-        v.text = line
+        if (v.visibility != View.VISIBLE || v.text.toString() != line) v.text = line
         v.setTextColor(if (g.state == "in") Ui.LIVE_TEXT else Ui.TEXT_2)
         v.visibility = View.VISIBLE
     }
@@ -483,7 +498,10 @@ class ListActivity : Activity() {
         val right = FrameLayout(this)
         right.addView(badgeView(item, now))
         row.addView(right)
-        if (!rowViews.containsKey(item.url)) rowViews[item.url] = RowViews(item, metaView, right, scoreLine)
+        if (!rowViews.containsKey(item.url)) rowViews[item.url] = RowViews(item, metaView, right, scoreLine).also {
+            it.shownMeta = meta
+            it.shownBadge = ListSections.badge(item, now, games())
+        }
         return row
     }
 

@@ -27,6 +27,9 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Massive underdog within a score = upset** (2026-11-21, user's go on defaults; Lab first): football only, a 14+ point
+  underdog within 7 (trailing or tied) in the 2nd half gets +8 "upset" (and the flame); leading keeps +8/+12. Basketball
+  left out. Check on the TV: flame shows on such games, featured card doesn't switch too eagerly.
 - **Picked source fails -> back to the stream underneath** (2026-11-21, user's go; Lab logs: a failed Source-panel pick
   opened another copy of the playing stream each time, stacking players so Back replayed them all). A page the viewer
   picked (not an automatic switch) with no stream now closes, toast + "going back to the stream you were watching", and
@@ -235,6 +238,13 @@ file's git history (commit 3680843 and earlier).
   Step 1c done: piece failures and refused pieces run through the one order (Rescue.PIECES_FAILING /
   afterRefusedPieces); Refusal.afterRefusal and BrokenTls.refetchMain removed. Check: VPN off -> no working stream
   within ~20 s with the VPN text; VPN on + Try again plays; normal plays unchanged.
+- **Lab merged into Sports** (2026-11-21, user's go, option 1): all of Lab through build 305 plus the underdog upset rule went to Sports in one build, before the Lab TV checks above were done. Those checks now apply to Sports.
+- **Lab sweep, 10 small fixes** (2026-11-21, user asked; uncommitted in the lab working tree, not built): no double
+  rescue during the internet check (netChecking); phone page server survives accept() errors; hidden browser teardown
+  guarded after a renderer crash; crash/exit report read off the start-up thread; ESPN requests reuse connections;
+  player overlay and list 30 s refresh skip unchanged views; card photos scaled to exact size; focus keeps its slot
+  when the focused row vanishes; two dead helpers removed. Follow-ups: shared prefs keys, deferred WebView creation,
+  Sport/Streams/home per-row updates, ESPN ETags.
 
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the

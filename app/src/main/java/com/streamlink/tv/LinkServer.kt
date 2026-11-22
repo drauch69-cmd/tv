@@ -91,8 +91,20 @@ class LinkServer(
         running = true
         thread(isDaemon = true, name = "link-server") {
             while (running) {
-                val client = try { s.accept() } catch (_: IOException) { break }
-                thread(isDaemon = true) { handle(client) }
+                val client = try {
+                    s.accept()
+                } catch (_: IOException) {
+                    // Closed by stop(): done. Anything else (e.g. "too many open files", a hiccup when the Wi-Fi
+                    // changes) is transient: keep listening, or the phone page stays dead until the app restarts.
+                    if (!running || s.isClosed) break
+                    try { Thread.sleep(250) } catch (_: InterruptedException) { break }
+                    continue
+                }
+                try {
+                    thread(isDaemon = true) { handle(client) }
+                } catch (_: Throwable) { // could not start a thread (out of memory): drop this one request, keep serving
+                    try { client.close() } catch (_: IOException) {}
+                }
             }
         }
         return s.localPort

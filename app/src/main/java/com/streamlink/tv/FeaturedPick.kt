@@ -186,7 +186,12 @@ object FeaturedPick {
             val favRanked = (if (dog == 'h') g.away.rank else g.home.rank) != null
             if (!favRanked && !bigDog) dog = null
         }
-        if (dog != null && played >= 0.5 && (if (dog == 'h') h > a else a > h)) { drama += if (bigDog) 12.0 else 8.0; why.add("upset") }
+        val dogLead = if (dog == 'h') h - a else a - h
+        if (dog != null && played >= 0.5 && dogLead > 0) { drama += if (bigDog) 12.0 else 8.0; why.add("upset") }
+        // massive underdog (14+, football only) still within a score in the second half (user, 2026-11-21)
+        else if (dog != null && played >= 0.5 && !s.basketball && spread != null && abs(spread) >= 14 && dogLead >= -7) {
+            drama += 8; why.add("upset")
+        }
         if (!s.basketball && g.redZone && doubt >= 0.4 && played >= 0.5) { drama += 5; why.add("red zone") }
         drama = min(25.0, drama)
 
@@ -255,8 +260,10 @@ object FeaturedPick {
      *   overtime game in its final minute takes over from one led by 4 or more.
      * Null when no live game has a stream.
      */
-    fun choose(folders: List<SportFolders>, now: Long, focused: Boolean, state: State, week: Int = nflWeek(now)): Pick? {
-        val live = folders.flatMap { it.games }.filter { it.game.state == "in" && it.streams.isNotEmpty() }
+    fun choose(folders: List<SportFolders>, now: Long, focused: Boolean, state: State, week: Int = nflWeek(now), finding: Set<String> = emptySet()): Pick? {
+        val inGames = folders.flatMap { it.games }.filter { it.game.state == "in" }
+        // Games with a stream first; right after start, games still being searched may stand in (HomeFinding).
+        val live = inGames.filter { it.streams.isNotEmpty() }.ifEmpty { inGames.filter { HomeFinding.shows(it, finding) } }
         for (f in live) state.record(f.game, now)
         state.forget(folders.flatMap { it.games }.filter { it.game.state == "in" }.map { it.game.id }.toSet())
         if (live.isEmpty()) { state.currentId = null; state.ratings = emptyMap(); return null }

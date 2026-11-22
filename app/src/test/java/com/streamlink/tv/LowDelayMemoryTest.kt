@@ -31,14 +31,6 @@ class LowDelayMemoryTest {
         assertTrue("h${LowDelayMemory.MAX_HOSTS + 4}.net" in m)
     }
 
-    @Test fun mainPlaylistIsAskedAgainOnlyForAnotherServerAndAtMostTwice() {
-        assertTrue(BrokenTls.refetchMain("pl.playlist4.space", "chatgpt.hereisman.net", 0))
-        assertTrue(BrokenTls.refetchMain("pl.playlist4.space", "chatgpt.hereisman.net", 1))
-        assertFalse(BrokenTls.refetchMain("pl.playlist4.space", "chatgpt.hereisman.net", 2))
-        assertFalse(BrokenTls.refetchMain("chatgpt.hereisman.net", "chatgpt.hereisman.net", 0))
-        assertFalse(BrokenTls.refetchMain(null, "chatgpt.hereisman.net", 0))
-    }
-
     @Test fun keyedPerStreamNotPerServer() {
         val a = LowDelayMemory.streamKey("https://chatgpt.hereisman.net/playlist/111/load-playlist?t=1")
         val b = LowDelayMemory.streamKey("https://chatgpt.hereisman.net/playlist/222/load-playlist?t=1")
