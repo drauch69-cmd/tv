@@ -596,6 +596,7 @@ class MainActivity : Activity() {
         }
         renderFeatured(feat)
         renderLiveGames(m.folders, m.redZone, feat?.game?.id, m.finding)
+        logFinding(m, feat)
         renderSportTiles(m)
     }
 
@@ -764,6 +765,20 @@ class MainActivity : Activity() {
 
     /** Watch: plays the game's best stream, like picking the game. */
     private fun watchFeatured() { featGame?.let { if (it.streams.isEmpty()) stillFinding() else playBest(it) } }
+
+    private var findingLogged = ""
+
+    /** One report line whenever the set of games shown before their streams were found changes (HomeFinding). */
+    private fun logFinding(m: HomeModel, feat: GameFolder?) {
+        val waiting = (LiveGames.sample(m.folders, 9, finding = m.finding) + listOfNotNull(feat))
+            .filter { it.streams.isEmpty() }.distinctBy { it.game.id }
+        val text = if (waiting.isEmpty()) (if (findingLogged.isEmpty()) "" else "Home: every shown game has a stream now")
+        else "Home: ${waiting.size} live game(s) shown while their streams are found (" +
+            m.finding.sorted().joinToString(", ") { Sports.label(it) } + (if (feat != null && feat.streams.isEmpty()) "; featured card too)" else ")")
+        if (text.isEmpty() || text == findingLogged) return
+        findingLogged = if (waiting.isEmpty()) "" else text
+        Report.log(text)
+    }
 
     /** OK on a game shown before its streams were found (HomeFinding). */
     private fun stillFinding() =
