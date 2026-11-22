@@ -28,16 +28,4 @@ object BrokenTls {
         }
         return null
     }
-
-    /** Quick re-fetches of the main playlist per play, before the usual page reload. */
-    const val MAX_MAIN_REFETCHES = 2
-
-    /**
-     * A server named inside the main playlist (an inner playlist or video host) has a broken secure connection, while the
-     * main playlist's own server works: ask the main playlist again, since it often names a different server each time
-     * (2026-11-21 report: pl.playlist4 / pl.playlist3 broken, while the same main playlist also handed out red.malek5,
-     * pl.playlist5, red.halombarat5…). A page reload cost ~15 s per try. Pure.
-     */
-    fun refetchMain(failHost: String?, mainHost: String?, tries: Int): Boolean =
-        failHost != null && mainHost != null && !failHost.equals(mainHost, true) && tries < MAX_MAIN_REFETCHES
 }

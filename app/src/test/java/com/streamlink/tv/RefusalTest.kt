@@ -29,17 +29,6 @@ class RefusalTest {
     }
 
     @Test
-    fun afterRefusalOrder() {
-        assertEquals(Refusal.Step.NEXT_SOURCE, Refusal.afterRefusal(true, true, true, 0))
-        assertEquals(Refusal.Step.AUTO_SWITCH, Refusal.afterRefusal(false, true, true, 0))
-        assertEquals(Refusal.Step.RELOAD_ONCE, Refusal.afterRefusal(false, false, false, 0))
-        // corroborated by the finder: no reload at all
-        assertEquals(Refusal.Step.SITE_PLAYER, Refusal.afterRefusal(false, false, true, 0))
-        // the one reload was spent
-        assertEquals(Refusal.Step.SITE_PLAYER, Refusal.afterRefusal(false, false, false, 1))
-    }
-
-    @Test
     fun cleanPlayerSkippedForRefusedPieces() {
         assertFalse(Refusal.cleanPlayerCanHelp(true))
         assertTrue(Refusal.cleanPlayerCanHelp(false))

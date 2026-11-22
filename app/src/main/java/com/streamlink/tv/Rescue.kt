@@ -21,6 +21,7 @@ enum class RescueStep(val text: String) {
     READY_BACKUP("switch to a ready backup"),
     RELOAD_PAGE("reload the page"),
     OTHER_SITE("another site's stream of this game"),
+    RELOAD_ONCE("reload the page once"),
     LAST_RESORT("browser player"),
 }
 
@@ -33,6 +34,17 @@ object Rescue {
 
     /** The tail for a stall, a stopped live stream or a gone playlist (no player error to look at). */
     val AFTER_STALL = TAIL.drop(2)
+
+    /** Video pieces keep failing while the playlist is fine: reloading the page would hand back the same piece server. */
+    val PIECES_FAILING = listOf(RescueStep.READY_BACKUP, RescueStep.OTHER_SITE, RescueStep.NEXT_SOURCE, RescueStep.RELOAD_PAGE, RescueStep.LAST_RESORT)
+
+    /**
+     * The pieces were refused (401/403/451) before the picture: another source of the page, another site, one reload only
+     * when the finder hadn't already seen that host refuse ([corroborated]), else the site's player (replaces Refusal.afterRefusal).
+     */
+    fun afterRefusedPieces(corroborated: Boolean): List<RescueStep> =
+        listOf(RescueStep.NEXT_SOURCE, RescueStep.OTHER_SITE) + (if (corroborated) emptyList() else listOf(RescueStep.RELOAD_ONCE)) +
+            RescueStep.LAST_RESORT
 
     /** The page was just searched (an empty quiet renewal): reloading it again is the last thing to try. */
     val AFTER_EMPTY_RENEWAL = listOf(RescueStep.READY_BACKUP, RescueStep.OTHER_SITE, RescueStep.RELOAD_PAGE, RescueStep.LAST_RESORT)

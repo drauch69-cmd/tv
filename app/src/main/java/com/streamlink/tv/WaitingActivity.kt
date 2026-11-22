@@ -65,6 +65,7 @@ class WaitingActivity : Activity() {
     /** The list item the watch started from (finds the game's other streams), when the opener knew it. */
     private var altKey: String? = null
     private lateinit var siteBtn: TextView
+    private lateinit var retryBtn: TextView
     /** Warms up the next stream in a second hidden page while this one is still being searched (see [prewarm]). */
     private var warm: StreamSniffer? = null
     private lateinit var warmHolder: FrameLayout
@@ -278,6 +279,17 @@ class WaitingActivity : Activity() {
         siteBtn.requestFocus()
     }
 
+    /** "Try again" on the No working stream screen (e.g. after turning the VPN on): a fresh search of this page. */
+    private fun retryAfterFail() {
+        Report.log("Try again pressed; searching the page again")
+        failedWhy = null
+        gaveUp = false
+        AutoSwitch.reset()
+        retryBtn.visibility = View.GONE
+        update(System.currentTimeMillis())
+        check()
+    }
+
     /**
      * This page has no working stream: try the other streams of the same game (other sites, from the sports folders)
      * through the automatic switch, best-ranked first. [onNone] runs (on the main thread) when there is none or no
@@ -459,7 +471,9 @@ class WaitingActivity : Activity() {
         val tries = AutoSwitch.switchesUsed() + 1
         whenView.text = when { fw != null -> "No working stream"; gaveUp -> "Gave up waiting"; else -> WaitingText.headline(st, now, zone, locale) }
         nextView.text = when {
-            fw != null -> "Tried $tries ${if (tries == 1) "stream" else "streams"} (last: $fw). Use the site's player, or Back to return."
+            fw != null && NetBlock.anyBlocked(now) ->
+                "Your network is blocking this game's servers. Turn on the VPN, then press Try again (or use the site's player)."
+            fw != null -> "Tried $tries ${if (tries == 1) "stream" else "streams"} (last: $fw). Try again, use the site's player, or Back to return."
             gaveUp -> "No stream appeared within 3 hours of the start. Press Back to return."
             checking -> "Checking now…"
             lastCheckAt == 0L -> "Looking for the video…"
@@ -483,6 +497,7 @@ class WaitingActivity : Activity() {
         infoView.visibility = if (showDetails && !gaveUp) View.VISIBLE else View.GONE
         detailsBtn.text = if (showDetails) "Hide details" else "Show details"
         checkNowBtn.visibility = if (gaveUp) View.GONE else View.VISIBLE
+        retryBtn.visibility = if (fw != null) View.VISIBLE else View.GONE
         if (!handedOff) assertSession()
     }
 
@@ -575,6 +590,9 @@ class WaitingActivity : Activity() {
             if (u.scheme == "http" || u.scheme == "https") openSite(page)
         }
         buttons.addView(siteBtn)
+        retryBtn = button("Try again") { retryAfterFail() }
+        retryBtn.visibility = View.GONE
+        buttons.addView(retryBtn)
         col.addView(buttons, LinearLayout.LayoutParams(wrap, wrap).apply { topMargin = dp(28) })
         root.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         setContentView(root)

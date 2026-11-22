@@ -29,21 +29,6 @@ object Refusal {
      */
     fun cycleReferers(hasMoreReferers: Boolean, pieceHostKnownRefused: Boolean): Boolean = hasMoreReferers && !pieceHostKnownRefused
 
-    /** What to do after the pieces of a source were refused and the stop was decided. */
-    enum class Step { NEXT_SOURCE, AUTO_SWITCH, RELOAD_ONCE, SITE_PLAYER }
-
-    /**
-     * In order: another playable source of the page; an automatic switch (another site's stream for the same game, a backup);
-     * one page reload, only when the refusal was NOT corroborated by the finder (a reload can hand back a different server) and none was
-     * spent yet; else the site's own player. The clean browser player is never a step (see [cleanPlayerCanHelp]).
-     */
-    fun afterRefusal(hasNextSource: Boolean, canAutoSwitch: Boolean, corroborated: Boolean, reconnectsUsed: Int): Step = when {
-        hasNextSource -> Step.NEXT_SOURCE
-        canAutoSwitch -> Step.AUTO_SWITCH
-        !corroborated && reconnectsUsed == 0 -> Step.RELOAD_ONCE
-        else -> Step.SITE_PLAYER
-    }
-
     /** The clean browser player fetches the same refused pieces with the same headers: pointless when the pieces were refused. */
     fun cleanPlayerCanHelp(piecesRefused: Boolean) = !piecesRefused
 

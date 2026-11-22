@@ -46,4 +46,12 @@ class RescueTest {
         assertTrue(!Rescue.checksNetwork(Failure.REFUSED))
         assertTrue(!Rescue.checksNetwork(Failure.BEHIND_LIVE))
     }
+
+    @Test fun refusedPiecesReloadOnlyWhenNotCorroborated() {
+        assertTrue(RescueStep.RELOAD_ONCE in Rescue.afterRefusedPieces(false))
+        assertTrue(RescueStep.RELOAD_ONCE !in Rescue.afterRefusedPieces(true))
+        assertEquals(RescueStep.NEXT_SOURCE, Rescue.afterRefusedPieces(true).first())
+        assertEquals(RescueStep.LAST_RESORT, Rescue.afterRefusedPieces(false).last())
+        assertTrue(RescueStep.RELOAD_PAGE !in Rescue.PIECES_FAILING.take(2))
+    }
 }

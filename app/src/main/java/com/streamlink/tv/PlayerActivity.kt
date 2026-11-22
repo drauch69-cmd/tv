@@ -888,7 +888,7 @@ class PlayerActivity : Activity() {
     /**
      * The video pieces of [host] are refused by their server (401/403/451) before the first picture. The server decided who may
      * ask: other referers (already tried, or already refused in the finder's check), the other network engine, an engine restart
-     * and the clean browser player fetch the same pieces the same way, so none of them is tried. Instead (see [Refusal.afterRefusal]):
+     * and the clean browser player fetch the same pieces the same way, so none of them is tried. Instead (see [Rescue.afterRefusedPieces]):
      * another playable source of the page, an automatic switch, one page reload only when the finder had not seen this host refuse,
      * else the site's own player. [corroborated]: the finder's check had already seen this host refuse every referer.
      */
@@ -900,26 +900,7 @@ class PlayerActivity : Activity() {
         refusedUrl = src?.url
         Report.log("Video pieces from $host are refused (server said $status); this stream can't play here")
         AutoSwitch.markDead(src?.url, System.currentTimeMillis())
-        val next = LinkOrder.nextPlayable(s.sources, sourceIndex)
-        var step = Refusal.afterRefusal(next != null, AutoSwitch.canSwitch(), corroborated, reconnects)
-        if (step == Refusal.Step.AUTO_SWITCH && tryAutoSwitch("video pieces refused")) return
-        if (step == Refusal.Step.AUTO_SWITCH) step = Refusal.afterRefusal(next != null, false, corroborated, reconnects)
-        when (step) {
-            Refusal.Step.NEXT_SOURCE -> {
-                sourceIndex = next ?: return openSitePlayer("video pieces refused")
-                refererIndex = 0
-                Report.log("Trying the next source")
-                play()
-            }
-            Refusal.Step.RELOAD_ONCE -> {
-                reconnects++
-                reconnect("video pieces refused")
-            }
-            else -> {
-                Report.log("Not reloading the page: its stream would be refused the same way")
-                openSitePlayer("video pieces refused")
-            }
-        }
+        rescue(Rescue.afterRefusedPieces(corroborated), "video pieces refused")
     }
 
     /**
@@ -976,18 +957,7 @@ class PlayerActivity : Activity() {
     /** The video pieces can't be had from their server: another source (a ready backup first while playing), else the usual recovery. */
     private fun switchForPieces() {
         Report.log(Failure.line(Failure.PIECES_FAILING, "", playingSince != 0L))
-        if (AutoSwitch.canSwitch()) {
-            val slow = {
-                if (!tryAutoSwitch("video pieces failing")) {
-                    Report.log("No other source to switch to; reconnecting as usual")
-                    recover("stalled")
-                }
-            }
-            if (playingSince != 0L && !episode.isOpen) episode.begin()
-            if (!(playingSince != 0L && fastBackup("video pieces failing", slow))) slow()
-        } else {
-            recover("stalled")
-        }
+        rescue(Rescue.PIECES_FAILING, "video pieces failing")
     }
 
     /** Playing, but no picture ever appeared: a known tunneling bug on some boxes. */
@@ -1129,7 +1099,16 @@ class PlayerActivity : Activity() {
         }
         // Memory only (no decision): broken secure connections (DeadHosts, log only), dead addresses, link lifetimes.
         brokenAgain = false
-        if (failure == Failure.BROKEN_SECURE && ++blockedServers == Rescue.BLOCKS_BEFORE_NOTE) {
+        val mainHost = set?.sources?.getOrNull(sourceIndex)?.url?.let { Report.host(it) }
+        if (failure == Failure.BROKEN_SECURE) {
+            val now = System.currentTimeMillis()
+            if (blockedOnArrival == null) {
+                blockedOnArrival = NetBlock.isBlocked(mainHost, now)
+                if (blockedOnArrival == true) Report.log("Network block: $mainHost's servers were blocked moments ago too; skipping re-asks and reloads")
+            }
+            NetBlock.record(mainHost, now)
+        }
+        if (failure == Failure.BROKEN_SECURE && ++blockedServers == Rescue.BLOCKS_BEFORE_NOTE && blockedOnArrival != true) {
             Report.log("Network block: $blockedServers blocked servers this watch (broken secure connection on both engines); the VPN usually fixes it")
             android.widget.Toast.makeText(applicationContext,
                 "Your network is blocking this stream's servers. The VPN usually fixes it.", android.widget.Toast.LENGTH_LONG).show()
@@ -1157,6 +1136,8 @@ class PlayerActivity : Activity() {
 
     /** Blocked servers seen in this watch (Rescue.BLOCKS_BEFORE_NOTE). */
     private var blockedServers = 0
+    /** At this watch's first blocked server: was its main server already blocked (NetBlock)? null until then. */
+    private var blockedOnArrival: Boolean? = null
     /** A spaced-out re-ask of the main playlist is waiting (Rescue.reaskDelayMs): no other rescue meanwhile. */
     private var reaskPending = false
     /** The player is waiting for the internet to come back (waitForNetwork). */
@@ -1248,7 +1229,7 @@ class PlayerActivity : Activity() {
             }
             RescueStep.NO_TUNNEL -> { go(); retryWithoutTunneling(error?.errorCodeName ?: why); return true }
             RescueStep.REASK_MAIN -> {
-                if (error == null || !DeadHostText.brokenSecureLink(error)) return false
+                if (error == null || !DeadHostText.brokenSecureLink(error) || blockedOnArrival == true) return false
                 val failing = BrokenTls.failingHost(error)
                 val mainHost = src?.url?.let { Report.host(it) }
                 if (failing == null || mainHost == null || failing.equals(mainHost, true) || mainRefetches >= Rescue.MAX_MAIN_REFETCHES) return false
@@ -1339,7 +1320,19 @@ class PlayerActivity : Activity() {
                     Report.log("Not reloading the page again: it hands back the same server, which is down")
                     return false
                 }
+                // Lab: a network block (Rescue.BLOCKS_BEFORE_NOTE) allows one reload at most; none if it was known on arrival.
+                if (blockedOnArrival == true || (blockedServers >= Rescue.BLOCKS_BEFORE_NOTE && reconnects >= 1)) {
+                    Report.log("Not reloading the page: your network blocks this stream's servers")
+                    return false
+                }
                 if (reconnects >= MAX_RECONNECTS) return false
+                go()
+                reconnects++
+                reconnect(why)
+                return true
+            }
+            RescueStep.RELOAD_ONCE -> {
+                if (reconnects > 0) return false
                 go()
                 reconnects++
                 reconnect(why)
