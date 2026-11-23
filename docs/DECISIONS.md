@@ -282,7 +282,7 @@ file's git history (commit 3680843 and earlier).
   when the focused row vanishes; two dead helpers removed. Follow-ups: shared prefs keys, deferred WebView creation,
   Sport/Streams/home per-row updates, ESPN ETags.
 
-- **Lab: sites follow their moves + failure tally** (2026-11-22, user's go on 1–5; not yet checked on the TV): lists on one
+- **Lab: sites follow their moves + failure tally** (2026-11-22, user's go on 1–5; brought to Sports the same evening at the user's request, before any TV check): lists on one
   domain are grouped as one site on the Lists screen (heading per site); when a site's read fails (or is empty twice) the
   app looks where it went (redirect, then its name on other endings) and trial-reads up to 3; the first with events moves
   every list of that site, keeping names, ranks, sports and learned habits ("Moved: …"). A site failing ≥1 day (or empty
