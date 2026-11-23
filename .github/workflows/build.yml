@@ -133,6 +133,15 @@ jobs:
         run: |
           gh release delete sports-latest --yes --cleanup-tag || true
           gh release create sports-latest StreamLink-Sports.apk version.json --title "Sports build" --notes "Sports build ${{ github.run_number }}"
+          # 2026-11-22: GitHub once left this release as a draft (the TV then gets 404). Make sure it is public.
+          for i in 1 2 3; do
+            [ "$(gh release view sports-latest --json isDraft -q .isDraft)" = "false" ] && break
+            echo "Release is still a draft; publishing it (try $i)"
+            gh release edit sports-latest --draft=false || true
+            sleep 5
+          done
+          [ "$(gh release view sports-latest --json isDraft -q .isDraft)" = "false" ] || { echo "Release sports-latest is still a draft"; exit 1; }
+          curl -sfL -o /dev/null "https://github.com/${{ github.repository }}/releases/download/sports-latest/version.json" || { echo "version.json not downloadable"; exit 1; }
 
       # Branch "lab" publishes the Lab app (big redesigns, installs next to Sports) to its own fixed link.
       - name: Publish lab release
@@ -142,6 +151,15 @@ jobs:
         run: |
           gh release delete lab-latest --yes --cleanup-tag || true
           gh release create lab-latest StreamLink-Lab.apk version.json --title "Lab build" --notes "Lab build ${{ github.run_number }}"
+          # 2026-11-22: GitHub once left this release as a draft (the TV then gets 404). Make sure it is public.
+          for i in 1 2 3; do
+            [ "$(gh release view lab-latest --json isDraft -q .isDraft)" = "false" ] && break
+            echo "Release is still a draft; publishing it (try $i)"
+            gh release edit lab-latest --draft=false || true
+            sleep 5
+          done
+          [ "$(gh release view lab-latest --json isDraft -q .isDraft)" = "false" ] || { echo "Release lab-latest is still a draft"; exit 1; }
+          curl -sfL -o /dev/null "https://github.com/${{ github.repository }}/releases/download/lab-latest/version.json" || { echo "version.json not downloadable"; exit 1; }
 
       # Android Lint report. Runs after build/test and publishing so it can never block them.
       - name: Android Lint

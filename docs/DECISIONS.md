@@ -4,6 +4,9 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Release left as a draft** (2026-11-22, build 316): GitHub left `sports-latest` unpublished, so the TV's update check
+  got HTTP 404. The publish steps (sports, lab) now publish a draft and fail the build if the release isn't public or
+  its version.json can't be downloaded. This session can't edit releases itself; a fresh build replaces the release.
 - **Stall storms, wrong tunneling strikes, bad sources** (2026-11-22, user's go; build 315 report: a picture-hidden
   Crackstreams stream stalled 85 times in 12 min with video buffered, was picked twice, and wrongly struck tunneling off
   for good). (A) `StallStorm`: 4 stalls within 60 s while playing (none in the first 10 s of a start) -> "This stream keeps
