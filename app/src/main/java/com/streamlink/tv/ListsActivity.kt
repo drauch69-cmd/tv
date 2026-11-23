@@ -147,16 +147,46 @@ class ListsActivity : Activity() {
                     counts[l.id] = HomeFeed.counts(c.result.items, now, games)
                 }
             } catch (_: Exception) {}
-            main.post { if (my == gen && !isFinishing && !isDestroyed) draw(lists, byId, counts) }
+            val notes = HashMap<String, ListTiles.SiteNote>()
+            try {
+                for (site in lists.mapNotNull { SiteKey.ofUrl(it.url) }.distinct()) {
+                    val n = ListTiles.SiteNote(SiteHealth.movedFrom(app, site, now), SiteHealth.isNotWorking(app, site, now))
+                    if (n.movedFrom != null || n.notWorking) notes[site] = n
+                }
+            } catch (_: Exception) {}
+            main.post { if (my == gen && !isFinishing && !isDestroyed) draw(lists, byId, counts, notes) }
         }
     }
 
-    private fun draw(lists: List<SavedList>, byId: Map<String, CachedList>, counts: Map<String, HomeFeed.Counts>) {
-        subtitle.text = if (lists.isEmpty()) "No lists yet" else "${lists.size} saved list${if (lists.size == 1) "" else "s"}"
+    private fun draw(lists: List<SavedList>, byId: Map<String, CachedList>, counts: Map<String, HomeFeed.Counts>, notes: Map<String, ListTiles.SiteNote>) {
+        val sites = lists.mapNotNull { SiteKey.ofUrl(it.url) }.distinct().size
+        subtitle.text = if (lists.isEmpty()) "No lists yet"
+            else "${lists.size} saved list${if (lists.size == 1) "" else "s"} on $sites site${if (sites == 1) "" else "s"}"
         ListTiles.render(this, grid, lists, byId, counts,
             onOpen = { l -> startActivity(ListActivity.intent(this, l.id)) },
             onRemove = { l -> ListTiles.confirmRemove(this, l) { render() } },
-            onAdd = { ListEvents.showQrOnHome = true; finish() })
+            onAdd = { ListEvents.showQrOnHome = true; finish() },
+            notes = notes,
+            onSite = { site, n -> askSite(site, n) })
+    }
+
+    /** A "Not working" site: remove all its lists, or keep them and count again from zero. */
+    private fun askSite(site: String, n: Int) {
+        val app = applicationContext
+        val d = android.app.AlertDialog.Builder(this)
+            .setTitle("$site isn't working")
+            .setMessage("Its lists have failed to read for a while and no new address was found. If the site moved to a new name, send the new link from your phone.")
+            .setPositiveButton("Remove ${if (n == 1) "its list" else "its $n lists"}") { _, _ ->
+                SavedLists.removeSite(app, site)
+                calc.execute { try { SiteHealth.forget(app, site) } catch (_: Exception) {} ; main.post { render() } }
+                Toast.makeText(this, "Removed", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Keep") { _, _ ->
+                calc.execute { try { SiteHealth.keep(app, site) } catch (_: Exception) {} ; main.post { render() } }
+            }
+            .create()
+        d.show()
+        d.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.requestFocus()
     }
 
     companion object {

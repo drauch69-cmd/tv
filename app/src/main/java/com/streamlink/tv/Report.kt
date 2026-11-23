@@ -65,7 +65,10 @@ object Report {
     fun text(): String {
         val sb = StringBuilder()
         sb.append("StreamLink report (app build ").append(BuildConfig.VERSION_NAME).append(")\n")
-        sb.append("Link: ").append(link.ifEmpty { "(none yet)" }).append("\n\n")
+        sb.append("Link: ").append(link.ifEmpty { "(none yet)" }).append("\n")
+        val tally = try { FailureTally.reportLines() + SiteHealth.reportLines() } catch (_: Exception) { emptyList() }
+        tally.forEach { sb.append(it).append('\n') }
+        sb.append('\n')
         pinned.forEach { sb.append(it).append('\n') }
         if (pinned.isNotEmpty()) sb.append('\n')
         lines.forEach { sb.append(it).append('\n') }

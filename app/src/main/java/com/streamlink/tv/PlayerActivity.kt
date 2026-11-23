@@ -595,7 +595,7 @@ class PlayerActivity : Activity() {
                 Player.STATE_ENDED -> {
                     if (player?.isCurrentMediaItemLive == true) {
                         Report.log("Live stream stopped unexpectedly")
-                        Report.log(Failure.line(Failure.OTHER, "live stream stopped", true))
+                        logFail(Failure.OTHER, "live stream stopped", true)
                         recover("stream ended")
                     } else {
                         Report.log("Video finished")
@@ -736,7 +736,7 @@ class PlayerActivity : Activity() {
                 goneUrl = set?.sources?.getOrNull(sourceIndex)?.url
                 w.clearGone()
                 Report.log("The stream's playlist is gone (${(error as? HttpDataSource.InvalidResponseCodeException)?.let { "server said ${it.responseCode}" } ?: "no answer"}); getting a fresh one")
-                Report.log(Failure.line(Failure.GONE, "playlist gone", true))
+                logFail(Failure.GONE, "playlist gone", true)
                 main.post { if (player != null) recover("playlist gone") }
             }
         }
@@ -879,7 +879,7 @@ class PlayerActivity : Activity() {
             return@Runnable
         }
         Report.log("Stalled for ${(STALL_MS + stallExtensions * STALL_EXTENSION_MS) / 1000}s")
-        Report.log(Failure.line(Failure.STALLED, "", playingSince != 0L))
+        logFail(Failure.STALLED, "", playingSince != 0L)
         logStall(fromCheck = true)
         val buffered = player?.let { (it.bufferedPosition - it.currentPosition) / 1000.0 } ?: 0.0
         if (tunnelEngaged() && !firstFrame) {
@@ -1038,7 +1038,7 @@ class PlayerActivity : Activity() {
 
     /** The video pieces can't be had from their server: another source (a ready backup first while playing), else the usual recovery. */
     private fun switchForPieces() {
-        Report.log(Failure.line(Failure.PIECES_FAILING, "", playingSince != 0L))
+        logFail(Failure.PIECES_FAILING, "", playingSince != 0L)
         rescue(Rescue.PIECES_FAILING, "video pieces failing")
     }
 
@@ -1512,6 +1512,12 @@ class PlayerActivity : Activity() {
     }
 
     /** Lab step 1a: one failure name per error, logged before the usual rescue runs (Failure). */
+    /** Logs a failure line and counts it for the weekly tally (FailureTally). */
+    private fun logFail(f: Failure, detail: String, playing: Boolean) {
+        Report.log(Failure.line(f, detail, playing))
+        try { FailureTally.note(f, set?.pageUrl, set?.sources?.getOrNull(sourceIndex)?.url) } catch (_: Exception) { }
+    }
+
     private fun logFailure(error: PlaybackException): Failure {
         return try {
             val audioOut = error.errorCode == PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED ||
@@ -1522,7 +1528,7 @@ class PlayerActivity : Activity() {
             val src = set?.sources?.getOrNull(sourceIndex)
             val signed = src != null && src.url == addressUrl && StreamUrls.hasQuery(src.url)
             val f = Failure.of(error.errorCode, http, DeadHostText.brokenSecureLink(error), tunnelSuspect, playingSince != 0L, signed)
-            Report.log(Failure.line(f, if (http != null) "server said $http" else error.errorCodeName, playingSince != 0L))
+            logFail(f, if (http != null) "server said $http" else error.errorCodeName, playingSince != 0L)
             f
         } catch (_: Exception) { Failure.OTHER }
     }

@@ -232,6 +232,37 @@ object SavedLists {
         return null
     }
 
+    /**
+     * Moves every list on [oldSite] to [newHost] (SiteMove.apply): paths, names, ranks and sports stay; their saved
+     * events, read errors and hold-offs are forgotten. Returns how many lists moved.
+     */
+    @Synchronized
+    fun moveSite(ctx: Context, oldSite: String, newHost: String): Int {
+        val cur = all(ctx)
+        val r = SiteMove.apply(cur, oldSite, newHost)
+        if (r.moved == 0) return 0
+        save(ctx, r.lists)
+        val now = System.currentTimeMillis()
+        val before = cur.associateBy { it.id }
+        for (l in r.lists) {
+            if (before[l.id]?.url == l.url) continue
+            prefs(ctx).edit().remove(CACHE_PREFIX + l.id).apply()
+            cacheMemo.invalidate(l.id)
+            errors.remove(l.id)
+            ListBackoff.record(ctx, l.id, bad = false, now = now)
+        }
+        return r.moved
+    }
+
+    /** Removes every list on [site]; returns how many. */
+    @Synchronized
+    fun removeSite(ctx: Context, site: String): Int {
+        val k = SiteKey.of(site) ?: return 0
+        val ids = all(ctx).filter { SiteKey.ofUrl(it.url) == k }.map { it.id }
+        ids.forEach { remove(ctx, it) }
+        return ids.size
+    }
+
     /** Sets or clears a list's sports. False if there is no such list. */
     @Synchronized
     fun setSports(ctx: Context, id: String, sports: Set<String>): Boolean {

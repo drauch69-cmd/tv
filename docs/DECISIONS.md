@@ -282,6 +282,16 @@ file's git history (commit 3680843 and earlier).
   when the focused row vanishes; two dead helpers removed. Follow-ups: shared prefs keys, deferred WebView creation,
   Sport/Streams/home per-row updates, ESPN ETags.
 
+- **Lab: sites follow their moves + failure tally** (2026-11-22, user's go on 1–5; not yet checked on the TV): lists on one
+  domain are grouped as one site on the Lists screen (heading per site); when a site's read fails (or is empty twice) the
+  app looks where it went (redirect, then its name on other endings) and trial-reads up to 3; the first with events moves
+  every list of that site, keeping names, ranks, sports and learned habits ("Moved: …"). A site failing ≥1 day (or empty
+  ≥3 days) with no move shows "Not working" (Remove / Keep); lists are never removed by themselves. Recipes match the same
+  site name on another ending. Reports start with a 7-day playback failure tally (kind, site, stream server). Check: Lists
+  screen headings; a fake old ending of a real site (edit an address to e.g. `.xx` of a site you have) moves back within a
+  read or two; a report shows the tally. Research the same day: Streamlink has no plugins for our sites; zahori's
+  "model proposes a recipe, the app's own checks test it" is the pattern for any later AI repair (DeepSeek, held).
+
 ### Known gaps (not scheduled)
 - Site times with no zone label (Buffstreams, likely ntv: "Tomorrow 1:15 AM" for a 7:15 PM CT kickoff) are read in the
   TV's zone. Fix per site with a recipe entry: its host + `"zone": "UTC"`. ESPN still fixes matched games.

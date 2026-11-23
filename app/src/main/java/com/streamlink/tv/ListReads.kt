@@ -62,6 +62,10 @@ object ListReads {
     private val skipLogged = HashMap<String, Long>()
     private val listeners = LinkedHashSet<(String, ListResult?) -> Unit>()
     private var ticking = false
+    /** Trial reads of a possible new address for a site that moved (SiteMoves): run when no list read is waiting. */
+    private val probes = ArrayDeque<Pair<String, (ListResult) -> Unit>>()
+    private var probing: Pair<String, (ListResult) -> Unit>? = null
+    private var probeHost: Host? = null
 
     private val tick = object : Runnable {
         override fun run() {
@@ -72,8 +76,13 @@ object ListReads {
                 currentHost?.reader?.cancel()
                 currentList?.let { finishRead(it, ListResult(it.url, "", emptyList(), "automatic", "the page took too long to answer")) }
             }
+            val p = probing
+            if (p != null && System.currentTimeMillis() - startedAt > WATCHDOG_MS) {
+                probeHost?.reader?.cancel()
+                finishProbe(p, ListResult(p.first, "", emptyList(), "automatic", "the page took too long to answer"))
+            }
             pump()
-            if (current != null || queue.isNotEmpty()) schedule()
+            if (current != null || probing != null || queue.isNotEmpty() || probes.isNotEmpty()) schedule()
         }
     }
 
@@ -101,6 +110,14 @@ object ListReads {
     fun detach(owner: Activity) {
         val h = hosts.firstOrNull { it.owner === owner } ?: return
         hosts.remove(h)
+        val p = probing
+        if (p != null && probeHost === h) {
+            token++
+            h.reader?.cancel()
+            probing = null
+            probeHost = null
+            probes.addFirst(p) // tried again on the next screen
+        }
         val id = current
         if (id != null && currentHost === h) {
             token++
@@ -178,9 +195,41 @@ object ListReads {
     fun lastAttempt(ctx: Context, id: String): Long =
         maxOf(SavedLists.cached(ctx, id)?.readAt ?: 0L, lastDone[id] ?: 0L)
 
+    /** Reads [url] once as a trial (not a saved list) and hands the result to [done] on the main thread. Main thread. */
+    fun probe(ctx: Context, url: String, done: (ListResult) -> Unit) {
+        app = ctx.applicationContext
+        probes.addLast(url to done)
+        pump()
+        schedule()
+    }
+
+    private fun startProbe() {
+        if (probes.isEmpty()) return
+        if (ListReadGate.blocked()) { schedule(); return }
+        val host = hosts.lastOrNull() ?: return
+        val p = probes.removeFirst()
+        val reader = host.reader ?: IndexReader(host.owner, host.holder).also { host.reader = it }
+        probing = p
+        probeHost = host
+        startedAt = System.currentTimeMillis()
+        val tok = ++token
+        Report.log("Site check: trying ${Report.host(p.first)}")
+        reader.read(p.first) { r -> if (tok == token) finishProbe(p, r) }
+        schedule()
+    }
+
+    private fun finishProbe(p: Pair<String, (ListResult) -> Unit>, r: ListResult) {
+        if (probing !== p) return
+        token++
+        probing = null
+        probeHost = null
+        try { p.second(r) } catch (_: Exception) { }
+        pump()
+    }
+
     private fun pump() {
-        if (current != null) return
-        if (queue.isEmpty()) return
+        if (current != null || probing != null) return
+        if (queue.isEmpty()) { startProbe(); return }
         if (ListReadGate.blocked()) { schedule(); return } // held during a video; the tick starts it again
         val host = hosts.lastOrNull() ?: return // no screen to read in yet; the next attach starts it
         val ctx = app ?: return
@@ -216,6 +265,7 @@ object ListReads {
         app?.let { ctx ->
             ListBackoff.record(ctx, l.id, ListReadLogic.isBad(result), now)
             SavedLists.applyResult(ctx, l, result, now)
+            try { SiteMoves.afterRead(ctx, l, result) } catch (_: Exception) { }
             val items = SavedLists.cached(ctx, l.id)?.result?.items ?: emptyList()
             Report.log("List: next read in ${ListReadLogic.nextReadDelay(items, now) / 1000} s (while its list or sport screen is open)")
         }

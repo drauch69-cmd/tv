@@ -393,6 +393,24 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   rebuilds from caches + `ScoreFeed` and uses `Prefetcher` head start. Both new screens use `Session.mode = "list"` (so the
   phone's stop works and head start is allowed). Pure text lives in `SportsText.kt` (`SportsTextTest`); `SportsData.kt`
   loads folders from caches.
+- **Sites and site moves** (lab, 2026-11-22). Lists on one domain are one site (`SiteKey.of`: host without "www."); the
+  saved JSON is unchanged (each list keeps its full address), so grouping is derived. `ListsActivity` / `ListTiles.render`
+  draw one heading per site (`SiteMove.groups`, sites in order of their best-ranked list), then its tiles; the heading shows
+  "Moved from X" (3 days) or "Not working" (focusable: Remove all its lists / Keep = count again). After every list read
+  `ListReads.finishRead` -> `SiteMoves.afterRead`: (a) a good read whose `pageUrl` landed on another site moves every list
+  of the old site there at once; (b) otherwise `SiteHealth.record` (a failed load while 1.1.1.1/8.8.8.8 don't answer is not
+  counted) and, after a failed load or the 2nd empty read in a row (max every 6 h per site), `SiteMoves.find`: where the old
+  address redirects now (`QuickFetch`), then which of the name on other endings (`SiteKey.candidates`, names of 5+ letters
+  only) answers a request (6 at a time, 4 s; 2xx/403/503, or a redirect to the same name); up to 3 are trial-read in the
+  hidden browser (`ListReads.probe`, run only when no list read waits, held during video like reads). The first with events
+  wins: `SavedLists.moveSite` (`SiteMove.apply`: paths, names, ranks, sports kept; no duplicate addresses), `HostMemory.rename`
+  (SiteMemory, SiteHabits, LearnedShapes entries follow), `SiteHealth.moved`, the moved lists are read again. Report lines:
+  "Site check: …", "Moved: old → new (n lists; why)". "Not working" (`SiteHealth.notWorking`): 3+ failed loads in a row over
+  ≥1 day, or 3+ bad reads (failed or empty) over ≥3 days. Recipes: `ListRecipes.match` falls back to the same site name on
+  another ending; `ListRecipes.followMove` points a data-file address written for the recipe's own host at the new host.
+- **Failure tally** (lab, 2026-11-22). `PlayerActivity.logFail` logs each "Failure:" line and adds it to `FailureTally`
+  (7 days, max 400 events, file `failure_tally`). `Report.text` prints under the Link line: "Playback failures, last 7 days:
+  N" with top 5 by kind, page site and stream server, then `SiteHealth.reportLines` ("Site moved" / "Site not working").
 - **Home screen refresh and list cache.** `SavedLists.cached` / `all` keep the parsed lists in memory (`CacheMemo`; the same
   object until a read is saved or a list removed, so no screen re-parses JSON on every draw). `MainActivity` has ONE score
   refresher: `scoreTick` (5 s) asks `ScoreFeed.refreshIfDue`; when data changed it calls `requestHome(false)`. While a stream
