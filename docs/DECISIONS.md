@@ -4,6 +4,16 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **strikeout streams are DRM-encrypted; won't decrypt yet** (2026-11-22, build 320 report + user's go): strikeout's
+  found stream (`cenc.mpd`, CENC) plays its manifest fine but every video/audio track reports "NOT supported on this
+  device" — ExoPlayer has no DRM license, not a real codec problem. The site's player lives in a sandboxed iframe, so
+  a browser-side network watcher can't see its license call, but our own hidden WebView already can (it already saw
+  the manifest inside that same iframe). Added: (1) WebView remote debugging always on (`chrome://inspect` from a
+  computer on the same network) for watching a stubborn site live; (2) StreamSniffer now notices the first POST made
+  after a stream is found and reports its host + header names as "Possible license request" (observes only; no body
+  read, no key obtained). Neither tested on the TV yet. Still open: read a real strikeout report for that log line,
+  decide if the license call is reusable or per-session, and whether to pursue DRM (risky/per-site) or fall back to
+  the site's own player (`SitePlayerActivity`, simpler, loses native controls) for DRM-locked sites.
 - **Ranks belong to sites** (2026-11-22, user's go: "rank by the general domain"): `Ranking.siteOf` = the site's name
   without its ending (thetvapp.plus and thetvapp.to are one site; whole host when the name is under 5 letters). Every list
   of a site shares the site's rank; ranks count sites; existing ranks became each site's best list rank. A site's lists

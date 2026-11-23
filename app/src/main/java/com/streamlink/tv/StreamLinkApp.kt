@@ -2,6 +2,7 @@ package com.streamlink.tv
 
 import android.app.Application
 import android.content.ComponentCallbacks2
+import android.webkit.WebView
 
 class StreamLinkApp : Application() {
     companion object {
@@ -19,6 +20,9 @@ class StreamLinkApp : Application() {
         super.onCreate()
         // The restart helper's own process needs none of the app's start-up.
         if (processName().endsWith(RestartActivity.PROCESS_SUFFIX)) return
+        // Lets a computer on the same network plug into the hidden WebView with chrome://inspect
+        // (a personal sideloaded app, never distributed, so always on costs nothing).
+        WebView.setWebContentsDebuggingEnabled(true)
         // A restored backup is swapped in before anything reads a setting.
         restoredBackup = SettingsBackup.applyPending(this)
         ServerMemory.init(this)

@@ -89,6 +89,8 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
     @Volatile var timed = true
     private fun tm(name: String) { if (timed && !light) Timing.mark(name) }
     @Volatile private var playlistSeen = false
+    /** One report line per run for a likely DRM license call (see [onResource]); never more than one. */
+    @Volatile private var licenseLogged = false
     private var lastReason = ""
     /** A background run beside a playing stream (BackupKeeper): writes nothing to the report. */
     @Volatile var quiet = false
@@ -396,6 +398,7 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
         lastReason = ""
         runStartedAt = SystemClock.uptimeMillis()
         playlistSeen = false
+        licenseLogged = false
         val ref = ClickRef.parse(url)
         val target = ref?.pageUrl ?: ClickRef.pagePart(url) // the page itself, without any "#sl-click=" fragment
         if (isStreamUrl(target) || target.lowercase().substringBefore('?').endsWith(".mp4")) {
@@ -876,6 +879,15 @@ class StreamSniffer(private val context: Context, private val holder: ViewGroup)
 
             override fun onResource(request: WebResourceRequest) {
                 val u = request.url.toString()
+                // A DRM license call is a POST, made around when the stream itself is found; we never watch
+                // for one otherwise (too much ad/analytics noise). This only notices and reports the host and
+                // headers, once per run; it does not read or send the request body, and does not get a key.
+                if (!licenseLogged && playlistSeen && request.method.equals("POST", true) &&
+                    !AdBlock.isBlockedHost(request.url.host)) {
+                    licenseLogged = true
+                    val headers = HashMap(request.requestHeaders ?: emptyMap())
+                    main.post { log("Possible license request: ${Report.host(u)}/… (headers: ${headers.keys.joinToString(", ")})") }
+                }
                 val (isStream, embedded) = StreamUrls.classify(u)
                 if (!isStream && embedded.isEmpty()) {
                     // An address with no m3u8/.mpd in it: a possible playlist, if it is a sub-resource and looks like one by its words.
