@@ -4,6 +4,13 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **strikeout list shows its footer links, not games** (2026-11-22, user's go on C): strikeout.im/nfl's 12 fold-out game
+  rows lost by one point to three short footer links ("Live Now | Upcoming | Top"; the "Live" word counted as a live
+  marker and saved them from the short-text penalty). Reader: the short-text penalty now only spares groups with real
+  clock times; link-less lines between a winner's linked rows (same box) are its date headings, not extra rows. Also a
+  strikeout.im recipe (reaches the TV without a build). Saved page `strikeout-nfl.html` in the list harness. Tested
+  here only, not on the TV. Check: strikeout NFL list shows the games under their dates. Playing them still depends
+  on the open posamari item below.
 - **Release left as a draft** (2026-11-22, build 316): GitHub left `sports-latest` unpublished, so the TV's update check
   got HTTP 404. The publish steps (sports, lab) now publish a draft and fail the build if the release isn't public or
   its version.json can't be downloaded. This session can't edit releases itself; a fresh build replaces the release.

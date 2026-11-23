@@ -40,6 +40,14 @@
         "start": "match_timestamp",
         "startUnit": "s"
       }
+    },
+    {
+      "host": "strikeout.im",
+      "item": "details[sd-data-events-row]",
+      "title": "summary a",
+      "link": "summary a",
+      "time": "time",
+      "section": "div.btn.text-center"
     }
   ],
   "_example": {

@@ -345,12 +345,13 @@
     function scoreGroup(g) {
       var items = g.items, n = items.length;
       var sample = items.length > 60 ? items.slice(0, 60) : items;
-      var timed = 0, linked = 0, urls = {}, nUrls = 0, lenSum = 0, linesSum = 0, counts = 0, prose = 0, forms = 0;
+      var timed = 0, clock = 0, linked = 0, urls = {}, nUrls = 0, lenSum = 0, linesSum = 0, counts = 0, prose = 0, forms = 0;
       for (var i = 0; i < sample.length; i++) {
         var t = txt(sample[i]);
         var lines = rowLines(sample[i]);
         var hasTime = false;
         for (var j = 0; j < lines.length; j++) if (timeLineRank(lines[j]) > 0) { hasTime = true; break; }
+        if (hasTime || dtAttr(sample[i]) || sample[i].querySelector('time[datetime]')) clock++;
         // a "live" marker counts like a time (rows of a live section have no clock)
         if (!hasTime && (dtAttr(sample[i]) || sample[i].querySelector('time[datetime]') || liveHintOf(sample[i], lines.map(function (x) { return { text: x }; }), -1))) hasTime = true;
         if (hasTime) timed++;
@@ -377,7 +378,9 @@
       if (g.chrome) s -= 60;
       if (inMain(items[0])) s += 10;
       if (g.timeFrac < 0.25 && g.uniqFrac < 0.5) s -= 40;   // feature cards: no time, no link of their own
-      if (g.avgLen < 14 && g.timeFrac < 0.3) s -= 35;       // menus, chips: very short text
+      // menus, chips: very short text. Only a real clock time saves them: a "Live Now" nav link is not a live row
+      // (2026-11-22, strikeout: footer links "Live Now | Upcoming | Top" beat the 12 game rows by one point)
+      if (g.avgLen < 14 && clock / sn < 0.3) s -= 35;
       if (counts / sn >= 0.6 && g.avgLen < 30) s -= 30;     // "Workshops 18"
       if (g.avgLen > 600) s -= 30;
       if (/^T[DH]$/.test(items[0].tagName)) s -= 45;          // table cells: the row is the <tr>, never a single cell
@@ -935,6 +938,9 @@
       for (var c = 0; c < top.length; c++) {
         if (top[c] === best || (setAside && (top[c] === setAside || related(setAside, top[c])))) continue;
         var g = top[c], ok = g.score >= best.score * 0.75 && g.timeFrac >= 0.5;
+        // Link-less lines between linked rows of the same box are their date headings, not extra rows
+        // (2026-11-22, strikeout: "November 22, 2026 (Sunday)" lines became rows that open nothing).
+        if (ok && g.uniqFrac === 0 && best.uniqFrac >= 0.9 && g.items[0].parentElement === best.items[0].parentElement) ok = false;
         for (var q = 0; ok && q < chosen.length; q++) if (related(chosen[q], g)) ok = false;
         if (ok) chosen.push(g);
       }

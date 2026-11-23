@@ -240,6 +240,15 @@ const clickSpec = (url) => JSON.parse(decodeURIComponent(url.split('#sl-click=')
   console.log(r.debug);
   eq('schedule vs cards: the linked cards are read', r.items.map(i => i.url.replace(/^.*\/player\//, '')), ['basketball/owls-vs-ducks', 'basketball/bills-vs-fins', 'basketball/bears-vs-saints', 'basketball/hawks-vs-jays', 'basketball/kings-vs-cats']);
   eq('schedule vs cards: no click rows', r.clickRows, 0);
+  // Fold-out game rows with date lines between them; three short footer links ("Live Now | Upcoming | Top") must not win
+  r = await run(page, 'strikeout-nfl.html');
+  console.log(r.debug);
+  eq('fold-out rows: all games read', r.items.length, 12);
+  eq('fold-out rows: no footer links', r.items.filter(i => /-sports$/.test(i.url)).length, 0);
+  eq('fold-out rows: date lines are sections, not rows', r.items.slice(6).map(i => i.section),
+    ['November 22, 2026 (Sunday)', 'November 22, 2026 (Sunday)', 'November 22, 2026 (Sunday)', 'November 23, 2026 (Monday)',
+     'November 26, 2026 (Thursday)', 'November 26, 2026 (Thursday)']);
+  eq('fold-out rows: no click rows', r.clickRows || 0, 0);
 
   await browser.close(); server.close(); server2.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');
