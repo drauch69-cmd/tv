@@ -368,11 +368,13 @@ Home featured card: the photo covers the whole card (260 dp tall, about 3.3:1 on
   24/7 channels from all lists; `LiveGames.sample` feeds the home Live games row (`matchedUrls` is kept for tests); `GameFolders.summary` is
   the quiet "Sports:" report line.
   **List ranking.** Each saved list has an optional rank (`SavedList.rank`, 1 = best, null = unranked; JSON "rank";
-  old JSON's "preferred": true reads as rank 1). `Ranking` in SavedLists.kt: ranks are always 1..k with no gaps or ties
-  (`normalize`, also on every read); giving a list a taken rank moves the others down (`set`); `order` = ranked by rank,
-  then unranked in saved order; `sort` groups any items by that order. Set only on the phone page's Lists tab (a
-  "Rank" picker per list: Unranked, Rank #1..; `POST /lists/rank` id + rank, empty = unranked); `GET /lists` returns
-  "rank" and lists best first. The TV list screen shows "Rank #N" read-only; "Your lists" tiles are drawn best first
+  old JSON's "preferred": true reads as rank 1). `Ranking` in SavedLists.kt ranks **sites** (2026-11-22): `siteOf` = the
+  site's name without its ending (whole host if under 5 letters); every list of a site carries the site's rank, sites
+  numbered 1..k (`normalize`, also on every read: a site takes its best list's rank); giving a site a taken rank moves the
+  others down (`set`, by any of its list ids); `order`/`sorted` = sites by rank, a site's lists together in saved order,
+  unranked sites after; `sort` groups any items by that order; `SiteMove.groups` groups by `siteOf` too. Set only on the
+  phone page's Lists tab (one "Rank" picker per site heading; `POST /lists/rank` id + rank, empty = unranked);
+  `GET /lists` returns "rank", "site", "siteLabel" and lists best first. The TV list screen shows "Rank #N" read-only; "Your lists" tiles are drawn best first
   with "Rank #N". **Rename:** "✎ Rename" chip per list on the phone's Lists tab ->
   `POST /lists/url` (id, url; phone "🔗 Address") -> `SavedLists.setUrl` / `ListAddress.change`: name, sports and rank stay (a
   name that was just the old host follows the new one); refused if another list has the address (400) or no such list
