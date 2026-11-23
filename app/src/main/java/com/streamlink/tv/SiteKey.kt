@@ -106,7 +106,9 @@ object SiteMove {
     /** Lists grouped by site, groups in the order of their best list ([ordered] is already best first). */
     fun groups(ordered: List<SavedList>): List<Pair<String, List<SavedList>>> {
         val m = LinkedHashMap<String, MutableList<SavedList>>()
-        for (l in ordered) m.getOrPut(SiteKey.ofUrl(l.url) ?: l.url) { ArrayList() }.add(l)
-        return m.map { it.key to it.value }
+        // Grouped like ranks are ([Ranking.siteOf]: the site's name, so thetvapp.plus and thetvapp.to are one site); the
+        // heading shows the first list's host.
+        for (l in ordered) m.getOrPut(Ranking.siteOf(l)) { ArrayList() }.add(l)
+        return m.map { (SiteKey.ofUrl(it.value.first().url) ?: it.key) to it.value }
     }
 }

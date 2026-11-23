@@ -4,6 +4,11 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Ranks belong to sites** (2026-11-22, user's go: "rank by the general domain"): `Ranking.siteOf` = the site's name
+  without its ending (thetvapp.plus and thetvapp.to are one site; whole host when the name is under 5 letters). Every list
+  of a site shares the site's rank; ranks count sites; existing ranks became each site's best list rank. A site's lists
+  stay together in every order (TV Lists screen groups the same way). Phone page: one heading per site with the Rank
+  picker; lists under it keep sports / Rename / Address / remove. Not tested on the TV.
 - **strikeout list shows its footer links, not games** (2026-11-22, user's go on C): strikeout.im/nfl's 12 fold-out game
   rows lost by one point to three short footer links ("Live Now | Upcoming | Top"; the "Live" word counted as a live
   marker and saved them from the short-text penalty). Reader: the short-text penalty now only spares groups with real

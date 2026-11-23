@@ -22,27 +22,56 @@ data class SavedList(
  * no gaps or ties ([normalize]); giving a list a taken rank moves the others down one ([set]).
  */
 object Ranking {
-    /** [lists] with ranks renumbered 1..k in rank order (ties: saved order); unranked stay null. Same object if already clean. */
-    fun normalize(lists: List<SavedList>): List<SavedList> {
-        val ranked = lists.withIndex().filter { it.value.rank != null }
-            .sortedWith(compareBy({ it.value.rank }, { it.index })).map { it.value.id }
-        val want = ranked.withIndex().associate { it.value to it.index + 1 }
-        if (lists.all { it.rank == want[it.id] }) return lists
-        return lists.map { l -> if (l.rank == want[l.id]) l else l.copy(rank = want[l.id]) }
+    /**
+     * The site a list belongs to, for ranking (user, 2026-11-22: "rank by the general domain"): the site's name without
+     * its ending ("thetvapp" for thetvapp.plus and thetvapp.to), or the whole host when the name is too short to mean
+     * something. Lists of one site share one rank.
+     */
+    fun siteOf(l: SavedList): String {
+        val host = SiteKey.ofUrl(l.url) ?: return l.url
+        val n = SiteKey.name(host)
+        return if (n != null && n.length >= SiteKey.MIN_NAME) n else host
+    }
+
+    /** Sites in [lists] best first: ranked by their best list's rank (ties: first saved), unranked sites after. */
+    private fun siteOrder(lists: List<SavedList>): Pair<List<String>, List<String>> {
+        val first = LinkedHashMap<String, Int>()
+        val best = HashMap<String, Int>()
+        lists.forEachIndexed { i, l ->
+            val k = siteOf(l)
+            first.putIfAbsent(k, i)
+            l.rank?.let { r -> best[k] = minOf(best[k] ?: r, r) }
+        }
+        val ranked = best.keys.sortedWith(compareBy({ best[it] }, { first[it] }))
+        return ranked to first.keys.filter { it !in best }
+    }
+
+    private fun assign(lists: List<SavedList>, siteRanks: Map<String, Int>): List<SavedList> {
+        if (lists.all { it.rank == siteRanks[siteOf(it)] }) return lists
+        return lists.map { l -> siteRanks[siteOf(l)].let { r -> if (l.rank == r) l else l.copy(rank = r) } }
     }
 
     /**
-     * The lists after giving list [id] rank [rank] (null = unranked). The list is taken out of the ranking, then put
-     * in at [rank] (clamped to 1..ranked+1), and the ranks are renumbered. Saved order is never changed. An [id]
+     * [lists] with ranks per site: every list of a site gets the site's rank, sites numbered 1..k by their best list's
+     * rank; unranked sites stay null. Same object if already clean.
+     */
+    fun normalize(lists: List<SavedList>): List<SavedList> {
+        val (ranked, _) = siteOrder(lists)
+        return assign(lists, ranked.withIndex().associate { it.value to it.index + 1 })
+    }
+
+    /**
+     * The lists after giving list [id]'s site rank [rank] (null = unranked). The site is taken out of the ranking, then
+     * put in at [rank] (clamped to 1..ranked+1), and the sites are renumbered. Saved order is never changed. An [id]
      * that does not exist changes nothing (same object).
      */
     fun set(lists: List<SavedList>, id: String, rank: Int?): List<SavedList> {
-        if (lists.none { it.id == id }) return lists
+        val target = lists.firstOrNull { it.id == id } ?: return lists
+        val site = siteOf(target)
         val clean = normalize(lists)
-        val order = clean.filter { it.rank != null && it.id != id }.sortedBy { it.rank }.map { it.id }.toMutableList()
-        if (rank != null) order.add((rank - 1).coerceIn(0, order.size), id)
-        val want = order.withIndex().associate { it.value to it.index + 1 }
-        val next = clean.map { l -> if (l.rank == want[l.id]) l else l.copy(rank = want[l.id]) }
+        val order = siteOrder(clean).first.filter { it != site }.toMutableList()
+        if (rank != null) order.add((rank - 1).coerceIn(0, order.size), site)
+        val next = assign(clean, order.withIndex().associate { it.value to it.index + 1 })
         return if (next == lists) lists else next
     }
 
@@ -50,8 +79,13 @@ object Ranking {
     fun order(lists: List<SavedList>): List<String> = sorted(lists).map { it.id }
 
     /** [lists] best first (see [order]). */
-    fun sorted(lists: List<SavedList>): List<SavedList> =
-        lists.withIndex().sortedWith(compareBy({ it.value.rank ?: Int.MAX_VALUE }, { it.index })).map { it.value }
+    fun sorted(lists: List<SavedList>): List<SavedList> {
+        // A site's lists stay together (in saved order), sites in rank order, unranked sites in saved order.
+        val first = HashMap<String, Int>()
+        lists.forEachIndexed { i, l -> first.putIfAbsent(siteOf(l), i) }
+        return lists.withIndex().sortedWith(compareBy({ it.value.rank ?: Int.MAX_VALUE }, { first[siteOf(it.value)] }, { it.index }))
+            .map { it.value }
+    }
 
     /**
      * [items] grouped by their list's place in [order] (best list first); items of the same list, and items whose

@@ -58,6 +58,10 @@
   .lrow .chips{flex:0 0 100%}
   .chips button{min-height:36px;padding:6px 12px;font-size:13px;border-radius:18px;background:transparent;color:var(--dim)}
   .chips select.rank{width:auto;min-height:36px;padding:6px 12px;font-size:13px;font-weight:600;border-radius:18px;background:transparent;color:var(--dim)}
+  .sitehead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 6px}
+  .sitehead .sitename{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--dim)}
+  .sitehead select.rank{width:auto;min-height:36px;padding:6px 12px;font-size:13px;font-weight:600;border-radius:18px;background:transparent;color:var(--dim)}
+  .sitehead select.rank[data-on]{background:var(--chip);border-color:var(--accent);color:var(--text)}
   .chips select.rank[data-on]{background:var(--chip);border-color:var(--accent);color:var(--text)}
   .chips button[aria-pressed=true]{background:var(--chip);border-color:var(--accent);color:var(--text)}
   .lrow .x{flex:none;width:48px;padding:0;color:var(--dim);border-radius:14px}
@@ -394,7 +398,35 @@
       if (key === listsKey) return;
       listsKey = key;
       var box = $('listItems'); box.textContent = '';
+      // Ranks belong to sites (2026-11-22): lists of one site share a rank and sit together under the site's heading.
+      var sites = [], bySite = {};
       ls.forEach(function(l){
+        var k = l.site || l.host;
+        if (!bySite[k]) { bySite[k] = {key: k, label: l.siteLabel || l.host, rank: l.rank, lists: []}; sites.push(bySite[k]); }
+        bySite[k].lists.push(l);
+      });
+      var nRanked = sites.filter(function(o){ return o.rank; }).length;
+      sites.forEach(function(site){
+        var head = el('div', 'sitehead');
+        head.appendChild(el('div', 'sitename', site.label));
+        // Rank: 1 = best site; its lists' streams come first wherever a game has several. Taking a used rank moves the others down.
+        var rk = el('select', 'rank'); rk.setAttribute('aria-label', 'Rank for ' + site.label);
+        var maxR = Math.min(sites.length, nRanked + (site.rank ? 0 : 1));
+        var o0 = el('option', null, 'Unranked'); o0.value = ''; rk.appendChild(o0);
+        for (var r = 1; r <= maxR; r++) { var o = el('option', null, 'Rank #' + r); o.value = String(r); rk.appendChild(o); }
+        rk.value = site.rank ? String(site.rank) : '';
+        if (site.rank) rk.setAttribute('data-on', '1');
+        rk.onchange = function(){
+          post('/lists/rank', 'id=' + encodeURIComponent(site.lists[0].id) + '&rank=' + encodeURIComponent(rk.value)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
+        };
+        head.appendChild(rk);
+        box.appendChild(head);
+        site.lists.forEach(function(l){ listRow(box, l); });
+      });
+    }).catch(function(){});
+  }
+  function listRow(box, l){
+      (function(){
         var row = el('div', 'lrow');
         var b = el('button', 'main'); b.type = 'button';
         b.appendChild(el('div', 'ttl', l.name));
@@ -411,18 +443,6 @@
         makeChips(sp, l.sports || [], function(v){
           post('/lists/sport', 'id=' + encodeURIComponent(l.id) + '&sport=' + encodeURIComponent(v)).then(function(){ listsKey = ''; loadLists(); });
         });
-        // Rank: 1 = best; its streams come first wherever a game has several. Taking a used rank moves the others down.
-        var rk = el('select', 'rank'); rk.setAttribute('aria-label', 'Rank for ' + l.name);
-        var nRanked = ls.filter(function(o){ return o.rank; }).length;
-        var maxR = Math.min(ls.length, nRanked + (l.rank ? 0 : 1));
-        var o0 = el('option', null, 'Unranked'); o0.value = ''; rk.appendChild(o0);
-        for (var r = 1; r <= maxR; r++) { var o = el('option', null, 'Rank #' + r); o.value = String(r); rk.appendChild(o); }
-        rk.value = l.rank ? String(l.rank) : '';
-        if (l.rank) rk.setAttribute('data-on', '1');
-        rk.onchange = function(){
-          post('/lists/rank', 'id=' + encodeURIComponent(l.id) + '&rank=' + encodeURIComponent(rk.value)).then(function(){ listsKey = ''; liveKey = null; loadLists(); });
-        };
-        sp.appendChild(rk);
         // Rename: the TV keeps the new name (max 60 characters); blank or Cancel changes nothing.
         var rn = el('button', null, '✎ Rename'); rn.type = 'button';
         rn.setAttribute('aria-label', 'Rename ' + l.name);
@@ -446,8 +466,7 @@
         };
         sp.appendChild(ad);
         row.appendChild(b); row.appendChild(x); row.appendChild(sp); box.appendChild(row);
-      });
-    }).catch(function(){});
+      })();
   }
   function loadDetail(){
     var id = openId; if (!id) return;

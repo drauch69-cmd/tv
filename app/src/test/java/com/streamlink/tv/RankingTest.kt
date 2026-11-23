@@ -123,4 +123,29 @@ class RankingTest {
         assertEquals("#2", Ranking.label(2))
         assertEquals("", Ranking.label(null))
     }
+
+    private fun at(id: String, url: String, rank: Int? = null) = SavedList(id, "List $id", url, setOf("nfl"), rank)
+
+    @Test fun listsOfOneSiteShareARank() {
+        // TVAPP NFL #1, TVAPP CFB #2, NTV #3 -> thetvapp #1 (both lists), ntv #2
+        val ls = listOf(at("nfl", "https://thetvapp.plus/nfl", 1), at("cfb", "https://thetvapp.plus/cfb", 2), at("ntv", "https://ntv.st/", 3))
+        assertEquals(listOf(1, 1, 2), ranks(Ranking.normalize(ls)))
+    }
+
+    @Test fun rankingASiteMovesAllItsLists() {
+        val ls = Ranking.normalize(listOf(at("nfl", "https://thetvapp.plus/nfl", 1), at("cfb", "https://thetvapp.plus/cfb", 1),
+            at("ntv", "https://ntv.st/", 2), at("reed", "https://reedstreams.to/", null)))
+        assertEquals(listOf(2, 2, 1, null), ranks(Ranking.set(ls, "ntv", 1)))
+        assertEquals(listOf(3, 3, 1, 2), ranks(Ranking.set(Ranking.set(ls, "ntv", 1), "reed", 2)))
+        assertEquals(listOf(null, null, 1, null), ranks(Ranking.set(ls, "cfb", null)))
+    }
+
+    @Test fun sameNameOnAnotherEndingIsTheSameSite() {
+        assertEquals(Ranking.siteOf(at("a", "https://thetvapp.plus/x")), Ranking.siteOf(at("b", "https://www.thetvapp.to/y")))
+    }
+
+    @Test fun aSitesListsStayTogetherInOrder() {
+        val ls = listOf(at("nfl", "https://thetvapp.plus/nfl"), at("ntv", "https://ntv.st/"), at("cfb", "https://thetvapp.plus/cfb"))
+        assertEquals(listOf("nfl", "cfb", "ntv"), Ranking.order(ls))
+    }
 }
