@@ -4,6 +4,14 @@ Running log. Update it in the same session a decision is made or an item opens o
 Newest open items first. When an item closes, move it to "Decisions" (or delete it if it no longer matters).
 
 ## Open items
+- **Stall storms, wrong tunneling strikes, bad sources** (2026-11-22, user's go; build 315 report: a picture-hidden
+  Crackstreams stream stalled 85 times in 12 min with video buffered, was picked twice, and wrongly struck tunneling off
+  for good). (A) `StallStorm`: 4 stalls within 60 s while playing (none in the first 10 s of a start) -> "This stream keeps
+  stalling…; moving on": ready backup, else another site, else a toast to pick a source. (B) If stalls with >= 2 s
+  buffered go on (5 s+ after the restart, within 2 min) once tunneling was turned off, the strike is taken back (and
+  tunneling back on if it had turned it off). (C) A storm source (and its page) is marked bad for 4 h
+  (`AutoSwitch.markBad`): never a backup, quick pick or automatic switch. Not tested on the TV. Still open: (D) why the
+  picture-hidden stream plays badly (needs a Save sample), (E) skip one repeatedly broken piece instead of leaving.
 - **Server slowdowns: blame the server, switch sooner** (2026-11-22, user's go; build 314 reports). (1) An empty buffer no
   longer counts as tunneling trouble ("audio stopped while the video kept coming" is skipped when under 1.5 s is
   buffered), and low delay isn't switched to smooth for a stall within 10 s of a (re)start or while no video bytes came

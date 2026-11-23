@@ -13,10 +13,13 @@ package com.streamlink.tv
 object AutoSwitch {
     const val MAX_SWITCHES = 3
     const val DEAD_MS = 5 * 60_000L
+    /** A source that kept stalling ([StallStorm]): skipped for the rest of the game (2026-11-22). */
+    const val BAD_MS = 4 * 60 * 60_000L
 
     private val lock = Any()
     private var used = 0
     private val dead = HashMap<String, Long>()
+    private val bad = HashMap<String, Long>()
     private var pending: List<Source> = emptyList()
 
     private fun key(url: String) = GameFolders.urlKey(url.substringBefore('#'))
@@ -29,7 +32,19 @@ object AutoSwitch {
         synchronized(lock) { dead[key(url)] = now }
     }
 
+    /** Never picked again for [BAD_MS] (as backup, quick pick or automatic switch). */
+    fun markBad(url: String?, now: Long) {
+        if (url.isNullOrBlank()) return
+        synchronized(lock) { bad[key(url)] = now }
+    }
+
+    fun isBad(url: String, now: Long): Boolean = synchronized(lock) {
+        val t = bad[key(url)] ?: return false
+        if (now - t >= BAD_MS) { bad.remove(key(url)); false } else true
+    }
+
     fun isDead(url: String, now: Long): Boolean = synchronized(lock) {
+        if (isBad(url, now)) return true
         val t = dead[key(url)] ?: return false
         if (now - t >= DEAD_MS) { dead.remove(key(url)); false } else true
     }
@@ -58,7 +73,7 @@ object AutoSwitch {
             val c = pending.first()
             pending = pending.drop(1)
             val t = dead[key(c.url)]
-            if (t == null || now - t >= DEAD_MS) { used++; return c }
+            if ((t == null || now - t >= DEAD_MS) && !isBad(c.url, now)) { used++; return c }
         }
         null
     }
@@ -66,7 +81,7 @@ object AutoSwitch {
     /** The next remembered candidate that is not dead, without taking it (the loading screen warms it up). */
     fun peekNext(now: Long): Source? = synchronized(lock) {
         if (used >= MAX_SWITCHES) return null
-        pending.firstOrNull { c -> dead[key(c.url)].let { it == null || now - it >= DEAD_MS } }
+        pending.firstOrNull { c -> dead[key(c.url)].let { it == null || now - it >= DEAD_MS } && !isBad(c.url, now) }
     }
 
     /** For the loading screen: "stream n of m" (this try's number, and how many tries this watch can make). */
@@ -75,5 +90,5 @@ object AutoSwitch {
         n to minOf(MAX_SWITCHES + 1, n + pending.size).coerceAtLeast(n)
     }
 
-    internal fun resetAllForTest() = synchronized(lock) { used = 0; dead.clear(); pending = emptyList() }
+    internal fun resetAllForTest() = synchronized(lock) { used = 0; dead.clear(); bad.clear(); pending = emptyList() }
 }

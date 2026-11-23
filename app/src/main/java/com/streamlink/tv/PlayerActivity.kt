@@ -274,6 +274,7 @@ class PlayerActivity : Activity() {
         renewFailures = 0
         renewing = false
         countedStrikeThisPlay = false // one tunneling strike per stream, however many retries
+        strikeAt = 0L; strikeTurnedOff = false
         smoothThisRun = false
         signs.resetLowDelay()
         mainRefetches = 0
@@ -514,6 +515,9 @@ class PlayerActivity : Activity() {
         main.postDelayed(audioStarveCheck, 2_000)
         liveSpotCheck = true
         preparedAt = System.currentTimeMillis()
+        // The stall count belongs to one stream: a new address starts it again (a restart of the same one keeps it).
+        val u = set?.sources?.getOrNull(sourceIndex)?.url
+        if (u != stormUrl) { stormUrl = u; storm.reset(); stormHandled = false }
         p.prepare()
         p.playWhenReady = true
     }
@@ -583,6 +587,7 @@ class PlayerActivity : Activity() {
                         lastStallAt = System.currentTimeMillis()
                         keeper?.noteStall()
                         logStall()
+                        stormCheck()
                         tunnelStallCheck()
                         lowDelayCheck()
                     }
@@ -1105,6 +1110,60 @@ class PlayerActivity : Activity() {
         retryWithoutTunneling(String.format(java.util.Locale.US, "keeps stalling with %.0fs buffered", ahead))
     }
 
+    /** A strike this play from stalls ([strikeAt]); [strikeTurnedOff]: it turned tunneling off for good. */
+    private var strikeAt = 0L
+    private var strikeTurnedOff = false
+
+    /**
+     * Stalls with video downloaded go on after tunneling was turned off: tunneling wasn't the cause (build 315 report:
+     * Crackstreams stalled the same with it off, and that second wrong strike turned it off for good). Take the strike back.
+     */
+    private fun strikeTakebackCheck() {
+        if (strikeAt == 0L || !tunnelOffThisRun) return
+        val p = player ?: return
+        val now = System.currentTimeMillis()
+        if (now - strikeAt > 120_000) { strikeAt = 0L; return }
+        if (now - preparedAt < 5_000 || p.bufferedPosition - p.currentPosition < 2_000) return
+        strikeAt = 0L
+        val prefs = getSharedPreferences("streamlink", MODE_PRIVATE)
+        if (strikeTurnedOff) {
+            prefs.edit().putBoolean("tunnel_on", true).remove("tunnel_strikes").apply()
+            Report.log("Stalls go on with tunneling off, so it wasn't tunneling: strike taken back, tunneling back on for the next play")
+        } else {
+            prefs.edit().putInt("tunnel_strikes", (prefs.getInt("tunnel_strikes", 0) - 1).coerceAtLeast(0)).apply()
+            Report.log("Stalls go on with tunneling off, so it wasn't tunneling: strike taken back")
+        }
+        strikeTurnedOff = false
+    }
+
+    private val storm = StallStorm()
+    private var stormUrl: String? = null
+    private var stormHandled = false
+
+    /** [StallStorm]: too many stalls in a minute while playing -> this source is bad for the game; move on. */
+    private fun stormCheck() {
+        strikeTakebackCheck()
+        val now = System.currentTimeMillis()
+        if (fastChecking || stormHandled || now - preparedAt < 10_000) return
+        if (!storm.note(now)) return
+        stormHandled = true
+        val s = set ?: return
+        val src = s.sources.getOrNull(sourceIndex)
+        AutoSwitch.markBad(src?.url, now)
+        if (src?.openPage != true) AutoSwitch.markBad(s.pageUrl, now)
+        val why = "keeps stalling"
+        Report.log("This stream keeps stalling (${StallStorm.STALLS} stalls within ${StallStorm.WINDOW_MS / 1000}s); " +
+            "not using it again this game, moving on")
+        Report.log(Failure.line(Failure.STALLED, "", true))
+        fun otherSite() {
+            if (!runStep(RescueStep.OTHER_SITE, why, null) {}) {
+                Report.log("No other source to switch to automatically; telling the viewer")
+                Toast.makeText(this, "This stream keeps stalling. Press OK, then Source to pick another.", Toast.LENGTH_LONG).show()
+            }
+        }
+        if (!runStep(RescueStep.READY_BACKUP, why, null) { otherSite() }) otherSite()
+    }
+
     private fun retryWithoutTunneling(why: String) {
         tunnelOffThisRun = true
         main.removeCallbacks(audioStarveCheck)
@@ -1115,7 +1174,10 @@ class PlayerActivity : Activity() {
         if (!countedStrikeThisPlay) {
             countedStrikeThisPlay = true
             val strikes = prefs.getInt("tunnel_strikes", 0) + 1
+            strikeAt = System.currentTimeMillis()
+            strikeTurnedOff = false
             if (strikes >= TUNNEL_STRIKES && prefs.getBoolean("tunnel_on", true)) {
+                strikeTurnedOff = true
                 prefs.edit().putBoolean("tunnel_on", false).putInt("tunnel_strikes", 0).apply()
                 Report.log("Tunneled playback caused problems in $strikes plays: turned off for good (turn it back on from the phone)")
                 Toast.makeText(this, "Tunneled playback turned off: it caused problems on this TV", Toast.LENGTH_LONG).show()
