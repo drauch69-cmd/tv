@@ -529,6 +529,15 @@ object ScoreFeed {
     /** Pure: is a fetch made at [lastOk] still good at [now]? */
     fun isFresh(lastOk: Long?, now: Long): Boolean = lastOk != null && now - lastOk <= MAX_AGE_MS
 
+    /**
+     * Pure: coming back to home, is it out of date enough to show the loading screen (user, 2026-11-28)? Yes when no
+     * league's today scores are fresh ([newestOk] = newest good fetch of any league, null = never) and lists exist.
+     */
+    fun staleOnReturn(newestOk: Long?, now: Long, hasLists: Boolean): Boolean = hasLists && !isFresh(newestOk, now)
+
+    /** The newest good today fetch of any league, or null. */
+    fun newestOk(): Long? = synchronized(lock) { lastOk.values.maxOrNull() }
+
     /** Leagues fetched after the others, so their big answers don't slow the first draw (college basketball, 2026-11-20). */
     val LATE_LEAGUES = setOf("cbb")
 

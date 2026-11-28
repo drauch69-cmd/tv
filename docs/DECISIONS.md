@@ -85,6 +85,13 @@ Trimmed 2026-11-20 (cleanup): the long per-build notes were cut to one line each
 file's git history (commit 3680843 and earlier).
 
 ### Built, still to check on the TV
+- **Loading screen on a stale return** (2026-11-28, user's go on option 1): the app stays running for days (report:
+  4½ days), so coming back to home was not a fresh start and showed days-old games, redrawn ~10 s later. Now
+  `onRestart` shows the loading screen when no league's today scores are fresh (older than 15 min), and it waits for
+  a fresh today fetch plus a drawn home (cap 15 s). Back from a watch scores are ~1 min old, so it doesn't show.
+  Report line: "Home: scores N min old on return; showing the loading screen". Check on the TV: after a long time away,
+  the loading screen shows, then an up-to-date home. Also seen in that report, not acted on: ~4 s gap between "stream
+  found" and the player starting (usually under 1 s); offered a timing line there.
 - **Massive underdog within a score = upset** (2026-11-21, user's go on defaults; Lab first): football only, a 14+ point
   underdog within 7 (trailing or tied) in the 2nd half gets +8 "upset" (and the flame); leading keeps +8/+12. Basketball
   left out. Check on the TV: flame shows on such games, featured card doesn't switch too eagerly.

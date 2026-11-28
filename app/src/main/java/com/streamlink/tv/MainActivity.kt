@@ -235,7 +235,9 @@ class MainActivity : Activity() {
         // The loading screen goes once the screen underneath really shows games (user, 2026-11-20): this model was
         // worked out from a non-empty scores list and is what is drawn. [applyHome] only runs for the latest request,
         // so [homeGames] is what this model was built from.
-        if (loading != null && (draw || m.look == homeLook) && homeGames?.isNotEmpty() == true) hideLoading()
+        // Shown on a return with old scores: also wait until a today fetch is fresh, so old games don't count (2026-11-28).
+        if (loading != null && (draw || m.look == homeLook) && homeGames?.isNotEmpty() == true &&
+            (!loadingNeedsFresh || ScoreFeed.isFresh(ScoreFeed.newestOk(), System.currentTimeMillis()))) hideLoading()
     }
     private val updateTick = object : Runnable {
         override fun run() {
@@ -360,6 +362,8 @@ class MainActivity : Activity() {
     // are drawn with games (see [applyHome]) or [LOADING_MAX_MS] passes, so a half-built home screen is never shown. ----
     private var loading: View? = null
     private val loadingTimeout = Runnable { hideLoading() }
+    /** The loading screen was shown on a return to home with old scores: it waits for fresh ones (see [applyHome]). */
+    private var loadingNeedsFresh = false
 
     private fun showLoading() {
         val root = findViewById<ViewGroup>(android.R.id.content)
@@ -383,6 +387,7 @@ class MainActivity : Activity() {
     private fun hideLoading() {
         val v = loading ?: return
         loading = null
+        loadingNeedsFresh = false
         main.removeCallbacks(loadingTimeout)
         if (!userMoved && qrPanel.visibility != View.VISIBLE) focusFirst()
         v.animate().alpha(0f).setDuration(250).withEndAction { (v.parent as? ViewGroup)?.removeView(v) }.start()
@@ -398,6 +403,23 @@ class MainActivity : Activity() {
         warmLogged = false
         prefetcher.setActive(false)
         super.onPause()
+    }
+
+    /**
+     * Back to home from another screen or app (user, 2026-11-28): the app can stay running for days, so a return is
+     * not a fresh start. If no today scores are fresh, show the loading screen until fresh games are drawn
+     * (at most [LOADING_MAX_MS]), instead of a home built from days-old games.
+     */
+    override fun onRestart() {
+        super.onRestart()
+        val now = System.currentTimeMillis()
+        val newest = ScoreFeed.newestOk()
+        if (loading == null && ScoreFeed.staleOnReturn(newest, now, SavedLists.all(this).isNotEmpty())) {
+            Report.log("Home: scores " + (newest?.let { "${(now - it) / 60_000} min old" } ?: "not loaded yet") + " on return; showing the loading screen")
+            showLoading()
+            loadingNeedsFresh = true
+            requestHome(true)
+        }
     }
 
     override fun onResume() {
